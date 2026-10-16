@@ -2747,19 +2747,31 @@ final class ChromeRenderTests: XCTestCase {
         defer { UserDefaults().removePersistentDomain(forName: customSuite) }
         let customTab = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: customSuite)))
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
-        var cases: [(name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab)] = []
+        var cases: [(
+            name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab,
+            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?
+        )] = []
         for tab in SettingsTab.allCases {
-            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab))
-            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab))
+            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab, nil))
+            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab, nil))
         }
-        cases.append(("custom-tab-light", .aqua, customTab, .general))
-        cases.append(("custom-tab-dark", .darkAqua, customTab, .general))
+        cases.append(("custom-tab-light", .aqua, customTab, .general, nil))
+        cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil))
+        for (kind, warning) in [("note", false), ("warning", true)] {
+            for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let stores = try makeHerdrUpdateStores(patchInstalled: warning)
+                await stores.update.checkIfDue()
+                XCTAssertEqual(stores.update.notice?.isWarning, warning, "herdr-update-\(kind): wrong notice")
+                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores))
+            }
+        }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
         linkTrustStore.trust("vscode")
-        for (name, appearance, startingFolderStore, tab) in cases {
+        for (name, appearance, startingFolderStore, tab, stores) in cases {
+            let update = stores?.update
             let view = FlockSettingsView(
-                herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }),
+                herdrMousePatchStore: stores?.patch ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
@@ -2776,7 +2788,8 @@ final class ChromeRenderTests: XCTestCase {
                     executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
                     name: "flock"
                 ),
-                herdrVersion: "0.9.3",
+                herdrVersion: update == nil ? "0.9.3" : "0.9.5",
+                herdrUpdateStore: update,
                 tab: tab
             )
             let window = NSWindow(
@@ -4718,10 +4731,11 @@ private struct Harness {
     }
 
     /// The title bar alone, at a width the main window's minimum never allows.
-    func makeTitleBarWindow(width: CGFloat, isDevBuild: Bool) -> NSWindow {
+    func makeTitleBarWindow(width: CGFloat, isDevBuild: Bool, herdrUpdate: HerdrUpdateStore? = nil) -> NSWindow {
         host(
             VStack(spacing: 0) {
                 TitleBar(theme: themeStore.active, sessionLabel: "render", connectionState: .live, isDevBuild: isDevBuild)
+                    .environment(herdrUpdate)
                 Spacer(minLength: 0)
             }
             .background(themeStore.active.chrome)
@@ -5316,6 +5330,64 @@ extension ChromeRenderTests {
                 window.close()
             }
         }
+    }
+
+    /// The herdr update pill at the title bar's right: neutral for a plain
+    /// update, peach when updating would drop the mouse patch. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`.
+    func testTheHerdrUpdatePillDrawsNeutralAndWarning() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let width: CGFloat = 900
+        let trailing = CGRect(x: width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            for warning in [false, true] {
+                let store = try makeHerdrUpdateStore(patchInstalled: warning)
+                await store.checkIfDue()
+                XCTAssertEqual(store.notice?.isWarning, warning, "\(scheme): the notice is not the one this case draws")
+                let window = harness.makeTitleBarWindow(width: width, isDevBuild: false, herdrUpdate: store)
+                await settle(window)
+                let image = try snapshot(window)
+                let kind = warning ? "warning" : "neutral"
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-update-pill-\(kind)-\(scheme).png"))
+                }
+                let peach = count(theme.palette.peach.hex, in: trailing, of: image)
+                if warning {
+                    XCTAssertGreaterThan(peach, 0, "\(scheme): no peach warning pill at the right")
+                } else {
+                    XCTAssertEqual(peach, 0, "\(scheme): the plain note drew peach")
+                }
+                window.close()
+            }
+        }
+    }
+
+    /// A store that already knows herdr 0.9.6 is out over an installed 0.9.5.
+    /// With `patchInstalled`, its patch store probes a temp herdr carrying
+    /// the mouse verbs and a backup beside it, which reads as installed.
+    private func makeHerdrUpdateStore(patchInstalled: Bool) throws -> HerdrUpdateStore {
+        try makeHerdrUpdateStores(patchInstalled: patchInstalled).update
+    }
+
+    private func makeHerdrUpdateStores(
+        patchInstalled: Bool
+    ) throws -> (update: HerdrUpdateStore, patch: HerdrMousePatchStore) {
+        var resolve: () -> String? = { nil }
+        if patchInstalled {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-update-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+            let herdr = root.appendingPathComponent("herdr").path
+            try Data("herdr 0.9.5 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: herdr))
+            try Data("herdr 0.9.5".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
+            resolve = { herdr }
+        }
+        let patch = HerdrMousePatchStore(resolveBinaryPath: resolve)
+        let update = HerdrUpdateStore(patchStore: patch, installedVersion: { "0.9.5" }, fetchLatest: { "0.9.6" })
+        return (update, patch)
     }
 
     /// Runs of the accent along the title bar's last row, in window points.

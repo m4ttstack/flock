@@ -83,7 +83,9 @@ struct FlockApp: App {
     @State private var herdrToolStore = HerdrToolStore()
     @State private var isStartingHerdr = false
     @State private var herdrStartFailure: String?
-    @State private var herdrMousePatchStore = HerdrMousePatchStore()
+    @State private var herdrMousePatchStore: HerdrMousePatchStore
+    @State private var herdrUpdateStore: HerdrUpdateStore
+    @State private var settingsTabSelection = SettingsTabSelection()
     @State private var commandLineToolStore = CommandLineToolStore()
     @State private var viewModel: SessionViewModel
     @State private var undoJournal: UndoJournal
@@ -240,6 +242,11 @@ struct FlockApp: App {
         )
         _viewModel = State(initialValue: viewModel)
         _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
+        let herdrMousePatchStore = HerdrMousePatchStore()
+        _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
+        _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
+            patchStore: herdrMousePatchStore, installedVersion: { [viewModel] in viewModel.model?.herdrVersion }
+        ))
         let rearrangeAfterMoveStore = RearrangeAfterMoveStore()
         _rearrangeAfterMoveStore = State(initialValue: rearrangeAfterMoveStore)
         let rearrangeMode = RearrangeMode(afterMove: { rearrangeAfterMoveStore.active })
@@ -361,6 +368,8 @@ struct FlockApp: App {
                 .environment(boardStore)
                 .environment(cswapStore)
                 .environment(devBuildWatcher)
+                .environment(herdrUpdateStore)
+                .environment(settingsTabSelection)
                 .environment(devRebuild)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
@@ -385,6 +394,7 @@ struct FlockApp: App {
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }
                 .task { devBuildWatcher?.start() }
+                .task { await herdrUpdateStore.checkIfDue() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                     viewModel.appLeftFront()
                 }
@@ -393,6 +403,7 @@ struct FlockApp: App {
                     viewModel.appCameToFront()
                     Task { await boardStore.refresh() }
                     Task { await cswapStore.refresh() }
+                    Task { await herdrUpdateStore.checkIfDue() }
                     devBuildWatcher?.check()
                 }
                 .onChange(of: herdrStore.model) {
@@ -730,7 +741,9 @@ struct FlockApp: App {
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
                 commandLineToolStore: commandLineToolStore,
-                herdrVersion: viewModel.model?.herdrVersion
+                herdrVersion: viewModel.model?.herdrVersion,
+                herdrUpdateStore: herdrUpdateStore,
+                selection: settingsTabSelection
             )
         }
         .windowResizability(.contentSize)

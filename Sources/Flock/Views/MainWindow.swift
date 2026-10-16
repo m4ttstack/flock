@@ -380,6 +380,9 @@ struct TitleBar: View {
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
     @Environment(DevRebuild.self) private var devRebuild: DevRebuild?
     @Environment(TopBarLabelStore.self) private var labels: TopBarLabelStore?
+    @Environment(HerdrUpdateStore.self) private var herdrUpdate: HerdrUpdateStore?
+    @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
+    @Environment(\.openSettings) private var openSettings
 
     @State private var barWidth: CGFloat = 0
     @State private var titleWidth: CGFloat = 0
@@ -408,6 +411,7 @@ struct TitleBar: View {
 
     private var hasNotices: Bool {
         devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
+            || herdrUpdate?.notice != nil
     }
 
     var body: some View {
@@ -463,6 +467,12 @@ struct TitleBar: View {
                         RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
                     } else if let devRebuild {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
+                    }
+                    if let notice = herdrUpdate?.notice {
+                        HerdrUpdatePill(theme: theme, notice: notice) {
+                            settingsSelection?.tab = .herdr
+                            openSettings()
+                        }
                     }
                     connectionNotice
                 }
