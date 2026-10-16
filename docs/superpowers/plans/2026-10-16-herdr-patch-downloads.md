@@ -1510,3 +1510,32 @@ var updateTask: Task<Void, Never>?   // internal, tests await it
 - [ ] **Step 2:** Implement, run the targeted tests to green, `xcodebuild build -scheme Flock`.
 - [ ] **Step 3:** Render, look at every PNG, fix what reads wrong.
 - [ ] **Step 4:** Commit: `herdr update: flock runs the update, reinstalls the patch, asks once to restart`.
+
+### Task 10: Remembered tab titles (spec section 3b)
+
+Evidence: `.superpowers/sdd/2026-10-16-herdr-patch-downloads/tab-names-investigation.md` sections 1-2.
+
+**Where names come from today:** `Sources/Flock/Views/TabStrip.swift:238` renders `TabTitle.resolve(tab, in: model)`; `Sources/FlockCore/Content/TabTitle.swift:17-26` lets an auto-named single-pane tab borrow `pane.displayTitle`; `Sources/FlockCore/Content/PaneNaming.swift:8-10` `displayTitle` = first non-empty of `label`, `terminalTitleStripped`, else `"shell"`. `PaneRecord` is built in `Sources/FlockCore/Herdr/HerdrModel.swift:98-135`; find the Claude session id field herdr reports (`agent_session`) and surface it on `PaneRecord` if it is not already.
+
+**Build:**
+- FlockCore `PaneTitleMemory` (pure value type): `remember(sessionID:title:)`, `title(for sessionID:) -> String?`, capped at 200 entries, most recently remembered kept; `Codable` for persistence.
+- The fallback order becomes: `label`, `terminalTitleStripped`, remembered title for the pane's session id, `"shell"`. Keep `PaneNaming`/`TabTitle` pure: pass the memory (or a lookup closure) in, defaulting to none so existing call sites and tests stay valid.
+- App side: a small store fed on every model update (a pane with a session id and a non-empty stripped title updates the memory), persisted in UserDefaults under `flock.paneTitleMemory`, with writes coalesced (no write per event when nothing changed). Wire its lookup into the tab strip's `TabTitle.resolve` call and wherever else `displayTitle` is shown for a tab.
+- A remembered title renders exactly like a live one (same glyph and style).
+
+**Tests:** FlockCore: fallback order (label beats title beats memory beats "shell"); cap evicts the oldest; Codable round trip. App: feeding a model with a titled session then a model where that pane's title is empty resolves to the remembered title; persistence round trip through an injected UserDefaults suite. Hermetic.
+
+- [ ] Steps: failing tests, implement, targeted tests green, app builds, commit `tabs: remember a Claude pane's title across a herdr handoff`.
+
+### Task 11: rt links survive a handoff (spec section 3b)
+
+Evidence: same file, section 5. `Sources/FlockCore/Rt/RtLabels.swift:18-44` labels a runner workspace `flock:rt runner <terminal_id>` and a run tab `<kind> <terminal_id> <token>`. `Sources/Flock/.../RtCoordinator+Lifetime.swift:110-225`: `adopt` keeps a link only if its terminal id is present, else `orphan(...)` ctrl+c's it, closes it and deletes its out/status/seed files; `reapGoneLinks` does the same while running.
+
+**Build:**
+- Labels gain the linked pane's public id. Parsing accepts both the old and the new shape (old labels keep today's behaviour exactly).
+- `adopt` and `reapGoneLinks`: a link whose terminal id is gone but whose recorded pane id exists in the model is kept; flock relabels it with that pane's current terminal id (one rename through the existing label-writing path). Only a link with neither present is orphaned.
+- Never `layout.apply`, never `pane.scroll`, never `herdr server stop`.
+
+**Tests:** FlockCore label round trip for both shapes; adopt keeps a pane-id match and emits one relabel; adopt orphans a link with neither id present; old-shape labels orphan exactly as before. Hermetic (existing coordinator test seams; no rt, no herdr).
+
+- [ ] Steps: failing tests, implement, targeted tests green, app builds, commit `rt links: fall back to the pane id when a handoff renumbers terminals`.

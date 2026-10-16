@@ -227,6 +227,22 @@ the old one. So flock runs the update itself and sequences what follows.
 - A confirmation is presented only by the surface that asked for it (banner
   or Settings row), never both.
 
+## 3b. What a handoff must not cost (found in the live run)
+
+A handoff keeps pane ids, stored tab and pane names, and Claude session ids,
+but gives every pane a new `terminal_id` and stops reporting an idle pane's
+terminal title until the title text changes (a herdr bug). Now that flock
+runs the handoff, flock covers both:
+
+- **Tab titles.** flock remembers the last non-empty terminal title per
+  Claude session id, persisted across launches (bounded, most recent 200),
+  and a pane with no title shows the remembered one before falling back to
+  "shell". A title herdr reports always wins and refreshes the memory.
+- **rt links.** flock's rt run and runner links also record the pane's
+  public id. When a linked terminal id is gone, a link whose recorded pane
+  still exists is kept and relabelled with the new terminal id instead of
+  being torn down. Old labels without a pane id behave as before.
+
 ## 4. Testing
 
 All hermetic: no network, no herdr, no real binaries.
