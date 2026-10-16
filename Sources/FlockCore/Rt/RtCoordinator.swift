@@ -147,7 +147,7 @@ public final class RtCoordinator {
             files.write(seed, to: paths.seed)
             env["FLOCK_RT_SEED"] = paths.seed.path
         }
-        let label = RtLabels.tabLabel(RtLabels.TabLink(kind: kind, terminal: terminal, token: token))
+        let label = RtLabels.tabLabel(RtLabels.TabLink(kind: kind, terminal: terminal, token: token, pane: pane.paneID))
         var created: RtHerdr.Created?
         var ownsWorkspace = false
         do {
@@ -171,7 +171,7 @@ public final class RtCoordinator {
             items[token] = RtItem(
                 id: token, kind: kind, linked: terminal, workspaceID: host.workspaceID, tabID: host.tabID,
                 firstPaneID: host.rootPaneID, title: kind.defaultTitle, folder: folder,
-                isRunning: true, started: false, strip: nil
+                isRunning: true, started: false, strip: nil, linkedPane: pane.paneID
             )
             lifecycles[token] = RtLifecycle(kind: kind, startedAt: now())
             openedOrder.append(token)

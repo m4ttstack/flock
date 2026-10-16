@@ -35,7 +35,116 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
 
         XCTAssertTrue(world.calls("pane.send_keys").isEmpty)
         XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        XCTAssertEqual(renames(world).last, "runner term_a1 tok1 w1:p9")
         rt.watches["tok1"]?.cancel()
+    }
+
+    private func renames(_ world: FakeRtWorld) -> [String] {
+        world.calls("tab.rename").compactMap { FakeRtWorld.string($0["label"]) }
+    }
+
+    func testAHandoffKeepsARunnerByItsPaneAndRelabelsItOnce() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+        let before = renames(world).count
+
+        world.renumberTerminal(of: "w1:p1", to: "term_b1")
+        rt.update(model: world.model())
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertTrue(world.calls("pane.send_keys").isEmpty)
+        XCTAssertTrue(world.calls("workspace.close").isEmpty)
+        XCTAssertNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
+        XCTAssertEqual(rt.runner(linkedTo: TerminalID(rawValue: "term_b1"))?.id, "tok1")
+        XCTAssertEqual(Array(renames(world).dropFirst(before)), ["runner term_b1 tok1 w1:p1"])
+        rt.watches["tok1"]?.cancel()
+    }
+
+    func testLaunchAdoptsARunWhoseTerminalAHandoffRenumberedByItsPane() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old3 w1:p1", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        world.write(rtResultLine + "\n", to: rtPaths("old3").out)
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertTrue(world.calls("tab.close").isEmpty)
+        XCTAssertEqual(rt.items["old3"]?.linked, RtFixture.linkedTerminal)
+        XCTAssertEqual(renames(world), ["run term_a1 old3 w1:p1"])
+        XCTAssertNotNil(world.read(rtPaths("old3").out))
+        rt.watches["old3"]?.cancel()
+    }
+
+    func testLaunchOrphansALinkWithNeitherItsTerminalNorItsPane() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old5 w1:p7", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        world.write(rtResultLine + "\n", to: rtPaths("old5").out)
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(rt.items["old5"])
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
+        XCTAssertNil(world.read(rtPaths("old5").out))
+        XCTAssertTrue(renames(world).isEmpty)
+    }
+
+    /// A pane id in one of flock's own workspaces is never a linked pane.
+    func testLaunchOrphansALinkWhosePaneIDNamesAFlockOwnedPane() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old7 wS:p1", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(rt.items["old7"])
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
+    }
+
+    func testLaunchOrphansAnOldLabelWhoseTerminalIsGoneAsBefore() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old6", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        world.write(rtResultLine + "\n", to: rtPaths("old6").out)
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(rt.items["old6"])
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
+        XCTAssertNil(world.read(rtPaths("old6").out))
+        XCTAssertTrue(renames(world).isEmpty)
+    }
+
+    /// So a run opened before pane ids were recorded survives the handoff
+    /// that follows.
+    func testLaunchGivesAnOldLabelWhoseTerminalIsPresentItsPane() async throws {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: "flock:rt")
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_a1 old3", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        let rt = makeCoordinator(world)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNotNil(rt.items["old3"])
+        XCTAssertEqual(renames(world), ["run term_a1 old3 w1:p1"])
+        rt.watches["old3"]?.cancel()
     }
 
     func testWithoutTerminalIDsNothingIsReaped() async throws {

@@ -31,7 +31,10 @@ extension RtKind {
 public struct RtItem: Identifiable, Equatable, Sendable {
     public let id: String
     public let kind: RtKind
-    public let linked: TerminalID
+    public internal(set) var linked: TerminalID
+    /// The linked pane's public id, which outlives `linked` across a herdr
+    /// handoff. nil until a model has shown which pane holds `linked`.
+    public internal(set) var linkedPane: PaneID?
     public let workspaceID: WorkspaceID
     /// The one tab the item lives in. A runner's attach tabs sit beside it in
     /// its workspace and are views onto services, never the item's own.
@@ -51,11 +54,12 @@ public struct RtItem: Identifiable, Equatable, Sendable {
 
     public init(
         id: String, kind: RtKind, linked: TerminalID, workspaceID: WorkspaceID, tabID: TabID, firstPaneID: PaneID,
-        title: String, folder: String, isRunning: Bool, started: Bool, strip: RtStrip?
+        title: String, folder: String, isRunning: Bool, started: Bool, strip: RtStrip?, linkedPane: PaneID? = nil
     ) {
         self.id = id
         self.kind = kind
         self.linked = linked
+        self.linkedPane = linkedPane
         self.workspaceID = workspaceID
         self.tabID = tabID
         self.firstPaneID = firstPaneID

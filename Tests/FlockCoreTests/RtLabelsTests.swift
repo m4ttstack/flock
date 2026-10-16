@@ -20,11 +20,29 @@ final class RtLabelsTests: XCTestCase {
         XCTAssertEqual(RtLabels.tabLink(fromLabel: "run term_18c2f0a1 3f2a"), link)
     }
 
+    func testATabLabelWithItsPaneRoundTrips() {
+        let link = RtLabels.TabLink(
+            kind: .runner, terminal: TerminalID(rawValue: "term_18c2f0a1"), token: "3f2a", pane: PaneID(rawValue: "wHH:p3W")
+        )
+        XCTAssertEqual(RtLabels.tabLabel(link), "runner term_18c2f0a1 3f2a wHH:p3W")
+        XCTAssertEqual(RtLabels.tabLink(fromLabel: "runner term_18c2f0a1 3f2a wHH:p3W"), link)
+    }
+
+    func testALabelWithoutAPaneReadsAsALinkWithNone() {
+        XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1 3f2a")?.pane)
+    }
+
+    func testAPaneIDALabelCannotHoldIsLeftOut() {
+        let link = RtLabels.TabLink(kind: .run, terminal: TerminalID(rawValue: "term_a1"), token: "3f2a", pane: PaneID(rawValue: "w1 p1"))
+        XCTAssertEqual(RtLabels.tabLabel(link), "run term_a1 3f2a")
+    }
+
     func testAnythingElseIsNotALink() {
         XCTAssertNil(RtLabels.tabLink(fromLabel: "zsh"))
         XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1"))
         XCTAssertNil(RtLabels.tabLink(fromLabel: "build term_a1 3f2a"))
         XCTAssertNil(RtLabels.tabLink(fromLabel: "run  3f2a"))
-        XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1 3f2a extra"))
+        XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1 3f2a "))
+        XCTAssertNil(RtLabels.tabLink(fromLabel: "run term_a1 3f2a w1:p1 extra"))
     }
 }

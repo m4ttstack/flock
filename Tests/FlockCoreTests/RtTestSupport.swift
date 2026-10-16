@@ -136,6 +136,13 @@ final class FakeRtWorld: HerdrCommandClient, RtFileStore, @unchecked Sendable {
         }
     }
 
+    /// What a herdr handoff does to a pane: same pane id, new terminal.
+    func renumberTerminal(of pane: String, to terminal: String) {
+        locked {
+            if let index = fixture.panes.firstIndex(where: { $0.id == pane }) { fixture.panes[index].terminal = terminal }
+        }
+    }
+
     func stripTerminals() {
         locked { for index in fixture.panes.indices { fixture.panes[index].terminal = nil } }
     }
