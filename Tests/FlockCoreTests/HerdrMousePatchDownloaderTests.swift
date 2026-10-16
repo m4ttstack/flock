@@ -73,6 +73,29 @@ final class HerdrMousePatchDownloaderTests: XCTestCase {
         await assertFails(.checksumMismatch, HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
     }
 
+    func testPartialsStrandedByAnEarlierQuitAreSweptBeforeDownloading() async throws {
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let stranded = cache.appendingPathComponent("herdr-mouse-patch-0.9.5-arm64.partial-\(UUID().uuidString)")
+        let otherVersion = cache.appendingPathComponent("herdr-mouse-patch-0.9.4-arm64.partial-\(UUID().uuidString)")
+        try Data(repeating: 0, count: 1024).write(to: stranded)
+        try Data(repeating: 0, count: 1024).write(to: otherVersion)
+        let transport = StubTransport()
+        transport.body = good
+
+        _ = try await HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport).fetch(entry(for: good), progress: { _ in })
+
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: cache.path).sorted(),
+            [otherVersion.lastPathComponent, "herdr-mouse-patch-0.9.5-arm64"].sorted()
+        )
+    }
+
+    func testTheProgressThrottlePassesOnlyMovesOfAPercentAndTheEnd() {
+        let throttle = HerdrPatchProgressThrottle()
+        let passed = [0, 0.001, 0.005, 0.0101, 0.015, 0.03, 0.995, 0.999, 1, 1].filter { throttle.shouldReport($0) }
+        XCTAssertEqual(passed, [0, 0.0101, 0.03, 0.995, 1])
+    }
+
     func testATransportErrorReportsTransport() async throws {
         let transport = StubTransport()
         transport.error = URLError(.notConnectedToInternet)
