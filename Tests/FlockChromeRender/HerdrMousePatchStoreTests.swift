@@ -38,7 +38,9 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         var count = 0
     }
 
-    private func makeStore(catalogued: Bool = true, body: Data? = nil, probes: ProbeCounter? = nil) -> HerdrMousePatchStore {
+    private func makeStore(
+        catalogued: Bool = true, body: Data? = nil, probes: ProbeCounter? = nil, defaults: UserDefaults = .standard
+    ) -> HerdrMousePatchStore {
         let sha = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
         return HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
@@ -46,6 +48,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
             downloader: HerdrMousePatchDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: body ?? patched)
             ),
+            defaults: defaults,
             probe: { path, fileManager in
                 probes?.count += 1
                 return HerdrMousePatchInstaller.probe(binaryPath: path, fileManager: fileManager)
@@ -133,6 +136,26 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         store.requestRevert(source: .settings)
         store.confirmPendingAction()
         XCTAssertEqual(store.restartReason, .restored)
+    }
+
+    /// The banner is on offer in both cases; only the surface that asked
+    /// for the install says it failed.
+    func testOnlyAnInstallTheBannerAskedForReportsItsFailureOnTheBanner() async throws {
+        let suite = "flock-patch-banner-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let fromSettings = makeStore(body: Data("<html>".utf8), defaults: defaults)
+        XCTAssertTrue(fromSettings.shouldOfferBanner)
+        fromSettings.requestInstall(source: .settings)
+        await confirmAndWait(fromSettings)
+        XCTAssertNotNil(fromSettings.lastErrorMessage)
+        XCTAssertNil(fromSettings.bannerErrorMessage)
+
+        let fromBanner = makeStore(body: Data("<html>".utf8), defaults: defaults)
+        fromBanner.requestInstall(source: .banner)
+        await confirmAndWait(fromBanner)
+        XCTAssertEqual(fromBanner.bannerErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
     }
 
     func testASecondInstallRequestWhileDownloadingIsIgnored() async {

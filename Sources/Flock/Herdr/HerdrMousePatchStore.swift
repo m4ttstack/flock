@@ -211,7 +211,7 @@ final class HerdrMousePatchStore {
         lastErrorMessage = nil
         bannerErrorMessage = nil
         switch pending.action {
-        case .install: performInstall(startedFromBanner: shouldOfferBanner)
+        case .install: performInstall(startedFromBanner: pending.source == .banner)
         case .revert: performRevert()
         }
     }
