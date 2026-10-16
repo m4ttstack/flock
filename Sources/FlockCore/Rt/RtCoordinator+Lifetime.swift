@@ -89,13 +89,16 @@ extension RtCoordinator {
         return record
     }
 
-    /// The tab label is the only record of a link that outlives flock, so it
-    /// is rewritten whenever the link's pane shows a new terminal or pane id.
+    /// The tab label and `linkedPanes` are what a link leaves for the next
+    /// launch, so each is rewritten when the link's pane shows a new terminal
+    /// or pane id; the label only for a new terminal, which is all it holds.
     func relink(_ id: String, terminal: TerminalID, pane: PaneID) {
         guard let item = items[id], item.linked != terminal || item.linkedPane != pane else { return }
         items[id]?.linked = terminal
         items[id]?.linkedPane = pane
-        let label = RtLabels.tabLabel(RtLabels.TabLink(kind: item.kind, terminal: terminal, token: id, pane: pane))
+        linkedPanes.record(pane, for: id)
+        guard item.linked != terminal else { return }
+        let label = RtLabels.tabLabel(RtLabels.TabLink(kind: item.kind, terminal: terminal, token: id))
         background { [herdr] in try? await herdr.renameTab(item.tabID, to: label) }
     }
 
@@ -131,6 +134,7 @@ extension RtCoordinator {
     /// its files deleted when its label named a token.
     func orphan(_ closing: Closing, panes: [PaneID], token: String? = nil) {
         if case .tabs(let tabs) = closing { handledStrays.formUnion(tabs) }
+        if let token { linkedPanes.forget(token) }
         background { [weak self] in
             await self?.stop(panes)
             await self?.close(closing)
@@ -145,8 +149,8 @@ extension RtCoordinator {
 
     // MARK: - launch
 
-    /// An adopted item keeps the label's ids; `followLinks`, in the same
-    /// update, moves it onto its pane's current ones.
+    /// An adopted item keeps the ids it was left with; `followLinks`, in the
+    /// same update, moves it onto its pane's current ones.
     private func adopt(_ model: SessionModel) {
         for workspace in model.workspaces where RtLabels.isFlockOwned(workspaceLabel: workspace.label) {
             let tabs = (model.tabs[workspace.workspaceID] ?? []).sorted { $0.number < $1.number }
@@ -158,13 +162,15 @@ extension RtCoordinator {
                 adoptRunner(workspace, board: tabs.first, model: model)
             }
         }
+        linkedPanes.keepOnly(Set(items.keys))
     }
 
     private func adoptRunner(_ workspace: WorkspaceRecord, board: TabRecord?, model: SessionModel) {
         if let label = board?.label, let token = RtLabels.tabLink(fromLabel: label)?.token, items[token] != nil { return }
         let boardPanes = board.map { panes(inTab: $0.tabID, of: model) } ?? []
         guard let board, let link = RtLabels.tabLink(fromLabel: board.label), link.kind == .runner,
-              owner(terminal: link.terminal, pane: link.pane, in: model) != nil, let first = boardPanes.first,
+              owner(terminal: link.terminal, pane: linkedPanes.pane(for: link.token), in: model) != nil,
+              let first = boardPanes.first,
               files.read(RtFilePaths(token: link.token, directory: config.fileDirectory).status) == nil
         else {
             orphan(.workspace(workspace.workspaceID), panes: boardPanes, token: board.flatMap { RtLabels.tabLink(fromLabel: $0.label)?.token })
@@ -173,7 +179,8 @@ extension RtCoordinator {
         items[link.token] = RtItem(
             id: link.token, kind: .runner, linked: link.terminal, workspaceID: workspace.workspaceID,
             tabID: board.tabID, firstPaneID: first, title: RtKind.runner.defaultTitle,
-            folder: model.panes[first]?.cwd ?? "", isRunning: true, started: true, strip: nil, linkedPane: link.pane
+            folder: model.panes[first]?.cwd ?? "", isRunning: true, started: true, strip: nil,
+            linkedPane: linkedPanes.pane(for: link.token)
         )
         lifecycles[link.token] = RtLifecycle(kind: .runner, startedAt: now())
         openedOrder.append(link.token)
@@ -187,7 +194,8 @@ extension RtCoordinator {
         if let token = RtLabels.tabLink(fromLabel: tab.label)?.token, items[token] != nil { return }
         let tabPanes = panes(inTab: tab.tabID, of: model)
         guard let link = RtLabels.tabLink(fromLabel: tab.label), link.kind == .run,
-              owner(terminal: link.terminal, pane: link.pane, in: model) != nil, let first = tabPanes.first
+              owner(terminal: link.terminal, pane: linkedPanes.pane(for: link.token), in: model) != nil,
+              let first = tabPanes.first
         else {
             orphan(.tabs([tab.tabID]), panes: tabPanes, token: RtLabels.tabLink(fromLabel: tab.label)?.token)
             return
@@ -216,7 +224,7 @@ extension RtCoordinator {
             id: link.token, kind: .run, linked: link.terminal, workspaceID: tab.workspaceID, tabID: tab.tabID,
             firstPaneID: first, title: result?.commandTemplate ?? RtKind.run.defaultTitle,
             folder: model.panes[first]?.cwd ?? "", isRunning: stage != .done, started: true, strip: strip,
-            linkedPane: link.pane
+            linkedPane: linkedPanes.pane(for: link.token)
         )
         lifecycles[link.token] = RtLifecycle.resumed(kind: .run, stage: stage, at: now())
         openedOrder.append(link.token)

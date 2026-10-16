@@ -29,7 +29,7 @@ final class RtCoordinatorTests: XCTestCase {
         let create = try XCTUnwrap(world.calls("workspace.create").first)
         XCTAssertEqual(FakeRtWorld.string(create["label"]), "flock:rt")
         XCTAssertEqual(FakeRtWorld.string(create["cwd"]), "/src/acme")
-        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.rename").first?["label"]), "nav term_a1 tok1 w1:p1")
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.rename").first?["label"]), "nav term_a1 tok1")
         XCTAssertEqual(world.typed(into: "wF1:p1"), [#"command rt nav >"$FLOCK_RT_OUT"; echo $? >"$FLOCK_RT_STATUS""#])
         XCTAssertEqual(rt.modal?.itemID, "tok1")
 
@@ -52,7 +52,7 @@ final class RtCoordinatorTests: XCTestCase {
 
         let tab = try XCTUnwrap(world.calls("tab.create").first)
         XCTAssertEqual(FakeRtWorld.string(tab["workspace_id"]), "wF1")
-        XCTAssertEqual(FakeRtWorld.string(tab["label"]), "glitter term_a1 tok2 w1:p1")
+        XCTAssertEqual(FakeRtWorld.string(tab["label"]), "glitter term_a1 tok2")
         XCTAssertEqual(world.calls("workspace.create").count, 1)
         XCTAssertEqual(rt.modal?.itemID, "tok2")
     }
@@ -295,7 +295,7 @@ final class RtCoordinatorTests: XCTestCase {
 
         await rt.open(.runner, from: world.fixture.linkedPane)
         XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.create").first?["label"]), "flock:rt runner term_a1")
-        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.rename").first?["label"]), "runner term_a1 tok1 w1:p1")
+        XCTAssertEqual(FakeRtWorld.string(world.calls("tab.rename").first?["label"]), "runner term_a1 tok1")
         XCTAssertEqual(world.typed(into: "wF1:p1"), [#"command rt runner --herdr; echo $? >"$FLOCK_RT_STATUS""#])
 
         await rt.closeModal()

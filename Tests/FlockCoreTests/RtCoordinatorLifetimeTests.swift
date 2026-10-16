@@ -35,8 +35,31 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
 
         XCTAssertTrue(world.calls("pane.send_keys").isEmpty)
         XCTAssertNotNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
-        XCTAssertEqual(renames(world).last, "runner term_a1 tok1 w1:p9")
+        XCTAssertEqual(renames(world), ["runner term_a1 tok1"], "the terminal it holds did not change")
+        XCTAssertEqual(rt.linkedPanes.pane(for: "tok1"), PaneID(rawValue: "w1:p9"))
         rt.watches["tok1"]?.cancel()
+    }
+
+    func testOpeningRecordsThePaneBesideTheLabelNotInIt() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+
+        XCTAssertEqual(renames(world), ["runner term_a1 tok1"])
+        XCTAssertEqual(rt.linkedPanes.pane(for: "tok1"), PaneID(rawValue: "w1:p1"))
+        rt.watches["tok1"]?.cancel()
+    }
+
+    func testAShutDownLinkForgetsItsPane() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+
+        world.removeLinkedPane()
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(rt.linkedPanes.pane(for: "tok1"))
     }
 
     private func renames(_ world: FakeRtWorld) -> [String] {
@@ -58,17 +81,22 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertTrue(world.calls("workspace.close").isEmpty)
         XCTAssertNil(rt.runner(linkedTo: RtFixture.linkedTerminal))
         XCTAssertEqual(rt.runner(linkedTo: TerminalID(rawValue: "term_b1"))?.id, "tok1")
-        XCTAssertEqual(Array(renames(world).dropFirst(before)), ["runner term_b1 tok1 w1:p1"])
+        XCTAssertEqual(Array(renames(world).dropFirst(before)), ["runner term_b1 tok1"])
+        XCTAssertEqual(rt.linkedPanes.pane(for: "tok1"), PaneID(rawValue: "w1:p1"))
         rt.watches["tok1"]?.cancel()
     }
 
+    /// The pane id a previous launch recorded is what finds the run once a
+    /// handoff renumbered its terminal while flock was not running.
     func testLaunchAdoptsARunWhoseTerminalAHandoffRenumberedByItsPane() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wS", label: "flock:rt")
-        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old3 w1:p1", number: 1)
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old3", number: 1)
         world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
         world.write(rtResultLine + "\n", to: rtPaths("old3").out)
-        let rt = makeCoordinator(world)
+        let linked = scratchLinkedPanes()
+        linked.record(PaneID(rawValue: "w1:p1"), for: "old3")
+        let rt = makeCoordinator(world, linkedPanes: linked)
 
         rt.update(model: world.model())
         rt.update(model: world.model())
@@ -76,7 +104,7 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
 
         XCTAssertTrue(world.calls("tab.close").isEmpty)
         XCTAssertEqual(rt.items["old3"]?.linked, RtFixture.linkedTerminal)
-        XCTAssertEqual(renames(world), ["run term_a1 old3 w1:p1"])
+        XCTAssertEqual(renames(world), ["run term_a1 old3"])
         XCTAssertNotNil(world.read(rtPaths("old3").out))
         rt.watches["old3"]?.cancel()
     }
@@ -84,10 +112,12 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
     func testLaunchOrphansALinkWithNeitherItsTerminalNorItsPane() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wS", label: "flock:rt")
-        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old5 w1:p7", number: 1)
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old5", number: 1)
         world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
         world.write(rtResultLine + "\n", to: rtPaths("old5").out)
-        let rt = makeCoordinator(world)
+        let linked = scratchLinkedPanes()
+        linked.record(PaneID(rawValue: "w1:p7"), for: "old5")
+        let rt = makeCoordinator(world, linkedPanes: linked)
 
         rt.update(model: world.model())
         await rt.settle()
@@ -96,21 +126,37 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
         XCTAssertNil(world.read(rtPaths("old5").out))
         XCTAssertTrue(renames(world).isEmpty)
+        XCTAssertNil(linked.pane(for: "old5"))
     }
 
     /// A pane id in one of flock's own workspaces is never a linked pane.
     func testLaunchOrphansALinkWhosePaneIDNamesAFlockOwnedPane() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wS", label: "flock:rt")
-        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old7 wS:p1", number: 1)
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old7", number: 1)
         world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
-        let rt = makeCoordinator(world)
+        let linked = scratchLinkedPanes()
+        linked.record(PaneID(rawValue: "wS:p1"), for: "old7")
+        let rt = makeCoordinator(world, linkedPanes: linked)
 
         rt.update(model: world.model())
         await rt.settle()
 
         XCTAssertNil(rt.items["old7"])
         XCTAssertEqual(FakeRtWorld.string(world.calls("tab.close").first?["tab_id"]), "wS:t1")
+    }
+
+    /// Entries for links closed while flock was not running go at launch.
+    func testLaunchForgetsPanesNoLinkClaims() async throws {
+        let world = FakeRtWorld()
+        let linked = scratchLinkedPanes()
+        linked.record(PaneID(rawValue: "w1:p1"), for: "gone1")
+        let rt = makeCoordinator(world, linkedPanes: linked)
+
+        rt.update(model: world.model())
+        await rt.settle()
+
+        XCTAssertNil(linked.pane(for: "gone1"))
     }
 
     func testLaunchOrphansAnOldLabelWhoseTerminalIsGoneAsBefore() async throws {
@@ -131,8 +177,8 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
     }
 
     /// So a run opened before pane ids were recorded survives the handoff
-    /// that follows.
-    func testLaunchGivesAnOldLabelWhoseTerminalIsPresentItsPane() async throws {
+    /// that follows, with its label left as it was.
+    func testLaunchRecordsThePaneOfARunWithNoneRecorded() async throws {
         let world = FakeRtWorld()
         world.seed(workspace: "wS", label: "flock:rt")
         world.seed(tab: "wS:t1", in: "wS", label: "run term_a1 old3", number: 1)
@@ -143,7 +189,8 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         await rt.settle()
 
         XCTAssertNotNil(rt.items["old3"])
-        XCTAssertEqual(renames(world), ["run term_a1 old3 w1:p1"])
+        XCTAssertTrue(renames(world).isEmpty)
+        XCTAssertEqual(rt.linkedPanes.pane(for: "old3"), PaneID(rawValue: "w1:p1"))
         rt.watches["old3"]?.cancel()
     }
 

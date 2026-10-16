@@ -309,10 +309,13 @@ final class TokenSource {
 }
 
 @MainActor
-func makeCoordinator(_ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "tok3"], notices: NoticeLog? = nil) -> RtCoordinator {
+func makeCoordinator(
+    _ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "tok3"], notices: NoticeLog? = nil,
+    linkedPanes: RtLinkedPanes = scratchLinkedPanes()
+) -> RtCoordinator {
     let source = TokenSource(tokens)
     return RtCoordinator(
-        client: world, files: world,
+        client: world, files: world, linkedPanes: linkedPanes,
         config: .init(
             pollInterval: .milliseconds(1), confirmDelay: .milliseconds(5), shutdownTimeout: .milliseconds(500),
             shellWait: .milliseconds(20), missLimit: 3, fileDirectory: rtTestDirectory
@@ -320,6 +323,14 @@ func makeCoordinator(_ world: FakeRtWorld, tokens: [String] = ["tok1", "tok2", "
         makeToken: { source.next() },
         notice: { notices?.lines.append($0) }
     )
+}
+
+/// A defaults suite of its own per call, so no test reads another's links.
+func scratchLinkedPanes() -> RtLinkedPanes {
+    let suite = "flock-rt-linked-panes-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defaults.removePersistentDomain(forName: suite)
+    return RtLinkedPanes(defaults: defaults)
 }
 
 let rtTestDirectory = URL(fileURLWithPath: "/flock-rt-test", isDirectory: true)
