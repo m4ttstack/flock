@@ -54,6 +54,10 @@ final class HerdrUpdateStore {
     /// `herdr update` refuses to run on a Homebrew install.
     var canRunUpdate: Bool { patchStore.binaryPath != nil && !isHomebrew }
 
+    /// A patch download or install is running; the update waits for it, so
+    /// the binary is never replaced under an install.
+    var isBlockedByPatchInstall: Bool { patchStore.phase != .idle }
+
     private var isHomebrew: Bool {
         patchStore.binaryPath.map {
             HerdrInstallKind.isHomebrew(resolvedPath: URL(fileURLWithPath: $0).resolvingSymlinksInPath().path)
@@ -67,7 +71,7 @@ final class HerdrUpdateStore {
     }
 
     func requestUpdate() {
-        guard updatePhase == .idle, canRunUpdate, let notice else { return }
+        guard updatePhase == .idle, canRunUpdate, !isBlockedByPatchInstall, let notice else { return }
         pendingUpdate = HerdrUpdateRun.confirmation(for: notice)
     }
 
@@ -81,12 +85,17 @@ final class HerdrUpdateStore {
         guard pendingUpdate != nil else { return }
         pendingUpdate = nil
         patchStore.refresh()
-        guard updatePhase == .idle, canRunUpdate, let binaryPath = patchStore.binaryPath, let target = latest else { return }
+        guard updatePhase == .idle, canRunUpdate, !isBlockedByPatchInstall,
+              let binaryPath = patchStore.binaryPath, let target = latest else { return }
         let patchWasInstalled: Bool = if case .installed = patchStore.state { true } else { false }
         updateError = nil
         updatePhase = .updating
+        patchStore.beginHerdrUpdate()
         updateTask = Task { [runner, patchStore] in
-            defer { updatePhase = .idle }
+            defer {
+                patchStore.endHerdrUpdate()
+                updatePhase = .idle
+            }
             let result = await runner.run(binaryPath, HerdrUpdateRun.arguments)
             switch HerdrUpdateRun.outcome(status: result.status, output: result.output) {
             case .failed(let message):

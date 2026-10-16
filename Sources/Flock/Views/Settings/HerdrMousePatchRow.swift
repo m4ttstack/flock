@@ -75,7 +75,7 @@ struct HerdrMousePatchRow: View {
         case .installing:
             ProgressView().controlSize(.small)
         case .idle:
-            if let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
+            if !store.herdrUpdateInProgress, let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
                 Button(title) {
                     switch state {
                     case .patchable: store.requestInstall(source: .settings)

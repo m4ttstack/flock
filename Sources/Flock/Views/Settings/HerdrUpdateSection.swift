@@ -77,6 +77,7 @@ struct HerdrUpdateSection: View {
             Button(HerdrUpdateRun.buttonTitle) { store.requestUpdate() }
                 .buttonStyle(.borderedProminent)
                 .tint(warning ? .orange : .accentColor)
+                .disabled(store.isBlockedByPatchInstall)
                 .accessibilityIdentifier("flock.settings.herdrUpdate.run")
         case .updating:
             HStack(spacing: 6) {

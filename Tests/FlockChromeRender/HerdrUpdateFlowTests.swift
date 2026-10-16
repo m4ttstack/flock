@@ -9,8 +9,8 @@ import XCTest
 /// network.
 @MainActor
 final class HerdrUpdateFlowTests: XCTestCase {
-    private var root: URL!
-    private var binaryPath: String!
+    nonisolated(unsafe) private var root: URL!
+    nonisolated(unsafe) private var binaryPath: String!
     private var backupPath: String { HerdrMousePatchInstaller.backupPath(for: binaryPath) }
 
     private let oldStock = Data("herdr 0.9.4 unpatched build".utf8)
@@ -43,6 +43,13 @@ final class HerdrUpdateFlowTests: XCTestCase {
         }
     }
 
+    private struct HangingTransport: HerdrPatchTransport {
+        func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+            progress(0.4)
+            try await Task.sleep(for: .seconds(3600))
+        }
+    }
+
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-herdr-update-flow-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -66,7 +73,7 @@ final class HerdrUpdateFlowTests: XCTestCase {
     }
 
     private func makeStores(
-        runner: StubRunner, transport: CountingTransport
+        runner: StubRunner, transport: HerdrPatchTransport
     ) async -> (update: HerdrUpdateStore, patch: HerdrMousePatchStore) {
         let shas = ["0.9.4": sha(oldPatched), "0.9.5": sha(newPatched)]
         let patch = HerdrMousePatchStore(
@@ -209,6 +216,57 @@ final class HerdrUpdateFlowTests: XCTestCase {
         await update.updateTask?.value
 
         XCTAssertEqual(runner.calls.count, 1)
+    }
+
+    /// Replacing herdr under a patch install would leave the install
+    /// verifying against a binary it never saw.
+    func testAnUpdateIsRefusedWhileAPatchInstallRuns() async throws {
+        try write(oldStock, to: binaryPath)
+        let runner = StubRunner()
+        let (update, patch) = await makeStores(runner: runner, transport: HangingTransport())
+        patch.requestInstall(source: .settings)
+        patch.confirmPendingAction()
+        XCTAssertNotEqual(patch.phase, .idle)
+
+        XCTAssertTrue(update.isBlockedByPatchInstall)
+        update.requestUpdate()
+        XCTAssertNil(update.pendingUpdate)
+        update.confirmUpdate()
+        XCTAssertNil(update.updateTask)
+        XCTAssertEqual(update.updatePhase, .idle)
+
+        patch.installTask?.cancel()
+        await patch.installTask?.value
+        XCTAssertFalse(update.isBlockedByPatchInstall)
+        XCTAssertTrue(runner.calls.isEmpty)
+    }
+
+    /// The banner or row cannot start an install of the herdr the update is
+    /// replacing; only the update's own reinstall runs, after it.
+    func testAPatchInstallIsRefusedWhileAnUpdateRuns() async throws {
+        try write(oldStock, to: binaryPath)
+        let runner = StubRunner { [newStock, binaryPath] in try? newStock.write(to: URL(fileURLWithPath: binaryPath!)) }
+        let transport = CountingTransport(body: newPatched)
+        let (update, patch) = await makeStores(runner: runner, transport: transport)
+        patch.requestInstall(source: .banner)
+        XCTAssertNotNil(patch.pendingConfirmation)
+
+        update.requestUpdate()
+        update.confirmUpdate()
+
+        XCTAssertTrue(patch.herdrUpdateInProgress)
+        XCTAssertNil(patch.pendingConfirmation, "a confirmation asked for before the update is withdrawn")
+        XCTAssertFalse(patch.shouldOfferBanner)
+        patch.requestInstall(source: .banner)
+        XCTAssertNil(patch.pendingConfirmation)
+        patch.requestInstall(source: .settings)
+        XCTAssertNil(patch.pendingConfirmation)
+
+        await update.updateTask?.value
+
+        XCTAssertFalse(patch.herdrUpdateInProgress)
+        XCTAssertEqual(transport.downloads, 0)
+        XCTAssertEqual(contents(binaryPath), newStock)
     }
 
     func testCancellingTheConfirmationRunsNothing() async throws {

@@ -615,7 +615,7 @@ private struct HerdrMousePatchBanner: View {
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            if case .patchable = store.state {
+            if !store.herdrUpdateInProgress, case .patchable = store.state {
                 BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall(source: .banner) }
                     .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
             }

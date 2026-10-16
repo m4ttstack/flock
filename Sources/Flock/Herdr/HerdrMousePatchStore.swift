@@ -18,6 +18,11 @@ final class HerdrMousePatchStore {
     private(set) var phase: Phase = .idle
     /// The herdr resolved by the last `refresh()`; nil when none is found.
     private(set) var binaryPath: String?
+    /// Set by `HerdrUpdateStore` around `herdr update`. A patch installed
+    /// while the binary is being replaced would land on the wrong version,
+    /// so Install and Restore are withdrawn until it ends; only the update's
+    /// own `reinstallAfterUpdate` runs meanwhile.
+    private(set) var herdrUpdateInProgress = false
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
@@ -62,7 +67,7 @@ final class HerdrMousePatchStore {
     /// rule in FlockCore rather than decided here, so what gets offered stays
     /// testable without a herdr on disk.
     var shouldOfferBanner: Bool {
-        HerdrMousePatchOffer.shouldOffer(
+        !herdrUpdateInProgress && HerdrMousePatchOffer.shouldOffer(
             state: state,
             dismissedForVersion: defaults.string(forKey: Self.dismissedVersionKey)
         )
@@ -106,7 +111,7 @@ final class HerdrMousePatchStore {
     }
 
     func requestInstall(source: PendingConfirmation.Source) {
-        guard phase == .idle, case .patchable(let installPath, let version) = state else { return }
+        guard phase == .idle, !herdrUpdateInProgress, case .patchable(let installPath, let version) = state else { return }
         pendingConfirmation = PendingConfirmation(
             action: .install,
             confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version),
@@ -115,7 +120,7 @@ final class HerdrMousePatchStore {
     }
 
     func requestRevert(source: PendingConfirmation.Source) {
-        guard case .installed = state, let binaryPath = resolveBinaryPath() else { return }
+        guard !herdrUpdateInProgress, case .installed = state, let binaryPath = resolveBinaryPath() else { return }
         pendingConfirmation = PendingConfirmation(
             action: .revert, confirmation: HerdrMousePatchCopy.revertConfirmation(installPath: binaryPath), source: source
         )
@@ -127,7 +132,7 @@ final class HerdrMousePatchStore {
     func reinstallAfterUpdate() async -> Bool {
         guard phase == .idle, case .patchable = state else { return false }
         lastErrorMessage = nil
-        performInstall(startedFromBanner: false, replacingStaleBackup: true)
+        performInstall(startedFromBanner: false)
         await installTask?.value
         if case .installed = state { return true }
         return false
@@ -137,6 +142,15 @@ final class HerdrMousePatchStore {
         restartReason = .herdrUpdated(patchReinstalled: patchReinstalled)
     }
 
+    func beginHerdrUpdate() {
+        herdrUpdateInProgress = true
+        pendingConfirmation = nil
+    }
+
+    func endHerdrUpdate() {
+        herdrUpdateInProgress = false
+    }
+
     func cancelPendingConfirmation() {
         pendingConfirmation = nil
     }
@@ -144,6 +158,7 @@ final class HerdrMousePatchStore {
     func confirmPendingAction() {
         guard let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
+        guard !herdrUpdateInProgress else { return }
         lastErrorMessage = nil
         bannerErrorMessage = nil
         switch pending.action {
@@ -152,9 +167,7 @@ final class HerdrMousePatchStore {
         }
     }
 
-    /// `replacingStaleBackup`: a backup beside an unpatched herdr just after
-    /// `herdr update` belongs to the version that update replaced.
-    private func performInstall(startedFromBanner: Bool, replacingStaleBackup: Bool = false) {
+    private func performInstall(startedFromBanner: Bool) {
         guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
               let entry = catalog(version) else {
             refresh()
@@ -175,9 +188,6 @@ final class HerdrMousePatchStore {
                 let probe = HerdrMousePatchInstaller.probe(binaryPath: binaryPath, fileManager: fileManager)
                 guard probe.version == version, !probe.hasVerbs else { throw HerdrChanged() }
                 phase = .installing
-                if replacingStaleBackup, probe.hasBackup {
-                    try fileManager.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
-                }
                 try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
                 restartReason = .installed
             } catch {
