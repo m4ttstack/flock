@@ -1356,7 +1356,7 @@ public final class SessionViewModel {
     /// difference between this and `performTeardown`. Evicts the warm cap's
     /// overflow afterward, oldest park first.
     private func performPark(pane: PaneID) async {
-        guard let surface = ghosttySurfaces[pane] else { return }
+        guard let surface = ghosttySurfaces[pane], !surface.isOnScreen else { return }
         surface.park()
         paneScrollSubscriber?.unsubscribe(pane: pane)
         parkedPanes.removeAll { $0 == pane }

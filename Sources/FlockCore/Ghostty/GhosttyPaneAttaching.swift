@@ -97,6 +97,11 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// parked is a harmless no-op.
     func unpark()
 
+    /// Whether the surface's view is in a window right now. A pane handed
+    /// from one host to another gets the old host's park after the new
+    /// host's attach, and only this tells that park apart from a real one.
+    var isOnScreen: Bool { get }
+
     /// Drops flock's herdr control client for this pane, which drops the
     /// pane's `direct_attach_resize_lock` with it, so herdr sizes the pane for
     /// its own shell clients again. The surface, its PTY, its scrollback, the
