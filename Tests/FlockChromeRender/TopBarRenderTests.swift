@@ -484,6 +484,7 @@ private final class OverlaySurface: GhosttyPaneSurface {
     func detach() async {}
     func park() {}
     func unpark() {}
+    var isOnScreen: Bool { false }
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
     var cellHeight: CGFloat? { nil }

@@ -21,6 +21,7 @@ final class PaletteShortcutTests: XCTestCase {
         XCTAssertFalse(ViewCommand.allCases.contains { $0.key == "j" && $0.modifiers == [.command, .shift] }, "Jump Back is retired")
         XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.backToOverview.key, modifiers: ViewCommand.backToOverview.modifiers), "⌘[")
         XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.openNextCard.key, modifiers: ViewCommand.openNextCard.modifiers), "⌘]")
+        XCTAssertEqual(ShortcutLabel.text(key: ViewCommand.showInWorkspaces.key, modifiers: ViewCommand.showInWorkspaces.modifiers), "⌘O")
         XCTAssertEqual(ViewCommand.clearNotifications.key, "u")
         XCTAssertEqual(ViewCommand.clearNotifications.modifiers, [.command, .shift])
     }

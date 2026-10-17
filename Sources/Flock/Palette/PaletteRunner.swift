@@ -94,6 +94,8 @@ struct PaletteRunner {
                 JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).backToOverview()
             case .openNextCard:
                 JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).openNext()
+            case .showInWorkspaces:
+                JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: modeStore).showInWorkspaces()
             case .clearNotifications: viewModel.clearAttentionToasts()
             case .commandPalette: break
             }

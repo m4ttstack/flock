@@ -248,6 +248,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     var hasFirstFrame = false
     var hasClaimedMouse = false
     var programHasMouse = false
+    var isOnScreen = false
 
     init(pane: PaneID) {
         self.pane = pane
@@ -1854,6 +1855,28 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(surface.detachCallCount, 0, "a park must never tear the surface down")
         XCTAssertEqual(surface.parkCallCount, 1)
         XCTAssertNotNil(viewModel.ghosttySurface(for: pane), "a parked surface must still be reachable -- it is what makes a warm reattach possible")
+    }
+
+    /// A pane handed from one host to another (Overview's focused view to the
+    /// Workspaces canvas) gets the old host's park after the new host's
+    /// attach. The surface is on screen by then, and a park would stop it
+    /// drawing while it still takes keys.
+    @MainActor
+    func testAParkThatLandsWhileThePaneIsOnScreenLeavesItDrawing() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane)
+        let surface = try XCTUnwrap(factory.surfaces[pane])
+        surface.isOnScreen = true
+
+        await viewModel.detachPane(pane)
+
+        XCTAssertEqual(surface.parkCallCount, 0)
+        let otherPanes = (2...13).map { PaneID(rawValue: "w1:p\($0)") }
+        for other in otherPanes { _ = await viewModel.attachPane(other) }
+        for other in otherPanes { await viewModel.detachPane(other) }
+        XCTAssertEqual(surface.detachCallCount, 0, "a pane on screen is never in the warm queue")
     }
 
     /// Reattaching a PARKED pane returns the SAME surface, with no second

@@ -446,6 +446,11 @@ struct FlockApp: App {
                     focusedPaneButton(command)
                 }
                 Divider()
+                Button(ViewCommand.showInWorkspaces.title) { navigator.showInWorkspaces() }
+                    .keyboardShortcut(ViewCommand.showInWorkspaces.shortcut)
+                    .disabled(!navigator.canShowInWorkspaces)
+                    .accessibilityIdentifier(ViewCommand.showInWorkspaces.accessibilityIdentifier)
+                Divider()
                 // Move and swap compile the plan the equivalent drag would,
                 // through the same planner; focus is a click on the neighbor.
                 ForEach(PaneDirectionCommand.families, id: \.title) { family in

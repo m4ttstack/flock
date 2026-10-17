@@ -72,6 +72,13 @@ struct JumpNavigator {
         drag.unfocusGridPane()
     }
 
+    var canShowInWorkspaces: Bool { isFocusedInOverview }
+
+    func showInWorkspaces() {
+        guard isFocusedInOverview, let pane = drag.gridFocusedPane else { return }
+        jump(to: pane)
+    }
+
     private func focus(_ pane: PaneID) {
         guard viewModel.focusInOverview(pane: pane) else { return }
         mode.missionSelection = pane

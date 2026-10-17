@@ -144,7 +144,7 @@ enum PaletteCatalog {
         var commands: [(PaletteNamespace, ViewCommand)] = ViewTab.allCases.map { (.view, ViewCommand.show($0)) }
         commands += [(.view, .rearrangeMode), (.view, .allWorkspaces)]
         if context.hasNotifications { commands += [(.view, .openOldestNotification), (.view, .clearNotifications)] }
-        commands.append((.view, .backToOverview))
+        commands += [(.view, .backToOverview), (.view, .showInWorkspaces)]
         if context.hasNextCard { commands.append((.view, .openNextCard)) }
         if !context.topBarOverlayUp {
             if context.hasSelectedWorkspace { commands += [(.tab, .newTab), (.tab, .closeTab)] }

@@ -193,6 +193,8 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.setParked(false)
     }
 
+    var isOnScreen: Bool { session.view?.window != nil }
+
     func releaseHerdrHold() {
         session.sendHold(.release)
     }
