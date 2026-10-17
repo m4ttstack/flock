@@ -157,7 +157,6 @@ private struct SubgroupScroll<Content: View>: View {
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, offset in
                 memory.offsets[kind] = offset
             }
-            .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             // Clipped top and bottom only: a card moving to another lane is
             // drawn by the subgroup it lands in, and has to stay visible as

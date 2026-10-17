@@ -165,7 +165,6 @@ struct MissionControlView: View {
                     .padding(M.laneScrollInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             // Clipped top and bottom only: a card moving to another lane
             // is drawn by the lane it lands in, and has to stay visible
