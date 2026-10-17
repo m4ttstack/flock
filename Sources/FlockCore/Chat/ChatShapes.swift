@@ -16,8 +16,29 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
 
 /// What `peek` prints: everyone visible, and every room's unread count.
 public struct ChatPeek: Decodable, Equatable, Sendable {
+    /// Only buddies in a pane: one signed in outside herdr prints a null
+    /// `paneId`, and nothing in Flock can draw it.
     public let buddies: [ChatBuddy]
     public let rooms: [ChatPeekRoom]
+
+    private enum CodingKeys: String, CodingKey { case buddies, rooms }
+
+    private struct Row: Decodable {
+        let buddy: ChatBuddy?
+
+        private enum Key: String, CodingKey { case paneId }
+
+        init(from decoder: Decoder) throws {
+            let pane = try decoder.container(keyedBy: Key.self).decodeIfPresent(String.self, forKey: .paneId)
+            buddy = pane == nil ? nil : try ChatBuddy(from: decoder)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        buddies = try container.decode([Row].self, forKey: .buddies).compactMap(\.buddy)
+        rooms = try container.decode([ChatPeekRoom].self, forKey: .rooms)
+    }
 }
 
 /// One buddy on the list.

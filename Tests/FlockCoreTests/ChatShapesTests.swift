@@ -14,6 +14,20 @@ final class ChatShapesTests: XCTestCase {
         XCTAssertNil(buddy.repo)
     }
 
+    /// A buddy signed in outside herdr prints `"paneId": null`. Overview and
+    /// Arrange read every handle from one peek, so that row alone must not
+    /// fail the rest of the list.
+    func testAPeekDropsABuddyWithNoPaneAndKeepsTheRest() throws {
+        let json = #"""
+        {"buddies":[
+          {"handle":"kay","paneId":"w1:p1","status":"live","repo":null,"branch":null,"title":null,"unread":0,"mentions":0},
+          {"handle":"lou","paneId":null,"status":"live","repo":null,"branch":null,"title":null,"unread":0,"mentions":0}
+        ],"rooms":[]}
+        """#
+        let peek = try JSONDecoder().decode(ChatPeek.self, from: Data(json.utf8))
+        XCTAssertEqual(peek.buddies.map(\.handle), ["kay"])
+    }
+
     func testABroadcastResultReadsItsPaneIdAndDeliveredWord() throws {
         let json = #"{"paneId":"w1:p1","ok":true,"delivered":"queued","error":null}"#
         let result = try JSONDecoder().decode(ChatBroadcastResult.self, from: Data(json.utf8))
