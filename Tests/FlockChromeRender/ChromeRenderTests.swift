@@ -2218,6 +2218,25 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
+    /// Show in Workspaces leaves Overview for the focused pane's own tab,
+    /// with that pane focused.
+    func testShowInWorkspacesOpensTheFocusedPanesTab() async throws {
+        let client = MethodRecordingClient()
+        let (harness, window) = try await focusedOverview(theme: .tokyoNight, client: client)
+        let navigator = JumpNavigator(viewModel: harness.viewModel, drag: harness.drag, mode: harness.modeStore)
+        navigator.open(pane: GridFixture.buildPane)
+        await settle(window)
+        XCTAssertTrue(navigator.canShowInWorkspaces)
+        navigator.showInWorkspaces()
+        await settle(window)
+        XCTAssertFalse(harness.drag.isGridShown)
+        XCTAssertNil(harness.drag.gridFocusedPane)
+        let methods = await client.methods
+        XCTAssertTrue(methods.contains("tab.focus") && methods.contains("pane.focus"), "herdr was not moved to the pane: \(methods)")
+        XCTAssertFalse(navigator.canShowInWorkspaces, "only the focused view has a pane to show")
+        window.close()
+    }
+
     /// The jump key in the focused view swaps in the next oldest card, and
     /// with none left it leaves the view as it is.
     func testJInTheFocusedViewOpensTheNextCard() async throws {

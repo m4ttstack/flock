@@ -7,7 +7,7 @@ enum ViewCommand: String, CaseIterable {
     case newTab, newWorkspace, closeTab, closeWorkspace
     case showWorkspaces, showOverview, showArrange
     case rearrangeMode, allWorkspaces, openOldestNotification, clearNotifications, commandPalette
-    case backToOverview, openNextCard
+    case backToOverview, openNextCard, showInWorkspaces
 
     var title: String {
         switch self {
@@ -21,6 +21,7 @@ enum ViewCommand: String, CaseIterable {
         case .openOldestNotification: "Open Oldest Notification"
         case .backToOverview: "Back to Overview"
         case .openNextCard: "Open Next Card"
+        case .showInWorkspaces: "Show in Workspaces"
         case .clearNotifications: "Clear Notifications"
         case .commandPalette: "Command Palette…"
         }
@@ -37,6 +38,7 @@ enum ViewCommand: String, CaseIterable {
         case .openOldestNotification: "j"
         case .backToOverview: "["
         case .openNextCard: "]"
+        case .showInWorkspaces: "o"
         case .clearNotifications: "u"
         case .commandPalette: "k"
         }
@@ -44,7 +46,7 @@ enum ViewCommand: String, CaseIterable {
 
     var modifiers: EventModifiers {
         switch self {
-        case .newTab, .openOldestNotification, .commandPalette, .backToOverview, .openNextCard: .command
+        case .newTab, .openOldestNotification, .commandPalette, .backToOverview, .openNextCard, .showInWorkspaces: .command
         case .newWorkspace, .closeTab, .clearNotifications: [.command, .shift]
         case .closeWorkspace: [.command, .option, .shift]
         case .showWorkspaces, .showOverview, .showArrange: .command
@@ -61,7 +63,7 @@ enum ViewCommand: String, CaseIterable {
             PaletteSurface.everywhere.subtracting(PaletteSurface.surfaces(of: viewTab ?? .workspaces))
         case .newTab, .newWorkspace, .closeTab, .closeWorkspace, .rearrangeMode, .allWorkspaces: [.workspaces]
         case .openOldestNotification, .clearNotifications: PaletteSurface.everywhere
-        case .backToOverview, .openNextCard: [.overviewPane]
+        case .backToOverview, .openNextCard, .showInWorkspaces: [.overviewPane]
         case .commandPalette: []
         }
     }
@@ -99,6 +101,7 @@ enum ViewCommand: String, CaseIterable {
         case .openOldestNotification: "flock.view.openOldestNotification"
         case .backToOverview: "flock.view.backToOverview"
         case .openNextCard: "flock.view.openNextCard"
+        case .showInWorkspaces: "flock.pane.showInWorkspaces"
         case .clearNotifications: "flock.view.clearNotifications"
         case .commandPalette: "flock.view.commandPalette"
         }
