@@ -163,6 +163,7 @@ struct MissionControlView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: M.cardGap) { cards }
                     .padding(M.laneScrollInset)
+                    .padding(.trailing, M.laneScrollerGutter)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
@@ -171,6 +172,7 @@ struct MissionControlView: View {
             // as it crosses from its old lane.
             .scrollClipDisabled()
             .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
+            .laneScroller(theme: theme)
             .onAppear { if let selected = mode.missionSelection { reader.scrollTo(selected) } }
             .onChange(of: mode.missionSelection) { _, selected in
                 if let selected { withAnimation { reader.scrollTo(selected) } }

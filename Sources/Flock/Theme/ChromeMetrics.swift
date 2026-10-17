@@ -951,6 +951,10 @@ enum ChromeMetrics {
         /// and its heading and labels are pulled in to match, so their
         /// leading edges line up with the groups'.
         static let laneScrollInset: CGFloat = 3
+        /// A lane's scroll view reaches this far into the lane's trailing
+        /// padding, and its content gives it back, so the scroller runs in
+        /// the padding instead of over the cards.
+        static let laneScrollerGutter: CGFloat = lanePadding - laneScrollInset
         static let coolingOpacity: Double = 0.75
         static let timelineWidth: CGFloat = 180
         /// A narrow window's lanes give the timeline up before `repo @

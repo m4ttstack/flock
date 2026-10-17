@@ -106,7 +106,7 @@ struct SplitLaneBody<Content: View>: View {
                     memory.record($0, in: \.labelHeight, for: slot.kind)
                 }
                 .accessibilityIdentifier("flock.mission.subgroup.\(slot.kind.rawValue)")
-            SubgroupScroll(memory: memory, kind: slot.kind, cards: slot.cards, selection: selection) { content(slot.kind) }
+            SubgroupScroll(theme: theme, memory: memory, kind: slot.kind, cards: slot.cards, selection: selection) { content(slot.kind) }
                 .frame(height: scrollHeight)
         }
     }
@@ -132,6 +132,7 @@ struct SplitLaneBody<Content: View>: View {
 /// One subgroup's scroll area. Its content is measured inside the scroll
 /// view, where its height does not depend on the frame the split gives it.
 private struct SubgroupScroll<Content: View>: View {
+    let theme: Theme
     let memory: MissionLaneMemory
     let kind: MissionSubgroup
     let cards: [PaneID]
@@ -147,6 +148,7 @@ private struct SubgroupScroll<Content: View>: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: M.cardGap) { content() }
                     .padding(M.laneScrollInset)
+                    .padding(.trailing, M.laneScrollerGutter)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .coordinateSpace(kind.space)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
@@ -163,6 +165,7 @@ private struct SubgroupScroll<Content: View>: View {
             // it crosses from its old lane.
             .scrollClipDisabled()
             .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
+            .laneScroller(theme: theme)
             .onAppear {
                 if let offset = memory.offsets[kind] { position.scrollTo(y: offset) }
                 guard let selection, cards.contains(selection) else { return }
@@ -178,6 +181,15 @@ private struct SubgroupScroll<Content: View>: View {
 }
 
 extension View {
+    /// A lane's scroll view, out through the lane's trailing padding, with
+    /// its scroller drawn for the theme's ground: the window's appearance
+    /// follows the system, so a dark theme otherwise gets a dark scroller.
+    /// Its content pads `laneScrollerGutter` back on the trailing side.
+    func laneScroller(theme: Theme) -> some View {
+        padding(.trailing, -ChromeMetrics.MissionControl.laneScrollerGutter)
+            .environment(\.colorScheme, ChromeRoles.isLight(panelBg: theme.palette.panelBg) ? .light : .dark)
+    }
+
     /// Reports a subgroup's first card's bottom, which with its label is the
     /// least of the subgroup a split may show.
     func missionSubgroupFloor(_ subgroup: MissionSubgroup?, in memory: MissionLaneMemory) -> some View {
