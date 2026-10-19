@@ -2,7 +2,7 @@ import FlockCore
 import SwiftUI
 
 /// An Overview lane's scroll bar, drawn here because AppKit's scroller takes
-/// neither a width nor a colour: faint and thin at rest, up while the pointer
+/// neither a width nor a colour: faint at rest, up while the pointer
 /// is over the lane, and draggable. It runs in the lane's trailing padding,
 /// which the scroll view reaches into.
 struct LaneScrollBar: ViewModifier {
@@ -46,7 +46,7 @@ struct LaneScrollBar: ViewModifier {
                 let raised = isHovering || dragOrigin != nil
                 Capsule()
                     .fill(theme.textLabel.opacity(raised ? M.laneScrollBarRaisedOpacity : M.laneScrollBarRestOpacity))
-                    .frame(width: raised ? M.laneScrollBarRaisedWidth : M.laneScrollBarRestWidth, height: thumb.length)
+                    .frame(width: M.laneScrollBarWidth, height: thumb.length)
                     .padding(.trailing, M.laneScrollBarEdgeInset)
                     .frame(width: M.laneScrollerGutter, alignment: .trailing)
                     .contentShape(Rectangle())

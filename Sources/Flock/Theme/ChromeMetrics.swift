@@ -955,10 +955,9 @@ enum ChromeMetrics {
         /// padding, and its content gives it back, so the scroller runs in
         /// the padding instead of over the cards.
         static let laneScrollerGutter: CGFloat = lanePadding - laneScrollInset
-        /// The bar is faint and thin at rest and comes up while the pointer
-        /// is over its lane; both widths fit the gutter with the edge inset.
-        static let laneScrollBarRestWidth: CGFloat = 3
-        static let laneScrollBarRaisedWidth: CGFloat = 5
+        /// The bar is faint at rest and comes up while the pointer is over
+        /// its lane; its width fits the gutter with the edge inset.
+        static let laneScrollBarWidth: CGFloat = 5
         static let laneScrollBarRestOpacity: Double = 0.3
         static let laneScrollBarRaisedOpacity: Double = 0.7
         static let laneScrollBarEdgeInset: CGFloat = 2
