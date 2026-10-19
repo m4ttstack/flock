@@ -26,4 +26,25 @@ public enum ScrollIndicatorGeometry {
         let fromTop = CGFloat(scroll.maxOffsetFromBottom - offsetFromBottom) / CGFloat(scroll.maxOffsetFromBottom)
         return Thumb(offset: (trackLength - length) * fromTop, length: length)
     }
+
+    /// The thumb for a scroll view measured in points, `nil` when the content
+    /// fits. A bounce past either end leaves the thumb at that end.
+    public static func thumb(
+        offset: CGFloat, content: CGFloat, visible: CGFloat, trackLength: CGFloat, minimumLength: CGFloat = 15
+    ) -> Thumb? {
+        guard content > visible, visible > 0, trackLength > 0 else { return nil }
+        let length = min(trackLength, max(minimumLength, trackLength * visible / content))
+        let progress = min(1, max(0, offset / (content - visible)))
+        return Thumb(offset: (trackLength - length) * progress, length: length)
+    }
+
+    /// The content offset that puts `thumb`'s top at `thumbOffset`, for a
+    /// thumb that can be dragged.
+    public static func contentOffset(
+        forThumbAt thumbOffset: CGFloat, thumb: Thumb, content: CGFloat, visible: CGFloat, trackLength: CGFloat
+    ) -> CGFloat {
+        let travel = trackLength - thumb.length
+        guard travel > 0 else { return 0 }
+        return min(1, max(0, thumbOffset / travel)) * max(0, content - visible)
+    }
 }

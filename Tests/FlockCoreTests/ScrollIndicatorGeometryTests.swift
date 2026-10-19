@@ -50,4 +50,44 @@ final class ScrollIndicatorGeometryTests: XCTestCase {
         let thumb = ScrollIndicatorGeometry.thumb(for: scroll, trackLength: 360)!
         XCTAssertEqual(thumb.offset, 0, accuracy: 1e-9)
     }
+
+    // MARK: - a SwiftUI scroll view, in points
+
+    func testContentThatFitsHasNoThumb() {
+        XCTAssertNil(ScrollIndicatorGeometry.thumb(offset: 0, content: 400, visible: 400, trackLength: 400))
+        XCTAssertNil(ScrollIndicatorGeometry.thumb(offset: 0, content: 300, visible: 400, trackLength: 400))
+    }
+
+    func testThePointThumbIsAsLongAsTheShareOnScreenAndStartsAtTheTop() throws {
+        let thumb = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: 0, content: 800, visible: 400, trackLength: 400))
+        XCTAssertEqual(thumb.length, 200)
+        XCTAssertEqual(thumb.offset, 0)
+    }
+
+    func testThePointThumbReachesTheTrackEndAtTheBottom() throws {
+        let thumb = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: 400, content: 800, visible: 400, trackLength: 400))
+        XCTAssertEqual(thumb.offset, 200)
+    }
+
+    func testALongListKeepsAThumbLongEnoughToGrab() throws {
+        let thumb = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: 0, content: 40_000, visible: 400, trackLength: 400, minimumLength: 24))
+        XCTAssertEqual(thumb.length, 24)
+    }
+
+    func testABounceKeepsThePointThumbInItsTrack() throws {
+        let above = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: -30, content: 800, visible: 400, trackLength: 400))
+        XCTAssertEqual(above.offset, 0)
+        let below = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: 450, content: 800, visible: 400, trackLength: 400))
+        XCTAssertEqual(below.offset, 200)
+    }
+
+    func testDraggingTheThumbAsksForTheOffsetThatPutsItThere() throws {
+        let thumb = try XCTUnwrap(ScrollIndicatorGeometry.thumb(offset: 0, content: 800, visible: 400, trackLength: 400))
+        func offset(_ y: CGFloat) -> CGFloat {
+            ScrollIndicatorGeometry.contentOffset(forThumbAt: y, thumb: thumb, content: 800, visible: 400, trackLength: 400)
+        }
+        XCTAssertEqual(offset(100), 200)
+        XCTAssertEqual(offset(-50), 0)
+        XCTAssertEqual(offset(900), 400)
+    }
 }
