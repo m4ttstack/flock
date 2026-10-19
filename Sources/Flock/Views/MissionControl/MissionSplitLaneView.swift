@@ -165,7 +165,7 @@ private struct SubgroupScroll<Content: View>: View {
             // it crosses from its old lane.
             .scrollClipDisabled()
             .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
-            .laneScroller(theme: theme)
+            .laneScroller(theme: theme, position: $position)
             .onAppear {
                 if let offset = memory.offsets[kind] { position.scrollTo(y: offset) }
                 guard let selection, cards.contains(selection) else { return }
@@ -182,12 +182,10 @@ private struct SubgroupScroll<Content: View>: View {
 
 extension View {
     /// A lane's scroll view, out through the lane's trailing padding, with
-    /// its scroller drawn for the theme's ground: the window's appearance
-    /// follows the system, so a dark theme otherwise gets a dark scroller.
-    /// Its content pads `laneScrollerGutter` back on the trailing side.
-    func laneScroller(theme: Theme) -> some View {
-        padding(.trailing, -ChromeMetrics.MissionControl.laneScrollerGutter)
-            .environment(\.colorScheme, ChromeRoles.isLight(panelBg: theme.palette.panelBg) ? .light : .dark)
+    /// `LaneScrollBar` in place of AppKit's scroller. Its content pads
+    /// `laneScrollerGutter` back on the trailing side.
+    func laneScroller(theme: Theme, position: Binding<ScrollPosition>) -> some View {
+        modifier(LaneScrollBar(theme: theme, position: position))
     }
 
     /// Reports a subgroup's first card's bottom, which with its label is the

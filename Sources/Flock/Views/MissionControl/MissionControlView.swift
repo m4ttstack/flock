@@ -24,6 +24,7 @@ struct MissionControlView: View {
     /// The group whose symbol picker is open, named by its first card: a
     /// workspace can have a group in every lane, but a pane is in only one.
     @State private var symbolPickerGroup: PaneID?
+    @State private var restPosition = ScrollPosition()
 
     private typealias M = ChromeMetrics.MissionControl
 
@@ -172,7 +173,8 @@ struct MissionControlView: View {
             // as it crosses from its old lane.
             .scrollClipDisabled()
             .mask { Rectangle().padding(.horizontal, -M.crossLaneReach) }
-            .laneScroller(theme: theme)
+            .scrollPosition($restPosition)
+            .laneScroller(theme: theme, position: $restPosition)
             .onAppear { if let selected = mode.missionSelection { reader.scrollTo(selected) } }
             .onChange(of: mode.missionSelection) { _, selected in
                 if let selected { withAnimation { reader.scrollTo(selected) } }

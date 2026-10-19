@@ -71,6 +71,22 @@ final class MissionLanesRenderTests: XCTestCase {
         }
     }
 
+    /// A lane with more than fits draws its own scroll bar in the lane's
+    /// trailing padding, clear of the cards; a lane that fits draws none.
+    func testAnOverflowingLaneDrawsItsScrollBarInThePaddingAndAFittingOneDoesNot() async throws {
+        let scenario = Scenario(name: "both-large", blocked: 6, done: 6, working: 7, background: 7)
+        let laneWidth = (Self.size.width - 2 * M.canvasPadding - 2 * M.laneGap) / 3
+        let gutters = (0..<3).map { lane in
+            let right = M.canvasPadding + CGFloat(lane) * (laneWidth + M.laneGap) + laneWidth
+            return CGRect(x: right - M.laneScrollerGutter, y: 100, width: M.laneScrollerGutter - 1, height: Self.size.height - 200)
+        }
+        try await render(scenario) { theme, image, _ in
+            let ground = theme.palette.chromeRoles.pane.hex
+            XCTAssertGreaterThan(self.countOther(than: ground, in: gutters[0], of: image), 0, "\(theme.id): Needs you overflows but draws no bar")
+            XCTAssertEqual(self.countOther(than: ground, in: gutters[2], of: image), 0, "\(theme.id): At rest fits but draws in its padding")
+        }
+    }
+
     func testAnEmptySubgroupDrawsNothingAndTheMarkIsTheOtherOnesStatus() async throws {
         let scenario = Scenario(name: "bottom-only", blocked: 0, done: 3, working: 0, background: 3)
         try await render(scenario) { theme, image, _ in
@@ -275,6 +291,11 @@ final class MissionLanesRenderTests: XCTestCase {
         context.scaleBy(x: Self.scale, y: Self.scale)
         view.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
         return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+    }
+
+    private func countOther(than hex: String, in rect: CGRect, of image: NSBitmapImageRep) -> Int {
+        let area = Int(rect.width * Self.scale) * Int(rect.height * Self.scale)
+        return area - count(hex, in: rect, of: image)
     }
 
     private func count(_ hex: String, in rect: CGRect, of image: NSBitmapImageRep) -> Int {
