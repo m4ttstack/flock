@@ -38,7 +38,7 @@ enum FlockClientGuard {
         let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
         guard let other = others.first else { return }
 
-        switch ask(about: other, declineTitle: "Quit This One") {
+        switch ask(about: other, copy: launchCopy(other: other.appName), declineTitle: "Quit This One") {
         case .quitOther:
             await quit(others)
         case .decline:
@@ -55,7 +55,9 @@ enum FlockClientGuard {
         let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
         guard let other = others.first else { return true }
 
-        switch ask(about: other, declineTitle: "Stay on \(stayLabel)") {
+        let target = HerdrServerAddress(socketPath: socketPath, home: NSHomeDirectory()).label
+        let copy = switchCopy(other: other.appName, target: target)
+        switch ask(about: other, copy: copy, declineTitle: "Stay on \(stayLabel)") {
         case .quitOther:
             await quit(others)
             return true
@@ -78,13 +80,33 @@ enum FlockClientGuard {
         )
     }
 
+    struct AlertCopy: Equatable {
+        let message: String
+        let detail: String
+    }
+
+    static func launchCopy(other: String) -> AlertCopy {
+        AlertCopy(
+            message: "\(other) is also open on this herdr session",
+            detail: "Two Flocks on one session fight over its panes: each takes them over and sizes "
+                + "them to its own window. Quit \(other) to keep working here?"
+        )
+    }
+
+    static func switchCopy(other: String, target: String) -> AlertCopy {
+        AlertCopy(
+            message: "\(other) is already open on \(target)",
+            detail: "Two Flocks on one herdr session fight over pane sizes. "
+                + "Quit \(other) to switch, stay where you are, or keep both."
+        )
+    }
+
     private enum Choice { case quitOther, decline, keepBoth }
 
-    private static func ask(about other: RunningFlock, declineTitle: String) -> Choice {
+    private static func ask(about other: RunningFlock, copy: AlertCopy, declineTitle: String) -> Choice {
         let alert = NSAlert()
-        alert.messageText = "\(other.appName) is also open on this herdr session"
-        alert.informativeText = "Two Flocks on one session fight over its panes: each takes them over and sizes "
-            + "them to its own window. Quit \(other.appName) to keep working here?"
+        alert.messageText = copy.message
+        alert.informativeText = copy.detail
         alert.addButton(withTitle: "Quit \(other.appName)")
         alert.addButton(withTitle: declineTitle)
         alert.addButton(withTitle: "Keep Both")
