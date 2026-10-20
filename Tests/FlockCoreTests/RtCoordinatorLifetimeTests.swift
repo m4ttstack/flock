@@ -488,6 +488,37 @@ final class RtCoordinatorLifetimeTests: XCTestCase {
         XCTAssertNil(rt.items["tok1"])
     }
 
+    /// A session torn down mid-close lets the close finish: cancelled part
+    /// way, it would forget the runner and then fail to close its workspace.
+    func testShutdownLetsAnInFlightShutDownRunToItsClose() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        await openRunner(world, rt)
+        let closing = Task { await rt.shutDown("tok1") }
+        for _ in 0..<100 where rt.shutdowns["tok1"] == nil { await Task.yield() }
+        let inFlight = try XCTUnwrap(rt.shutdowns["tok1"])
+
+        rt.shutdown()
+
+        XCTAssertFalse(inFlight.isCancelled)
+        XCTAssertEqual(rt.linkedPanes.pane(for: "tok1"), PaneID(rawValue: "w1:p1"))
+        await closing.value
+        XCTAssertEqual(FakeRtWorld.string(world.calls("workspace.close").first?["workspace_id"]), "wF1")
+        XCTAssertNil(rt.linkedPanes.pane(for: "tok1"))
+    }
+
+    func testNothingNewStartsAfterShutdown() async throws {
+        let world = FakeRtWorld()
+        let rt = makeCoordinator(world)
+        rt.shutdown()
+
+        rt.startWatch("tok9")
+        rt.background {}
+
+        XCTAssertTrue(rt.watches.isEmpty)
+        XCTAssertTrue(rt.pendingWork.isEmpty)
+    }
+
     func testShutDownOfAnAlreadyGoneItemReleasesItFromReaping() async throws {
         let world = FakeRtWorld()
         let rt = makeCoordinator(world)

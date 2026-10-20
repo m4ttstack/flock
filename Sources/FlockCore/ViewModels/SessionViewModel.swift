@@ -337,6 +337,8 @@ public final class SessionViewModel {
     /// into another workspace's tab, and a window showing that tab under the
     /// old workspace's rail and strip would show two workspaces at once.
     public func update(model herdrModel: SessionModel?, connection: ConnectionState) {
+        // A view still holding this session can deliver one more change.
+        guard !isShutDown else { return }
         let newFullModel = herdrModel.map(paneTitles.apply(to:))
         fullModel = newFullModel
         let user = newFullModel?.withoutFlockOwned
@@ -1457,6 +1459,8 @@ public final class SessionViewModel {
         navigationTargets.removeAll()
         backgroundWorkTimer?.cancel()
         backgroundWorkTimer = nil
+        backgroundWorkPanes.removeAll()
+        armedAgentStatusFeeds.removeAll()
         paneScrollSubscriber?.unsubscribeAll()
         paneAgentStatusSubscriber?.unsubscribeAll()
         rt.shutdown()

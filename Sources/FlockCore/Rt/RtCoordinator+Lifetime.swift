@@ -133,6 +133,9 @@ extension RtCoordinator {
     /// Something flock owns but will not keep: stopped cleanly, closed, and
     /// its files deleted when its label named a token.
     func orphan(_ closing: Closing, panes: [PaneID], token: String? = nil) {
+        // Its close runs in `background`, which a shut-down coordinator
+        // refuses; forgetting the link without it would strand the tab.
+        guard !isShutDown else { return }
         if case .tabs(let tabs) = closing { handledStrays.formUnion(tabs) }
         if let token { linkedPanes.forget(token) }
         background { [weak self] in

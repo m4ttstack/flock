@@ -58,6 +58,7 @@ public final class RtCoordinator {
     @ObservationIgnored var misses: [String: Int] = [:]
     @ObservationIgnored var shutdowns: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var pendingWork: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private(set) var isShutDown = false
     @ObservationIgnored var model: SessionModel?
     @ObservationIgnored var openedOrder: [String] = []
     @ObservationIgnored var opensInFlight = 0
@@ -228,6 +229,7 @@ public final class RtCoordinator {
 
     /// Runs `work` in the background, kept in `pendingWork` only while it runs.
     func background(_ work: @escaping @MainActor () async -> Void) {
+        guard !isShutDown else { return }
         let id = UUID()
         pendingWork[id] = Task { [weak self] in
             await work()
@@ -324,21 +326,22 @@ public final class RtCoordinator {
 
     // MARK: - watching
 
-    /// Stops this coordinator's own work for a session being torn down. The
-    /// rt items and their panes live in herdr and outlast it: nothing here
-    /// stops, closes or forgets them.
+    /// For a session being torn down: ends every watch and starts nothing
+    /// new. Shutdowns and background work already running are left to
+    /// finish, because their steps (stop, forget, close) have no safe point
+    /// to stop between: cut after the forget, a tab stays open in herdr that
+    /// flock no longer knows it owns. The rt items themselves live in herdr
+    /// and outlast the session.
     public func shutdown() {
+        isShutDown = true
         for task in watches.values { task.cancel() }
-        for task in shutdowns.values { task.cancel() }
-        for task in pendingWork.values { task.cancel() }
         watches.removeAll()
-        shutdowns.removeAll()
-        pendingWork.removeAll()
     }
 
     /// `self` is taken weakly on every poll, so a coordinator that goes away
     /// ends its watches rather than being kept alive by them.
     func startWatch(_ id: String) {
+        guard !isShutDown else { return }
         watches[id]?.cancel()
         let interval = config.pollInterval
         watches[id] = Task { [weak self] in
