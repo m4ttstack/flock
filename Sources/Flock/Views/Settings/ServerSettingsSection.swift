@@ -34,8 +34,7 @@ struct ServerSettingsSection: View {
                             get: { picker.isCurrent(entry) },
                             set: { _ in Task { await picker.choose(entry) } }
                         )) {
-                            Text(entry.name)
-                            Text(entry.isRunning ? "running" : "stopped")
+                            entry.menuTitle
                         }
                     }
                     Divider()
@@ -85,7 +84,7 @@ struct ServerSettingsSection: View {
         placeholder: String, text: Binding<String>, action: String, perform: @escaping @MainActor () async -> Void
     ) -> some View {
         HStack {
-            TextField(placeholder, text: text)
+            TextField(placeholder, text: text, prompt: Text(placeholder))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
                 .onSubmit { if !picker.isBusy { run(perform) } }
@@ -107,4 +106,9 @@ struct ServerSettingsSection: View {
         name = ""
         path = ""
     }
+}
+
+extension HerdrSessionEntry {
+    /// One `Text`: a menu item with two `Text`s renders the second as a subtitle line.
+    var menuTitle: Text { Text(name) + Text("  \(statusLabel)").foregroundStyle(.secondary) }
 }

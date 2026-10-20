@@ -14,4 +14,8 @@ final class HerdrSessionListTests: XCTestCase {
         XCTAssertNil(HerdrSessionList.parse(Data("nope".utf8)))
         XCTAssertNil(HerdrSessionList.parse(Data(#"{"sessions":3}"#.utf8)))
     }
+    func testStatusLabelNamesRunningAndStopped() {
+        XCTAssertEqual(HerdrSessionEntry(name: "a", isRunning: true, socketPath: "/s", isDefault: false).statusLabel, "running")
+        XCTAssertEqual(HerdrSessionEntry(name: "a", isRunning: false, socketPath: "/s", isDefault: false).statusLabel, "stopped")
+    }
 }
