@@ -886,7 +886,7 @@ Run: `Scripts/dev-build.sh --output /Users/matt/Documents/GitHub/flock/build/dev
 
 - [ ] **Step 4: Walk the acceptance with Matt in Flock Dev**
 
-Each line is one spec acceptance item; record what was seen.
+Each line is one spec acceptance item; record what was seen. While production Flock is on the default session, every move of Flock Dev back onto the default socket raises the two-Flocks prompt: choose Keep Both whenever it appears, except in item 10.
 
 1. Flock > Profile > New Profile…, name "demo", server "New server", server name `demo`, Create and Switch. The window stays open. There are no pins and only the fresh server's first workspace. There are no dock cards and no chat state, the theme and sizes are the defaults, and Board and Herds are absent.
 2. `ps -axo pid,command | grep -- "--bridge"`: every bridge names `.../sessions/demo/herdr.sock`, and none names the old socket.
