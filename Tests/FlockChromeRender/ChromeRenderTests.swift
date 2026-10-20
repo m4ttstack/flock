@@ -2791,14 +2791,26 @@ final class ChromeRenderTests: XCTestCase {
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
         var cases: [(
             name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab,
-            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?, picker: ServerPicker?
+            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?, picker: ServerPicker?,
+            profiles: (store: ProfileStore, locked: Bool, draft: String?)?
         )] = []
-        for tab in SettingsTab.allCases {
-            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil))
-            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil))
+        let profilesSuite = "\(ChromeRenderTests.defaultsSuite).profiles"
+        defer { UserDefaults().removePersistentDomain(forName: profilesSuite) }
+        let profileDefaults = try XCTUnwrap(UserDefaults(suiteName: profilesSuite))
+        profileDefaults.removeObject(forKey: ProfileStore.defaultsKey)
+        func makeProfileStore() -> ProfileStore {
+            ProfileStore(
+                userDefaults: profileDefaults, bundleID: "dev.acme.Flock",
+                defaultSocketPath: NSHomeDirectory() + "/.config/herdr/herdr.sock", removeSuite: { _ in }
+            )
         }
-        cases.append(("custom-tab-light", .aqua, customTab, .general, nil, nil))
-        cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil, nil))
+        for tab in SettingsTab.allCases {
+            let profiles = tab == .profiles ? (store: makeProfileStore(), locked: false, draft: String?.none) : nil
+            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil, profiles))
+            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil, profiles))
+        }
+        cases.append(("custom-tab-light", .aqua, customTab, .general, nil, nil, nil))
+        cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil, nil, nil))
         let updateKinds: [(kind: String, warning: Bool, runner: HerdrCommandRunner?)] = [
             ("note", false, nil), ("warning", true, nil),
             ("updating", false, HangingHerdrRunner()), ("error", false, FailingHerdrRunner()),
@@ -2814,7 +2826,7 @@ final class ChromeRenderTests: XCTestCase {
                     stores.update.confirmUpdate()
                     if kind == "error" { await stores.update.updateTask?.value }
                 }
-                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, nil))
+                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, nil, nil))
             }
         }
         let serverEntries = [
@@ -2831,15 +2843,38 @@ final class ChromeRenderTests: XCTestCase {
                     isLocked: locked, home: "/Users/acme"
                 )
                 await picker.refresh()
-                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker))
+                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
+            }
+        }
+        let profilesPicker = ServerPicker(
+            list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
+        )
+        await profilesPicker.refresh()
+        let listedProfiles = makeProfileStore()
+        let demo = try XCTUnwrap(listedProfiles.create(name: "Demo", socketPath: "/Users/someone/.config/herdr/sessions/acme/herdr.sock"))
+        listedProfiles.select(demo.id)
+        let profileKinds: [(kind: String, profiles: (store: ProfileStore, locked: Bool, draft: String?))] = [
+            ("list", (listedProfiles, false, nil)),
+            ("new", (makeProfileStore(), false, "Demo Video")),
+            ("locked", (makeProfileStore(), true, nil)),
+        ]
+        for (kind, profiles) in profileKinds {
+            for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                cases.append((
+                    "profiles-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .profiles,
+                    nil, profilesPicker, profiles
+                ))
             }
         }
         defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
         linkTrustStore.trust("vscode")
-        for (name, appearance, startingFolderStore, tab, stores, picker) in cases {
+        for (name, appearance, startingFolderStore, tab, stores, picker, profiles) in cases {
             let update = stores?.update
+            let selection = SettingsTabSelection(tab: tab)
+            selection.opensNewProfile = profiles?.draft != nil
             let view = FlockSettingsView(
                 herdrMousePatchStore: stores?.patch ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
@@ -2861,7 +2896,10 @@ final class ChromeRenderTests: XCTestCase {
                 herdrVersion: update == nil ? "0.9.3" : "0.9.5",
                 herdrUpdateStore: update,
                 serverPicker: picker,
-                tab: tab
+                profiles: profiles?.store,
+                isLocked: profiles?.locked ?? false,
+                newProfileDraft: profiles?.draft ?? "",
+                selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {
                 XCTAssertEqual(update?.updatePhase, .updating, "\(name): not mid-update")
