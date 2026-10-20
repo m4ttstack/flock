@@ -45,16 +45,29 @@ final class NoHerdrScreenTests: XCTestCase {
     /// The server's environment is every pane shell's, so rt's batch flag
     /// (set for flock's own children) must not reach it.
     func testTheServerStartsWithoutRtsBatchFlag() {
-        let environment = HerdrServerLauncher.environment(from: ["RT_BATCH": "1", "PATH": "/usr/bin", "HERDR_SOCKET_PATH": "/tmp/h.sock"])
+        let environment = HerdrServerLauncher.environment(from: ["RT_BATCH": "1", "PATH": "/usr/bin"], target: .defaultServer)
         XCTAssertNil(environment["RT_BATCH"])
         XCTAssertEqual(environment["PATH"], "/usr/bin")
-        XCTAssertEqual(environment["HERDR_SOCKET_PATH"], "/tmp/h.sock")
+    }
+
+    /// The server must not inherit the socket of whichever session flock
+    /// last pointed its tools at.
+    func testDefaultAndNamedServersStartWithoutTheSessionsSocket() {
+        for target: HerdrServerLauncher.Target in [.defaultServer, .named("acme")] {
+            let environment = HerdrServerLauncher.environment(from: ["HERDR_SOCKET_PATH": "/tmp/h.sock"], target: target)
+            XCTAssertNil(environment["HERDR_SOCKET_PATH"], "\(target)")
+        }
+    }
+
+    func testAnOverrideServerStartsOnItsSocket() {
+        let environment = HerdrServerLauncher.environment(from: [:], target: .overrideSocket("/tmp/acme/x.sock"))
+        XCTAssertEqual(environment["HERDR_SOCKET_PATH"], "/tmp/acme/x.sock")
     }
 
     /// herdr's own client sets this when it starts a server; without it the
     /// server stays in the launching app's bootstrap context.
     func testTheServerAsksHerdrForThePerUserServiceContext() {
-        let environment = HerdrServerLauncher.environment(from: ["PATH": "/usr/bin"])
+        let environment = HerdrServerLauncher.environment(from: ["PATH": "/usr/bin"], target: .defaultServer)
         XCTAssertEqual(environment["HERDR_MACOS_SERVER_CONTEXT"], "user")
     }
 

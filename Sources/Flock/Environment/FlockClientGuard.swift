@@ -11,7 +11,11 @@ enum FlockClientGuard {
     /// anyway.
     static let quitGrace: Duration = .seconds(5)
 
-    static func settle(socketPath: String, defaultSocketPath: String) async {
+    private static var unregisterInstalled = false
+
+    /// Writes this process's record for `socketPath`, replacing any earlier
+    /// one. The unregister on quit is installed once however often this runs.
+    static func register(socketPath: String) {
         let registry = FlockClientRegistry.shared
         let me = ProcessInfo.processInfo.processIdentifier
         ReleaseSignal.listen()
@@ -22,48 +26,80 @@ enum FlockClientGuard {
             socketPath: socketPath,
             hidesOnRelease: true
         ))
+        guard !unregisterInstalled else { return }
+        unregisterInstalled = true
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in registry.unregister(pid: me) }
+    }
 
-        let running = NSWorkspace.shared.runningApplications.compactMap { app -> RunningFlock? in
-            guard let id = app.bundleIdentifier, flockBundleIDs.contains(id), !app.isTerminated else { return nil }
-            return RunningFlock(pid: app.processIdentifier, bundleID: id, appName: app.localizedName ?? "Flock")
-        }
-        let others = FlockClientConflict.others(
-            attachedTo: socketPath, selfPID: me, records: registry.records(),
-            running: running, defaultSocketPath: defaultSocketPath
-        )
+    static func settle(socketPath: String, defaultSocketPath: String) async {
+        register(socketPath: socketPath)
+        let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
         guard let other = others.first else { return }
 
-        switch ask(about: other) {
+        switch ask(about: other, declineTitle: "Quit This One") {
         case .quitOther:
-            for flock in others {
-                NSRunningApplication(processIdentifier: flock.pid)?.terminate()
-            }
-            await waitForExit(of: others.map(\.pid))
-        case .quitThis:
+            await quit(others)
+        case .decline:
             NSApp.terminate(nil)
         case .keepBoth:
             break
         }
     }
 
-    private enum Choice { case quitOther, quitThis, keepBoth }
+    /// Asked before this Flock moves to `socketPath`. False means stay where
+    /// it is; true means go ahead, with any other Flock on that session
+    /// either gone or knowingly kept.
+    static func confirmAttach(socketPath: String, defaultSocketPath: String, stayLabel: String) async -> Bool {
+        let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
+        guard let other = others.first else { return true }
 
-    private static func ask(about other: RunningFlock) -> Choice {
+        switch ask(about: other, declineTitle: "Stay on \(stayLabel)") {
+        case .quitOther:
+            await quit(others)
+            return true
+        case .decline:
+            return false
+        case .keepBoth:
+            return true
+        }
+    }
+
+    private static func conflicts(on socketPath: String, defaultSocketPath: String) -> [RunningFlock] {
+        let running = NSWorkspace.shared.runningApplications.compactMap { app -> RunningFlock? in
+            guard let id = app.bundleIdentifier, flockBundleIDs.contains(id), !app.isTerminated else { return nil }
+            return RunningFlock(pid: app.processIdentifier, bundleID: id, appName: app.localizedName ?? "Flock")
+        }
+        return FlockClientConflict.others(
+            attachedTo: socketPath, selfPID: ProcessInfo.processInfo.processIdentifier,
+            records: FlockClientRegistry.shared.records(),
+            running: running, defaultSocketPath: defaultSocketPath
+        )
+    }
+
+    private enum Choice { case quitOther, decline, keepBoth }
+
+    private static func ask(about other: RunningFlock, declineTitle: String) -> Choice {
         let alert = NSAlert()
         alert.messageText = "\(other.appName) is also open on this herdr session"
         alert.informativeText = "Two Flocks on one session fight over its panes: each takes them over and sizes "
             + "them to its own window. Quit \(other.appName) to keep working here?"
         alert.addButton(withTitle: "Quit \(other.appName)")
-        alert.addButton(withTitle: "Quit This One")
+        alert.addButton(withTitle: declineTitle)
         alert.addButton(withTitle: "Keep Both")
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .quitOther
-        case .alertSecondButtonReturn: return .quitThis
+        case .alertSecondButtonReturn: return .decline
         default: return .keepBoth
         }
+    }
+
+    private static func quit(_ flocks: [RunningFlock]) async {
+        for flock in flocks {
+            NSRunningApplication(processIdentifier: flock.pid)?.terminate()
+        }
+        await waitForExit(of: flocks.map(\.pid))
     }
 
     private static func waitForExit(of pids: [Int32]) async {

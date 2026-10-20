@@ -47,12 +47,28 @@ enum ToolPath {
     /// `/usr/bin:/bin:/usr/sbin:/sbin`, where neither rt nor mise's shims
     /// live. `RT_BATCH` is set because nothing flock runs has a person at a
     /// prompt to answer rt's pickers. Reads `resolved`, so call it off the
-    /// main actor.
+    /// main actor. Children are told the current session's socket once
+    /// `setHerdrSocket` has named it.
     static func childEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = resolved
+        childEnvironment(
+            base: ProcessInfo.processInfo.environment, path: resolved,
+            herdrSocket: herdrSocket.withLock { $0 }
+        )
+    }
+
+    static func childEnvironment(base: [String: String], path: String, herdrSocket: String?) -> [String: String] {
+        var environment = base
+        environment["PATH"] = path
         environment["RT_BATCH"] = "1"
+        if let herdrSocket { environment["HERDR_SOCKET_PATH"] = herdrSocket }
         return environment
+    }
+
+    /// Read from whatever thread spawns a child, written from the main actor.
+    private static let herdrSocket = OSAllocatedUnfairLock<String?>(initialState: nil)
+
+    static func setHerdrSocket(_ socketPath: String) {
+        herdrSocket.withLock { $0 = socketPath }
     }
 
     /// Where `name` resolves on that PATH, or nil. The directory scan is fresh
