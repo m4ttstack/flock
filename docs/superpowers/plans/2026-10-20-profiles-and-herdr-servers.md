@@ -16,7 +16,7 @@
 - No em or en dashes anywhere (`Scripts/checks.sh` fails on them).
 - Comments state constraints the code cannot show; no narration or history.
 - Tests stay hermetic: no test spawns rt, herdr, herdr-chat or deck, reads `~/.mattstack`, or reaches the network. Stores take injected `UserDefaults` and sources.
-- Never `herdr server stop`, never `pane.scroll`, never `layout.apply` on live panes. flock never stops or deletes herdr sessions.
+- Never `herdr server stop`, never `pane.scroll`, never `layout.apply` on live panes. flock stops or deletes a named herdr session only from Settings > herdr > Servers (Task 11), after a confirmation, by name with `HERDR_SOCKET_PATH` removed, and never the default server, the current one, or one another Flock holds.
 - Child processes get `ToolPath.childEnvironment()`, which carries the current session's socket in `HERDR_SOCKET_PATH`. The one exception is the server launcher (Task 5).
 - `@MainActor` test classes: statics read in `setUp`/`tearDown` are `nonisolated`.
 - Switching never quits flock. One window; no multi-window work.
@@ -855,6 +855,50 @@ git add -u Sources Tests && git add Sources/Flock/Views/Settings/ProfilesSetting
 Scripts/checks.sh
 git commit -m "profiles: a Profiles settings tab and a Profile menu"
 ```
+
+---
+
+### Task 11: Settings > herdr > Servers: stop and delete named sessions
+
+Added after the walkthrough at Matt's request (spec section 4, "Stopping and deleting servers").
+
+**Files:**
+- Create: `Sources/FlockCore/Herdr/HerdrServerActions.swift`
+- Create: `Sources/Flock/Herdr/HerdrSessionControl.swift`
+- Create: `Sources/Flock/Views/Settings/ServersSettingsSection.swift`
+- Modify: `Sources/Flock/Views/Settings/ServerPicker.swift`, `Sources/Flock/Environment/FlockClientGuard.swift`, `Sources/Flock/Views/Settings/FlockSettingsView.swift` (herdr tab, after the Server row), `Sources/Flock/FlockApp.swift` (wiring)
+- Test: `Tests/FlockCoreTests/HerdrServerActionsTests.swift`, `Tests/FlockChromeRender/ServerPickerTests.swift`, `Tests/FlockChromeRender/ChromeRenderTests.swift` (settings render cases)
+
+**Interfaces:**
+- Consumes: `HerdrSessionEntry`, `HerdrServerAddress` (Task 1); `ServerPicker` and its busy guard (Task 8); `FlockClientRegistry`/`FlockClientConflict` (existing); `ProfileStore.profiles`, `socketPath(of:)` (Task 2).
+- Produces:
+  - FlockCore: `public enum HerdrServerAction: Equatable, Sendable { case stop, delete, unavailable(String) }` and `public enum HerdrServerActions { public static func action(for entry: HerdrSessionEntry, currentSocket: String, home: String, heldBy: (String) -> String?) -> HerdrServerAction }`. Socket comparison is on `HerdrServerAddress.normalize`d paths. Order: `entry.isDefault` gives `.unavailable("herdr's own server")`; the current socket gives `.unavailable("This Flock is on it")`; `heldBy(socket)` returning an app name gives `.unavailable("Open in <app>")`; otherwise running gives `.stop`, stopped gives `.delete`.
+  - `enum HerdrSessionControl { static func stop(name: String) async -> Result<Void, HerdrSessionControl.Failure>; static func delete(name: String) async -> Result<Void, HerdrSessionControl.Failure> }`: `herdr session stop|delete <name> --json` through `ToolRunner`, 10 s deadline, the child environment with `HERDR_SOCKET_PATH` removed (as `HerdrSessionLister`). `Failure.message`: herdr's stderr trimmed when non-empty, else `herdr couldn't stop "<name>".` / `herdr couldn't delete "<name>".`; not found on PATH reuses the launcher's not-found copy. Refuses (without spawning) a name that fails `HerdrServerAddress.isValidSessionName`.
+  - `FlockClientGuard.holder(of socketPath: String, defaultSocketPath: String) -> String?`: the app name of another running Flock attached to that socket (the same check `confirmAttach` runs), else nil.
+  - `ServerPicker` gains init parameters `stop: @escaping (String) async -> Result<Void, String>` and `delete: @escaping (String) async -> Result<Void, String>` (defaulted to failures for existing call sites), plus `func stopServer(name: String) async` and `func deleteServer(name: String) async`: busy-guarded like `startNew`; on failure set `failure` to the message; on success clear `failure`; `refresh()` after either.
+  - `ServersSettingsSection(picker:profiles:currentSocket:heldBy:home:)`: a `Section("Servers")` with one row per `picker.entries` entry (default included): name with `running`/`stopped` beside it on one line, then the action from `HerdrServerActions.action`: a **Stop** or **Delete** button, or the unavailable reason as secondary text. Both buttons confirm with an alert:
+    - Stop: title `Stop “<name>”?`, message `Every pane and agent on it closes. This can't be undone.`, buttons **Stop** (destructive) and **Cancel**.
+    - Delete: title `Delete “<name>”?`, message `Its saved workspaces go. This can't be undone.`, plus ` Used by <profile names, comma separated>.` when any profile's `socketPath(of:)` is that session's socket; buttons **Delete** (destructive) and **Cancel**.
+    - Buttons disabled while `picker.isBusy`; the picker's `failure` shows under the section. Hidden entirely when locked by `HERDR_SOCKET_PATH`.
+
+- [ ] **Step 1: Write the failing tests**
+  - `HerdrServerActionsTests`: `testDefaultIsNeverOffered`, `testTheCurrentServerIsNeverOffered` (current given as a `~`-spelled path), `testAServerAnotherFlockHoldsSaysWhere` (`heldBy` returns `"Flock"` gives `.unavailable("Open in Flock")`), `testRunningGetsStopAndStoppedGetsDelete`.
+  - `ServerPickerTests`: `testStopServerStopsByNameThenRefreshes`, `testDeleteServerDeletesByNameThenRefreshes`, `testAFailedStopShowsHerdrsMessage`, `testStopWhileBusyDoesNothing`.
+  - Settings render: `herdr-servers-<light|dark>` with entries `default` (running), `acme` (running, current), `demo` (stopped), `review` (running, held by "Flock").
+- [ ] **Step 2: Regenerate and run to see them fail** (`xcodegen`, then the two `-only-testing` runs).
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run, render to `$PWD/build/renders/settings`, Read every `settings-herdr-servers-*.png`; build the Flock scheme.**
+- [ ] **Step 5: Commit** `settings: stop and delete named herdr servers, never the default, the current or another Flock's`.
+
+---
+
+### Task 12: Server menu and inline field polish
+
+From the walkthrough. **Files:** `Sources/Flock/Views/Settings/ServerSettingsSection.swift`, `Sources/Flock/Views/Settings/ProfilesSettingsSection.swift`, `Tests/FlockChromeRender/ChromeRenderTests.swift`.
+
+- Every server menu item (Settings > herdr > Server, each profile row's server menu, the New Profile form's Server menu) shows `running` or `stopped` beside the name on one line, secondary-styled where the menu allows, never as a second line.
+- The inline New Server field's placeholder is `Server name`; the Custom Socket Path fields' placeholder is `Socket path` (both sections).
+- Re-render `herdr-server-new-*`, `herdr-server-custom-*` and the profiles renders and Read them. Commit `settings: running and stopped beside each server; placeholders on the inline fields`.
 
 ---
 

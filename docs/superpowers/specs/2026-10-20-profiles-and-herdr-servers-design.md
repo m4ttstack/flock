@@ -236,8 +236,28 @@ since flock cannot know how to start it. flock keeps checking (cadence is
 the builder's call; a socket connect every couple of seconds is plenty) and
 attaches as soon as the server answers.
 
-Not in scope: stopping or deleting herdr sessions from flock. That stays
-with the herdr CLI.
+**Stopping and deleting servers.** Settings > herdr lists every named
+session from `herdr session list` under a **Servers** section, each with
+running or stopped beside its name:
+
+- A running session has **Stop**, which runs `herdr session stop <name>`.
+- A stopped session has **Delete**, which runs `herdr session delete <name>`
+  (herdr refuses to delete a running one).
+- Both ask first. Stop says every pane and agent on that server closes;
+  Delete says its saved workspaces go. Neither can be undone.
+- Neither is offered for the default server, for the server this flock is
+  on, or for a server another running Flock's registry record names. Those
+  rows say why instead. (My call: stopping the server under your own window,
+  or under another Flock, is never what a cleanup click means.)
+- A profile whose server was deleted keeps pointing at it; picking that
+  profile shows the not-running screen, and Start creates the session again.
+  The Delete confirmation names the profiles that use it.
+- Both run by session name with `HERDR_SOCKET_PATH` removed, like the list,
+  so neither can reach a server other than the one named. The list
+  refreshes after each.
+
+(Updated 2026-10-20 at Matt's request during the walkthrough; this reverses
+the earlier "not in scope".)
 
 ## 5. Choosing a profile
 
@@ -265,7 +285,7 @@ with the herdr CLI.
 - What runs inside panes. A demo server's shells still use the user's own
   shell config, prompt and history; isolating those is a recording-setup
   concern (a different `HOME` or `ZDOTDIR` for that server), not flock's.
-- Stopping or deleting herdr sessions.
+- Stopping the default server, or deleting a session that is running.
 
 ## Anti-goals
 
@@ -300,6 +320,10 @@ with the herdr CLI.
   the next launch unchanged.
 - Deleting a profile removes its preferences suite and every server suite;
   Default cannot be deleted.
+- Settings > herdr > Servers stops a running named session and deletes a
+  stopped one, each after a confirmation. Neither is offered for the
+  default server, the current one, or one another Flock is on, and the
+  list shows the change.
 - `HERDR_SOCKET_PATH` set: flock uses it with id-keyed state from
   `<bundle id>.override`, the server picker says so and is disabled, profile
   switching is disabled, and no profile's saved server or `knownSockets`
