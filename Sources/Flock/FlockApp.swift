@@ -56,59 +56,22 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
 
 struct FlockApp: App {
     @NSApplicationDelegateAdaptor(FlockAppDelegate.self) private var appDelegate
-    @State private var themeStore = ThemeStore()
-    @State private var terminalTextSizeStore = TerminalTextSizeStore()
-    @State private var rtModalSizeStore = RtModalSizeStore()
-    @State private var topBarLabelStore = TopBarLabelStore()
-    @State private var topBarOverlaySizeStore = TopBarOverlaySizeStore()
-    @State private var rtModalTextSizeStore = RtModalTextSizeStore()
-    @State private var optionAsAltStore = OptionAsAltStore()
-    @State private var notificationLifetimeStore: NotificationLifetimeStore
-    @State private var allWorkspacesModeStore: AllWorkspacesModeStore
-    @State private var missionBottomLineStore = MissionBottomLineStore()
-    @State private var overviewReturnStore: OverviewReturnStore
-    @State private var overviewInclusionStore = OverviewInclusionStore()
-    @State private var oneTitleStore: OneTitleStore
-    @State private var agentCloseWarningStore: AgentCloseWarningStore
-    @State private var linkTrustStore: LinkTrustStore
-    @State private var workspaceIdentityStore: WorkspaceIdentityStore
-    @State private var rearrangeAfterMoveStore: RearrangeAfterMoveStore
-    @State private var startingFolderStore: StartingFolderStore
-    @State private var scrollSpeedStore = ScrollSpeedStore()
-    @State private var railWidthStore = RailWidthStore()
-    @State private var sectionCollapseStore = SectionCollapseStore()
+    @State private var controller: ProfileSessionController<FlockSession>
     @State private var boardStore: BoardStore
     @State private var cswapStore = CswapStore()
     @State private var devBuildWatcher: DevBuildWatcher? = BuildFlavor.isDev ? DevBuildWatcher() : nil
     @State private var devRebuild: DevRebuild?
-    @State private var herdProgressStore = HerdProgressStore()
-    @State private var toastCenter: ToastCenter
-    @State private var chatStore: ChatStore
-    @State private var herdrStore: HerdrStore
+    @State private var herdProgressStore: HerdProgressStore
     @State private var herdrToolStore = HerdrToolStore()
-    @State private var isStartingHerdr = false
-    @State private var herdrStartFailure: String?
     @State private var herdrMousePatchStore: HerdrMousePatchStore
     @State private var herdrUpdateStore: HerdrUpdateStore
     @State private var settingsTabSelection = SettingsTabSelection()
     @State private var commandLineToolStore = CommandLineToolStore()
-    @State private var viewModel: SessionViewModel
-    @State private var undoJournal: UndoJournal
-    @State private var rearrangeMode: RearrangeMode
-    @State private var dragCoordinator: DragCoordinator
-    @State private var dividerDragCoordinator: DividerDragCoordinator
-    @State private var commandPalette = CommandPaletteState()
-    @State private var paletteRecents = PaletteRecentsStore()
-    @State private var workspaceSwitcher = WorkspaceSwitcher()
-    @State private var tabSwitcher = TabSwitcher()
-    /// Held for the app's life so its notification observers outlive `init`.
-    @State private var herdrHoldCoordinator: HerdrHoldCoordinator
     #if FLOCK_SPARKLE
     @State private var updater = Updater()
     #endif
 
-    private let sessionLabel: String
-    private let socketPath: String
+    private let defaultSocketPath: String
 
     init() {
         // The one setting that actually stops AppKit's legacy
@@ -144,155 +107,95 @@ struct FlockApp: App {
         // bridge is handed the herdr binary it resolves and a reader that gets
         // there first has to wait for it.
         ToolPath.warm(reporting: ["herdr", "rt", "deck"] + HarnessRoster.known.map(\.binary))
-        let socketPath = Self.resolveSocketPath()
-        // A plain local, not `self.themeStore`: an escaping closure built
-        // here (below) cannot capture any part of `self` before every stored
-        // property is assigned, so this is constructed once, up front, and
-        // both `_themeStore` and the closure below capture THIS reference
-        // rather than reading it back off `self`.
-        let themeStore = ThemeStore()
-        _themeStore = State(initialValue: themeStore)
-        let terminalTextSizeStore = TerminalTextSizeStore()
-        _terminalTextSizeStore = State(initialValue: terminalTextSizeStore)
-        let optionAsAltStore = OptionAsAltStore()
-        _optionAsAltStore = State(initialValue: optionAsAltStore)
-        let scrollSpeedStore = ScrollSpeedStore()
-        _scrollSpeedStore = State(initialValue: scrollSpeedStore)
-        let linkTrustStore = LinkTrustStore()
-        _linkTrustStore = State(initialValue: linkTrustStore)
-        let notificationLifetimeStore = NotificationLifetimeStore()
-        _notificationLifetimeStore = State(initialValue: notificationLifetimeStore)
-        _allWorkspacesModeStore = State(initialValue: AllWorkspacesModeStore())
-        let workspaceIdentityStore = WorkspaceIdentityStore()
-        _workspaceIdentityStore = State(initialValue: workspaceIdentityStore)
-        let toastCenter = ToastCenter()
-        _toastCenter = State(initialValue: toastCenter)
-        _devRebuild = State(initialValue: BuildFlavor.isDev ? DevRebuild(notice: { toastCenter.show($0, kind: .info) }) : nil)
-        // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
-        // main actor via its `probeTask`; nothing here reads it synchronously.
-        let chatStore = ChatStore(toasts: toastCenter)
-        _chatStore = State(initialValue: chatStore)
-        let herdrStore = Self.makeHerdrStore(socketPath: socketPath)
-        _herdrStore = State(initialValue: herdrStore)
-        let undoJournal = UndoJournal(
-            executor: herdrStore,
-            model: { herdrStore.model },
-            notify: { message in toastCenter.show(message) }
-        )
-        _undoJournal = State(initialValue: undoJournal)
+        let home = NSHomeDirectory()
+        let defaultSocketPath = HerdrServerAddress.defaultServer.socketPath(home: home)
+        self.defaultSocketPath = defaultSocketPath
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.mattstack.Flock"
+        let environment = ProcessInfo.processInfo.environment
+        let socketOverride = environment["HERDR_SOCKET_PATH"].flatMap { $0.isEmpty ? nil : $0 }
+        let resnapshotInterval = Self.resnapshotInterval(from: environment)
         // Absent only when libghostty itself failed to initialize (see
         // `GhosttyHost.Failure`): every pane then stays in status-card mode
         // with no live attach at all, rather than the app failing to launch.
         let ghosttyHost = try? GhosttyHost()
-        ghosttyHost?.onClipboardWrite = { text, paneID in
-            toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied, in: paneID)
-        }
-        let ghosttyFactory = ghosttyHost.map { host in
-            GhosttyControlSurfaceFactory(
-                host: host, socketPath: socketPath,
-                themeColors: { themeStore.active.ghosttyThemeColors() },
-                fontSizePoints: { terminalTextSizeStore.points },
-                optionAsAlt: { optionAsAltStore.active },
-                scrollSpeed: { scrollSpeedStore.active },
-                linkTrust: linkTrustStore
+        let boardStore = BoardStore()
+        _boardStore = State(initialValue: boardStore)
+        let herdProgressStore = HerdProgressStore()
+        _herdProgressStore = State(initialValue: herdProgressStore)
+        let controller = ProfileSessionController<FlockSession>(
+            profiles: ProfileStore(bundleID: bundleID, defaultSocketPath: defaultSocketPath),
+            environment: ProfileSessionEnvironment(
+                bundleID: bundleID,
+                defaultSocketPath: defaultSocketPath,
+                home: home,
+                socketOverride: socketOverride,
+                defaults: { suiteName in suiteName.flatMap { UserDefaults(suiteName: $0) } ?? .standard },
+                confirmAttach: { socketPath, stayLabel in
+                    await FlockClientGuard.confirmAttach(
+                        socketPath: socketPath, defaultSocketPath: defaultSocketPath, stayLabel: stayLabel
+                    )
+                },
+                register: { FlockClientGuard.register(socketPath: $0) },
+                setChildSocket: { ToolPath.setHerdrSocket($0) },
+                make: { context in
+                    FlockSession(
+                        context: context, ghosttyHost: ghosttyHost, board: boardStore,
+                        herdProgress: herdProgressStore, resnapshotInterval: resnapshotInterval
+                    )
+                }
             )
-        }
-        // Pane-scoped scroll state rides one subscription connection per
-        // visible pane, never the store's blanket subscription; it lands in
-        // the same model the blanket feed reduces into.
-        let paneScrollSubscriber = HerdrPaneScrollSubscriber(socketPath: socketPath) { pane, scroll in
-            herdrStore.applyScrollChanged(pane: pane, scroll: scroll)
-        }
-        // Agent status rides its own per-pane connection for the same reason,
-        // but armed for EVERY pane herdr reports rather than the visible ones:
-        // the rail dot and the attention toasts report the pane nobody is
-        // looking at.
-        let paneAgentStatusSubscriber = HerdrPaneAgentStatusSubscriber(socketPath: socketPath) { pane, status in
-            herdrStore.applyAgentStatusChanged(pane: pane, status: status)
-        }
-        let startingFolderStore = StartingFolderStore()
-        _startingFolderStore = State(initialValue: startingFolderStore)
-        let oneTitleStore = OneTitleStore()
-        _oneTitleStore = State(initialValue: oneTitleStore)
-        let agentCloseWarningStore = AgentCloseWarningStore()
-        _agentCloseWarningStore = State(initialValue: agentCloseWarningStore)
-        // One client, two roles: `HerdrClient` conforms to both
-        // `HerdrCommandClient` and `LayoutExportClient`, so the view-model's
-        // command verbs and the layout-export coordinator share the same
-        // actor rather than opening a second one.
-        let herdrClient = HerdrClient(socketPath: socketPath)
-        let viewModel = SessionViewModel(
-            client: herdrClient,
-            ghosttyFactory: ghosttyFactory,
-            layoutExportClient: herdrClient,
-            planExecutor: herdrStore,
-            undoJournal: undoJournal,
-            paneScrollSubscriber: paneScrollSubscriber,
-            paneAgentStatusSubscriber: paneAgentStatusSubscriber,
-            // Not an undo/redo notice -- an invalid move or a plan/herdr
-            // failure from `perform`/`closePane` -- so this gets the
-            // neutral info glyph, never the undo journal's arrow.
-            noticeSink: { message in toastCenter.show(message, kind: .info) },
-            notificationLifetime: { notificationLifetimeStore.active },
-            attentionToastArchive: AttentionToastArchive(),
-            paneLastChangeArchive: PaneLastChangeArchive(),
-            oneTitle: { oneTitleStore.active },
-            agentCloseWarning: agentCloseWarningStore,
-            startingFolder: { startingFolderStore.choice(for: $0) },
-            rightClickDefaults: .standard,
-            completedTabDefaults: .standard,
-            paneTitleDefaults: .standard,
-            pinnedWorkspaceDefaults: .standard,
-            identity: workspaceIdentityStore,
-            cswapAccounts: CswapList.read
         )
-        _viewModel = State(initialValue: viewModel)
-        FlockAppDelegate.onTerminate.append { viewModel.flushPaneTitles() }
-        _herdrHoldCoordinator = State(initialValue: HerdrHoldCoordinator(viewModel: viewModel))
+        _controller = State(initialValue: controller)
+        // These read the session through the controller each time, so none of
+        // them holds on to one a switch has replaced.
+        ghosttyHost?.onClipboardWrite = { text, paneID in
+            controller.session.toastCenter.show(CopiedToastMessage.make(for: text), kind: .copied, in: paneID)
+        }
+        _devRebuild = State(
+            initialValue: BuildFlavor.isDev ? DevRebuild(notice: { controller.session.toastCenter.show($0, kind: .info) }) : nil
+        )
+        FlockAppDelegate.onTerminate.append { controller.session.viewModel.flushPaneTitles() }
         let herdrMousePatchStore = HerdrMousePatchStore()
         _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
         _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
-            patchStore: herdrMousePatchStore, installedVersion: { [viewModel] in viewModel.model?.herdrVersion }
+            patchStore: herdrMousePatchStore, installedVersion: { controller.session.viewModel.model?.herdrVersion }
         ))
-        let rearrangeAfterMoveStore = RearrangeAfterMoveStore()
-        _rearrangeAfterMoveStore = State(initialValue: rearrangeAfterMoveStore)
-        let rearrangeMode = RearrangeMode(afterMove: { rearrangeAfterMoveStore.active })
-        _rearrangeMode = State(initialValue: rearrangeMode)
-        let boardStore = BoardStore()
-        _boardStore = State(initialValue: boardStore)
-        let overviewReturnStore = OverviewReturnStore()
-        _overviewReturnStore = State(initialValue: overviewReturnStore)
-        let dragCoordinator = DragCoordinator(
-            toasts: toastCenter,
-            rearrangeMode: rearrangeMode,
-            commit: { subject, target in await viewModel.perform(subject: subject, target: target, board: boardStore.names) },
-            // Reveals the dwelled-on tab or workspace in place, which is a
-            // local selection only: a `*.focus` RPC mid-drag would move
-            // herdr's own focus for what is still just a hover.
-            reveal: { target in
-                switch target {
-                case .tabThumbnail(let id): viewModel.select(tab: id)
-                case .workspaceThumbnail(let id): viewModel.select(workspace: id)
-                case .paneEdge, .paneInterior, .tabStrip, .newTab, .newWorkspace, .emptyPin, .workspaceRail, .pinnedRail, .topBar: break
-                }
-            },
-            // Repo and branch are read again each time the view opens.
-            gridOpened: {
-                viewModel.repoBranches.invalidate()
-                viewModel.isMainCanvasCovered = true
-            },
-            gridClosed: { viewModel.isMainCanvasCovered = false },
-            gridHoldsEscape: { viewModel.renameTarget != nil || viewModel.paneShownInOverview != nil }
-        )
-        dragCoordinator.keepsOverviewPane = { overviewReturnStore.active == .openPane }
-        _dragCoordinator = State(initialValue: dragCoordinator)
-        let dividerDragSession = DividerDragSession(
-            commit: { tab, path, ratio in await viewModel.setSplitRatio(tab: tab, path: path, ratio: ratio) }
-        )
-        _dividerDragCoordinator = State(initialValue: DividerDragCoordinator(session: dividerDragSession))
-        sessionLabel = Self.sessionLabel(fromSocketPath: socketPath)
-        self.socketPath = socketPath
     }
+
+    private var session: FlockSession { controller.session }
+    private var themeStore: ThemeStore { session.themeStore }
+    private var terminalTextSizeStore: TerminalTextSizeStore { session.terminalTextSizeStore }
+    private var rtModalSizeStore: RtModalSizeStore { session.rtModalSizeStore }
+    private var topBarLabelStore: TopBarLabelStore { session.topBarLabelStore }
+    private var topBarOverlaySizeStore: TopBarOverlaySizeStore { session.topBarOverlaySizeStore }
+    private var rtModalTextSizeStore: RtModalTextSizeStore { session.rtModalTextSizeStore }
+    private var optionAsAltStore: OptionAsAltStore { session.optionAsAltStore }
+    private var notificationLifetimeStore: NotificationLifetimeStore { session.notificationLifetimeStore }
+    private var allWorkspacesModeStore: AllWorkspacesModeStore { session.allWorkspacesModeStore }
+    private var missionBottomLineStore: MissionBottomLineStore { session.missionBottomLineStore }
+    private var overviewReturnStore: OverviewReturnStore { session.overviewReturnStore }
+    private var overviewInclusionStore: OverviewInclusionStore { session.overviewInclusionStore }
+    private var oneTitleStore: OneTitleStore { session.oneTitleStore }
+    private var agentCloseWarningStore: AgentCloseWarningStore { session.agentCloseWarningStore }
+    private var linkTrustStore: LinkTrustStore { session.linkTrustStore }
+    private var workspaceIdentityStore: WorkspaceIdentityStore { session.workspaceIdentityStore }
+    private var rearrangeAfterMoveStore: RearrangeAfterMoveStore { session.rearrangeAfterMoveStore }
+    private var startingFolderStore: StartingFolderStore { session.startingFolderStore }
+    private var scrollSpeedStore: ScrollSpeedStore { session.scrollSpeedStore }
+    private var railWidthStore: RailWidthStore { session.railWidthStore }
+    private var sectionCollapseStore: SectionCollapseStore { session.sectionCollapseStore }
+    private var toastCenter: ToastCenter { session.toastCenter }
+    private var chatStore: ChatStore { session.chatStore }
+    private var herdrStore: HerdrStore { session.herdrStore }
+    private var viewModel: SessionViewModel { session.viewModel }
+    private var undoJournal: UndoJournal { session.undoJournal }
+    private var rearrangeMode: RearrangeMode { session.rearrangeMode }
+    private var dragCoordinator: DragCoordinator { session.dragCoordinator }
+    private var dividerDragCoordinator: DividerDragCoordinator { session.dividerDragCoordinator }
+    private var commandPalette: CommandPaletteState { session.commandPalette }
+    private var paletteRecents: PaletteRecentsStore { session.paletteRecents }
+    private var workspaceSwitcher: WorkspaceSwitcher { session.workspaceSwitcher }
+    private var tabSwitcher: TabSwitcher { session.tabSwitcher }
 
     private var navigator: JumpNavigator {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesModeStore)
@@ -318,27 +221,39 @@ struct FlockApp: App {
 
     private var notRunningCopy: NoHerdrScreen.Copy {
         let copy = NoHerdrScreen.notRunning
-        guard let herdrStartFailure else { return copy }
+        guard let herdrStartFailure = session.herdrStartFailure else { return copy }
         return NoHerdrScreen.Copy(headline: copy.headline, body: copy.body, hint: herdrStartFailure)
+    }
+
+    /// A custom socket is attach-only to herdr, so starting one is what an
+    /// override always did: `herdr server` bound to that path.
+    private var startTarget: HerdrServerLauncher.Target {
+        if controller.isLocked { return .overrideSocket(session.socketPath) }
+        switch session.address {
+        case .defaultServer: return .defaultServer
+        case .named(let name): return .named(name)
+        case .custom(let path): return .overrideSocket(path)
+        }
     }
 
     /// The store is already retrying the socket, so a server that comes up is
     /// picked up by it; this only lets the button be pressed again if none did.
     private func startHerdr() {
-        herdrStartFailure = nil
-        switch HerdrServerLauncher.start() {
+        let session = self.session
+        session.herdrStartFailure = nil
+        switch HerdrServerLauncher.start(startTarget) {
         case .success:
-            isStartingHerdr = true
+            session.isStartingHerdr = true
             Task {
                 try? await Task.sleep(for: .seconds(10))
-                guard isStartingHerdr, case .notRunning = viewModel.connectionState else { return }
-                isStartingHerdr = false
-                herdrStartFailure = "herdr didn't come up. Try running herdr in a terminal to see why."
+                guard session.isStartingHerdr, case .notRunning = session.viewModel.connectionState else { return }
+                session.isStartingHerdr = false
+                session.herdrStartFailure = "herdr didn't come up. Try running herdr in a terminal to see why."
             }
         case .failure(.notFound):
-            herdrStartFailure = "flock couldn't find herdr on its PATH."
+            session.herdrStartFailure = "flock couldn't find herdr on its PATH."
         case .failure(.spawn(let code)):
-            herdrStartFailure = "herdr wouldn't start (\(String(cString: strerror(code))))."
+            session.herdrStartFailure = "herdr wouldn't start (\(String(cString: strerror(code))))."
         }
     }
 
@@ -351,14 +266,14 @@ struct FlockApp: App {
                     NoHerdrScreen(
                         theme: themeStore.active, copy: notRunningCopy,
                         primaryAction: .init(
-                            title: isStartingHerdr ? "Starting herdr…" : "Start herdr",
-                            isDisabled: isStartingHerdr, perform: startHerdr
+                            title: session.isStartingHerdr ? "Starting herdr…" : "Start herdr",
+                            isDisabled: session.isStartingHerdr, perform: startHerdr
                         )
                     )
                 } else {
                     MainWindow(
                         viewModel: viewModel,
-                        sessionLabel: sessionLabel,
+                        sessionLabel: session.address.label,
                         herdrMousePatchStore: herdrMousePatchStore
                     )
                 }
@@ -394,9 +309,10 @@ struct FlockApp: App {
                 .environment(workspaceSwitcher)
                 .environment(tabSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
+                .id(controller.generation)
                 .task {
-                    await FlockClientGuard.settle(socketPath: socketPath, defaultSocketPath: Self.defaultSocketPath)
-                    await herdrStore.start()
+                    await FlockClientGuard.settle(socketPath: controller.socketPath, defaultSocketPath: defaultSocketPath)
+                    await controller.session.start()
                 }
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }
@@ -423,8 +339,8 @@ struct FlockApp: App {
                 .onChange(of: herdrStore.connection) {
                     viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                     if case .notRunning = herdrStore.connection { return }
-                    isStartingHerdr = false
-                    herdrStartFailure = nil
+                    session.isStartingHerdr = false
+                    session.herdrStartFailure = nil
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -779,29 +695,10 @@ struct FlockApp: App {
     /// than any test can wait to watch it fire; `FLOCK_RESNAPSHOT_SECONDS`
     /// narrows it. An absent, unparseable or non-positive value leaves the
     /// store's default in place rather than inventing a substitute.
-    private static func makeHerdrStore(socketPath: String) -> HerdrStore {
-        guard let raw = ProcessInfo.processInfo.environment["FLOCK_RESNAPSHOT_SECONDS"],
-              let seconds = Double(raw), seconds > 0 else {
-            return HerdrStore(socketPath: socketPath)
+    private static func resnapshotInterval(from environment: [String: String]) -> Duration? {
+        guard let raw = environment["FLOCK_RESNAPSHOT_SECONDS"], let seconds = Double(raw), seconds > 0 else {
+            return nil
         }
-        return HerdrStore(socketPath: socketPath, resnapshotInterval: .seconds(seconds))
-    }
-
-    private static let defaultSocketPath = NSHomeDirectory() + "/.config/herdr/herdr.sock"
-
-    private static func resolveSocketPath() -> String {
-        let env = ProcessInfo.processInfo.environment
-        if let override = env["HERDR_SOCKET_PATH"], !override.isEmpty {
-            return override
-        }
-        return defaultSocketPath
-    }
-
-    /// `.../sessions/<name>/herdr.sock` -> `<name>`; the default socket's
-    /// parent directory is `herdr` itself, shown as "default".
-    private static func sessionLabel(fromSocketPath socketPath: String) -> String {
-        let parent = URL(fileURLWithPath: socketPath).deletingLastPathComponent().lastPathComponent
-        guard parent != "herdr" else { return "default" }
-        return parent
+        return .seconds(seconds)
     }
 }
