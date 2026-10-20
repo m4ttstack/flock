@@ -220,25 +220,26 @@ struct FlockApp: App {
     }
 
     private var notRunningCopy: NoHerdrScreen.Copy {
-        let copy = NoHerdrScreen.notRunning
+        let copy = NoHerdrScreen.notRunning(for: session.address, isOverride: controller.isLocked)
         guard let herdrStartFailure = session.herdrStartFailure else { return copy }
         return NoHerdrScreen.Copy(headline: copy.headline, body: copy.body, hint: herdrStartFailure)
     }
 
-    /// A custom socket is attach-only to herdr, so starting one is what an
-    /// override always did: `herdr server` bound to that path.
-    private var startTarget: HerdrServerLauncher.Target {
+    /// Nil for a picked custom path: herdr only attaches to a custom socket,
+    /// so only an override (which binds `herdr server` to its path) starts one.
+    private var startTarget: HerdrServerLauncher.Target? {
         if controller.isLocked { return .overrideSocket(session.socketPath) }
         switch session.address {
         case .defaultServer: return .defaultServer
         case .named(let name): return .named(name)
-        case .custom(let path): return .overrideSocket(path)
+        case .custom: return nil
         }
     }
 
     /// The store is already retrying the socket, so a server that comes up is
     /// picked up by it; this only lets the button be pressed again if none did.
     private func startHerdr() {
+        guard let startTarget else { return }
         let session = self.session
         session.herdrStartFailure = nil
         switch HerdrServerLauncher.start(startTarget) {
@@ -265,10 +266,11 @@ struct FlockApp: App {
                 } else if case .notRunning = viewModel.connectionState {
                     NoHerdrScreen(
                         theme: themeStore.active, copy: notRunningCopy,
-                        primaryAction: .init(
-                            title: session.isStartingHerdr ? "Starting herdr…" : "Start herdr",
-                            isDisabled: session.isStartingHerdr, perform: startHerdr
-                        )
+                        primaryAction: NoHerdrScreen.startTitle(
+                            for: session.address, isOverride: controller.isLocked, isStarting: session.isStartingHerdr
+                        ).map {
+                            .init(title: $0, isDisabled: session.isStartingHerdr, perform: startHerdr)
+                        }
                     )
                 } else {
                     MainWindow(

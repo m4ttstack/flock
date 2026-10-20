@@ -12,7 +12,7 @@ struct NoHerdrScreen: View {
         let perform: () -> Void
     }
 
-    struct Copy {
+    struct Copy: Equatable {
         let headline: String
         let body: String
         let hint: String
@@ -28,6 +28,34 @@ struct NoHerdrScreen: View {
         body: "flock shows your herdr session, and no herdr server is running yet.",
         hint: "Start it here, or run herdr in a terminal."
     )
+
+    static func notRunning(for address: HerdrServerAddress, isOverride: Bool) -> Copy {
+        switch address {
+        case .defaultServer:
+            return notRunning
+        case .named(let name):
+            return Copy(
+                headline: "The herdr server \u{201C}\(name)\u{201D} isn't running.",
+                body: "flock is checking for it and will attach as soon as it starts.",
+                hint: "Start it here, or run herdr --session \(name) in a terminal."
+            )
+        case .custom(let path):
+            return Copy(
+                headline: "Nothing is answering at \(path).",
+                body: "flock is checking and will attach as soon as a herdr server is listening there.",
+                hint: isOverride
+                    ? "Start it here, or start that server however it is normally started."
+                    : "Start that server however it is normally started."
+            )
+        }
+    }
+
+    /// Nil means no button: flock starts a custom path's server only under
+    /// an override.
+    static func startTitle(for address: HerdrServerAddress, isOverride: Bool, isStarting: Bool) -> String? {
+        if case .custom = address, !isOverride { return nil }
+        return isStarting ? "Starting herdr\u{2026}" : "Start herdr"
+    }
 
     static var headline: String { missing.headline }
     static var body: String { missing.body }
