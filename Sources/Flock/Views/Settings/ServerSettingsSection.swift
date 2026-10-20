@@ -72,7 +72,7 @@ struct ServerSettingsSection: View {
             case nil:
                 EmptyView()
             }
-            if let failure = picker.failure {
+            if let failure = picker.failure, !picker.failureIsFromServerList {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("flock.settings.server.error")

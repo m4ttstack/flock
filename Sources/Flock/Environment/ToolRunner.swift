@@ -25,7 +25,19 @@ struct ToolRunner: Sendable {
     }
 
     func run(_ arguments: [String]) async throws -> (stdout: Data, exitCode: Int32) {
-        let child = Child(binaryPath: binaryPath, arguments: arguments, environment: environment)
+        let output = try await run(arguments, capturingStderr: false)
+        return (output.stdout, output.exitCode)
+    }
+
+    func runCapturingStderr(_ arguments: [String]) async throws -> (stdout: Data, stderr: Data, exitCode: Int32) {
+        let output = try await run(arguments, capturingStderr: true)
+        return (output.stdout, output.stderr, output.exitCode)
+    }
+
+    private func run(_ arguments: [String], capturingStderr: Bool) async throws -> Output {
+        let child = Child(
+            binaryPath: binaryPath, arguments: arguments, environment: environment, capturesStderr: capturingStderr
+        )
 
         // A caller's `.task` is cancelled on teardown, not just timed out:
         // without this handler, the caller's own cancellation reaches only
@@ -63,11 +75,11 @@ struct ToolRunner: Sendable {
     }
 
     private enum Race: Sendable {
-        case finished((stdout: Data, exitCode: Int32))
+        case finished(Output)
         case timedOut
     }
 
-    private static func runToCompletion(_ child: Child) async throws -> (stdout: Data, exitCode: Int32) {
+    private static func runToCompletion(_ child: Child) async throws -> Output {
         try await withCheckedThrowingContinuation { continuation in
             Thread {
                 do {
@@ -80,6 +92,12 @@ struct ToolRunner: Sendable {
     }
 }
 
+private struct Output: Sendable {
+    let stdout: Data
+    let stderr: Data
+    let exitCode: Int32
+}
+
 /// One spawn of the binary, wrapping the one `Process`/`Pipe` pair only this
 /// type ever touches.
 ///
@@ -90,6 +108,8 @@ private final class Child: @unchecked Sendable {
     private let lock = NSLock()
     private let process = Process()
     private let stdoutPipe = Pipe()
+    private let stderrPipe: Pipe?
+    private var stderr = Data()
     /// True only once `process.run()` has returned. Apple documents
     /// `terminate()` on an unlaunched process as undefined, and `terminate()`
     /// can arrive before the spawn thread has even reached `run()` -- an
@@ -97,18 +117,20 @@ private final class Child: @unchecked Sendable {
     private var launched = false
     private var terminateRequested = false
 
-    init(binaryPath: String, arguments: [String], environment: [String: String]?) {
+    init(binaryPath: String, arguments: [String], environment: [String: String]?, capturesStderr: Bool) {
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
         if let environment { process.environment = environment }
         process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
+        stderrPipe = capturesStderr ? Pipe() : nil
+        process.standardError = stderrPipe ?? FileHandle.nullDevice
     }
 
     /// Reads stdout to EOF before waiting: a verb that writes more than the
     /// pipe's buffer would deadlock a `waitUntilExit()` called first, since
-    /// the child would block on a write nothing is draining.
-    func runToCompletion() throws -> (stdout: Data, exitCode: Int32) {
+    /// the child would block on a write nothing is draining. stderr drains on
+    /// a thread of its own for the same reason.
+    func runToCompletion() throws -> Output {
         try process.run()
         lock.lock()
         launched = true
@@ -116,9 +138,19 @@ private final class Child: @unchecked Sendable {
         lock.unlock()
         if requestedBeforeLaunch { process.terminate() }
 
+        let stderrDrained = DispatchGroup()
+        if let stderrPipe {
+            stderrDrained.enter()
+            Thread { [self] in
+                let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                lock.withLock { stderr = data }
+                stderrDrained.leave()
+            }.start()
+        }
         let stdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return (stdout, process.terminationStatus)
+        stderrDrained.wait()
+        return Output(stdout: stdout, stderr: lock.withLock { stderr }, exitCode: process.terminationStatus)
     }
 
     /// Before launch this only records the request: the real

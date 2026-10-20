@@ -189,6 +189,80 @@ final class ServerPickerTests: XCTestCase {
         XCTAssertFalse(picker.isBusy)
     }
 
+    private var stopped: [String] = []
+    private var deleted: [String] = []
+    private var listCount = 0
+
+    private func makeControlPicker(
+        stopResult: Result<Void, HerdrSessionControl.Failure> = .success(()),
+        stopGate: (() async -> Void)? = nil
+    ) -> ServerPicker {
+        ServerPicker(
+            list: { [unowned self] in
+                listCount += 1
+                return [Self.defaultEntry, Self.acmeEntry]
+            },
+            start: { _ in .success(()) },
+            choose: { _ in true },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" },
+            isLocked: false,
+            home: Self.home,
+            stop: { [unowned self] name in
+                stopped.append(name)
+                await stopGate?()
+                return stopResult
+            },
+            delete: { [unowned self] name in
+                deleted.append(name)
+                return .success(())
+            }
+        )
+    }
+
+    func testStopServerStopsByNameThenRefreshes() async {
+        let picker = makeControlPicker()
+        await picker.stopServer(name: "acme")
+        XCTAssertEqual(stopped, ["acme"])
+        XCTAssertTrue(deleted.isEmpty)
+        XCTAssertEqual(listCount, 1)
+        XCTAssertEqual(picker.entries, [Self.defaultEntry, Self.acmeEntry])
+        XCTAssertNil(picker.failure)
+    }
+
+    func testDeleteServerDeletesByNameThenRefreshes() async {
+        let picker = makeControlPicker()
+        await picker.deleteServer(name: "acme")
+        XCTAssertEqual(deleted, ["acme"])
+        XCTAssertTrue(stopped.isEmpty)
+        XCTAssertEqual(listCount, 1)
+        XCTAssertNil(picker.failure)
+    }
+
+    func testAFailedStopShowsHerdrsMessage() async {
+        let picker = makeControlPicker(stopResult: .failure(.herdr("session acme is not running")))
+        await picker.stopServer(name: "acme")
+        XCTAssertEqual(picker.failure, "session acme is not running")
+        XCTAssertTrue(picker.failureIsFromServerList)
+        XCTAssertEqual(listCount, 1)
+        await picker.deleteServer(name: "acme")
+        XCTAssertNil(picker.failure)
+    }
+
+    func testStopWhileBusyDoesNothing() async {
+        var resume: CheckedContinuation<Void, Never>?
+        let picker = makeControlPicker(stopGate: { await withCheckedContinuation { resume = $0 } })
+        let first = Task { await picker.stopServer(name: "acme") }
+        while resume == nil { await Task.yield() }
+        XCTAssertTrue(picker.isBusy)
+        await picker.stopServer(name: "acme")
+        await picker.deleteServer(name: "acme")
+        XCTAssertEqual(stopped, ["acme"])
+        XCTAssertTrue(deleted.isEmpty)
+        resume?.resume()
+        await first.value
+        XCTAssertFalse(picker.isBusy)
+    }
+
     func testALockedPickerNamesTheOverride() {
         let picker = ServerPicker(
             list: { [] }, start: { _ in .success(()) }, choose: { _ in true },
