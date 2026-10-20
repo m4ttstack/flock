@@ -2235,6 +2235,27 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(factory.makeSurfaceCalls, [])
     }
 
+    /// An update can still arrive from a view holding the old session; it
+    /// must not open a feed or a read against the server that session was on.
+    @MainActor
+    func testAnUpdateAfterShutdownArmsNoFeedAndReadsNothing() async throws {
+        let client = RecordingCommandClient()
+        let status = FakePaneAgentStatusSubscriber()
+        let viewModel = SessionViewModel(
+            client: client, paneAgentStatusSubscriber: status, backgroundWorkInterval: .milliseconds(5)
+        )
+        await viewModel.shutdown()
+        var model = MissionFixture.single([.idle])
+        for pane in model.panes.keys { model.panes[pane]?.agent = "claude" }
+
+        viewModel.update(model: model, connection: .live)
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertEqual(status.subscribed, [])
+        let reads = await client.calls.filter { $0.method == "pane.read" }
+        XCTAssertTrue(reads.isEmpty)
+    }
+
     @MainActor
     func testRtLinkedPanesUseTheDefaultsTheyAreGiven() {
         let defaults = UserDefaults(suiteName: "rt-linked-\(UUID())")!
