@@ -328,7 +328,7 @@ final class DragCoordinator {
     @ObservationIgnored nonisolated(unsafe) private var windowCloseObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var selectionMonitor: Any?
     @ObservationIgnored nonisolated(unsafe) private var selectionResignObserver: NSObjectProtocol?
-    /// Installed for the coordinator's whole life, not just a drag's: a
+    /// Installed from init until `invalidate()`, not just for a drag: a
     /// plain wheel must scroll the strip whether or not anything is being
     /// dragged.
     @ObservationIgnored nonisolated(unsafe) private var wheelMonitor: Any?
@@ -415,6 +415,28 @@ final class DragCoordinator {
         if let selectionResignObserver {
             NotificationCenter.default.removeObserver(selectionResignObserver)
         }
+    }
+
+    var monitorsScrollWheel: Bool { wheelMonitor != nil }
+
+    /// Removes every app-wide monitor and observer this coordinator holds.
+    /// Final: the strip wheel monitor is never reinstalled.
+    func invalidate() {
+        removeMonitors()
+        if let wheelMonitor {
+            NSEvent.removeMonitor(wheelMonitor)
+        }
+        wheelMonitor = nil
+        if let selectionMonitor {
+            NSEvent.removeMonitor(selectionMonitor)
+        }
+        selectionMonitor = nil
+        if let selectionResignObserver {
+            NotificationCenter.default.removeObserver(selectionResignObserver)
+        }
+        selectionResignObserver = nil
+        settleTask?.cancel()
+        flashTask?.cancel()
     }
 
     // MARK: - Surface registration
