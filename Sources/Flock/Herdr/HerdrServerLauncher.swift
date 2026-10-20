@@ -35,8 +35,6 @@ enum HerdrServerLauncher {
         return environment
     }
 
-    static func start() -> Result<Void, Failure> { start(.defaultServer) }
-
     /// An invalid session name, or a sessions directory that cannot be made,
     /// comes back as `.spawn` with an errno: herdr is not run for either.
     static func start(_ target: Target) -> Result<Void, Failure> {

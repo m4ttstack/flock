@@ -71,4 +71,10 @@ final class ToastCenter {
         guard current?.id == id else { return }
         current = nil
     }
+
+    func clear() {
+        dismissTask?.cancel()
+        dismissTask = nil
+        current = nil
+    }
 }
