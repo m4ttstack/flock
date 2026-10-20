@@ -12,6 +12,8 @@ public struct HerdrSessionEntry: Equatable, Sendable {
         self.socketPath = socketPath
         self.isDefault = isDefault
     }
+
+    public var statusLabel: String { isRunning ? "running" : "stopped" }
 }
 
 /// The answer of `herdr session list --json`.

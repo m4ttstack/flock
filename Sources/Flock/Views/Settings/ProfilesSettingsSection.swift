@@ -137,8 +137,7 @@ struct ProfilesSettingsSection: View {
                     get: { HerdrServerAddress.normalize(entry.socketPath, home: home) == socket },
                     set: { _ in setServer(entry.isDefault ? nil : entry.socketPath, for: profile.id) }
                 )) {
-                    Text(entry.name)
-                    Text(entry.isRunning ? "running" : "stopped")
+                    entry.menuTitle
                 }
             }
             Divider()
@@ -177,7 +176,7 @@ struct ProfilesSettingsSection: View {
     private func fieldRow(placeholder: String, action: String, perform: @escaping () -> Void) -> some View {
         let isEmpty = fieldText.trimmingCharacters(in: .whitespaces).isEmpty
         return HStack {
-            TextField(placeholder, text: $fieldText)
+            TextField(placeholder, text: $fieldText, prompt: Text(placeholder))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
                 .onSubmit {
@@ -202,17 +201,17 @@ struct ProfilesSettingsSection: View {
                 Picker("Server", selection: $newServer) {
                     Text("New server").tag(NewServer.start)
                     ForEach(entries, id: \.socketPath) { entry in
-                        Text(entry.name).tag(NewServer.existing(entry.isDefault ? nil : entry.socketPath))
+                        entry.menuTitle.tag(NewServer.existing(entry.isDefault ? nil : entry.socketPath))
                     }
                     Text("Custom Socket Path…").tag(NewServer.custom)
                 }
                 .accessibilityIdentifier("flock.settings.profiles.newServer")
                 switch newServer {
                 case .start:
-                    TextField("Server name", text: serverName)
+                    TextField("Server name", text: serverName, prompt: Text("Server name"))
                         .accessibilityIdentifier("flock.settings.profiles.newServerName")
                 case .custom:
-                    TextField("Socket path", text: $newPath)
+                    TextField("Socket path", text: $newPath, prompt: Text("Socket path"))
                         .accessibilityIdentifier("flock.settings.profiles.newPath")
                 case .existing:
                     EmptyView()
