@@ -73,6 +73,10 @@ final class ServerPicker {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         await whileIdle {
+            guard trimmed.hasPrefix("/") || trimmed.hasPrefix("~") else {
+                failure = "Use a full path, starting with / or ~."
+                return
+            }
             let address = HerdrServerAddress(socketPath: trimmed, home: home)
             _ = await chooseSocket(address == .defaultServer ? nil : address.socketPath(home: home))
         }
@@ -88,7 +92,15 @@ final class ServerPicker {
         isBusy = false
     }
 
+    /// A name listed as running is reused, never spawned a second time.
     private func launch(name: String) -> String? {
+        if let running = entries.first(where: { $0.name == name && $0.isRunning && !$0.isDefault }) {
+            return running.socketPath
+        }
+        guard name != "default" else {
+            failure = "\"default\" is herdr's own server. Pick another name."
+            return nil
+        }
         guard HerdrServerAddress.isValidSessionName(name) else {
             failure = "\"\(name)\" can't be a server name. Use letters, digits, \".\", \"_\" or \"-\"."
             return nil

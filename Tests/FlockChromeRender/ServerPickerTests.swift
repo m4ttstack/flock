@@ -75,6 +75,62 @@ final class ServerPickerTests: XCTestCase {
         XCTAssertTrue(chosen.isEmpty)
     }
 
+    func testTheReservedDefaultNameGetsItsOwnMessage() async {
+        let picker = makePicker()
+        await picker.startNew(name: "default")
+        XCTAssertEqual(picker.failure, "\"default\" is herdr's own server. Pick another name.")
+        let socket = await picker.startServer(name: "default")
+        XCTAssertNil(socket)
+        XCTAssertTrue(started.isEmpty)
+        XCTAssertTrue(chosen.isEmpty)
+    }
+
+    func testANameListedAsRunningIsChosenWithoutStartingIt() async {
+        let running = HerdrSessionEntry(
+            name: "acme", isRunning: true, socketPath: Self.home + "/.config/herdr/sessions/acme/herdr.sock", isDefault: false
+        )
+        let picker = ServerPicker(
+            list: { [Self.defaultEntry, running] },
+            start: { [unowned self] name in
+                started.append(name)
+                return .failure(.notFound)
+            },
+            choose: { [unowned self] socket in
+                chosen.append(socket)
+                return true
+            },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" },
+            isLocked: false,
+            home: Self.home
+        )
+        await picker.refresh()
+        await picker.startNew(name: "acme")
+        let socket = await picker.startServer(name: "acme")
+        XCTAssertEqual(socket, running.socketPath)
+        XCTAssertEqual(chosen, [running.socketPath])
+        XCTAssertTrue(started.isEmpty)
+        XCTAssertNil(picker.failure)
+    }
+
+    func testANameListedButStoppedIsStillStarted() async {
+        let picker = makePicker()
+        await picker.refresh()
+        await picker.startNew(name: "acme")
+        XCTAssertEqual(started, ["acme"])
+    }
+
+    func testARelativeCustomPathIsRejected() async {
+        let picker = makePicker()
+        for path in ["acme/x.sock", "./x.sock", "x.sock"] {
+            await picker.chooseCustom(path: path)
+            XCTAssertEqual(picker.failure, "Use a full path, starting with / or ~.", path)
+        }
+        XCTAssertTrue(chosen.isEmpty)
+        await picker.chooseCustom(path: "/tmp/acme.sock")
+        XCTAssertNil(picker.failure)
+        XCTAssertEqual(chosen, ["/tmp/acme.sock"])
+    }
+
     func testAStartFailureIsShownAndNothingIsChosen() async {
         let picker = makePicker()
         startResult = .failure(.notFound)
