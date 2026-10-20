@@ -104,6 +104,35 @@ final class ServerPickerTests: XCTestCase {
         XCTAssertNil(picker.lockedNote)
     }
 
+    func testASecondStartWhileOneIsInFlightStartsNothing() async {
+        var resume: CheckedContinuation<Void, Never>?
+        var startCount = 0
+        let picker = ServerPicker(
+            list: { [] },
+            start: { _ in
+                startCount += 1
+                return .success(())
+            },
+            choose: { _ in
+                await withCheckedContinuation { resume = $0 }
+                return true
+            },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" },
+            isLocked: false,
+            home: Self.home
+        )
+        let first = Task { await picker.startNew(name: "demo") }
+        while resume == nil { await Task.yield() }
+        XCTAssertTrue(picker.isBusy)
+        await picker.startNew(name: "demo")
+        let second = await picker.startServer(name: "demo")
+        XCTAssertNil(second)
+        XCTAssertEqual(startCount, 1)
+        resume?.resume()
+        await first.value
+        XCTAssertFalse(picker.isBusy)
+    }
+
     func testALockedPickerNamesTheOverride() {
         let picker = ServerPicker(
             list: { [] }, start: { _ in .success(()) }, choose: { _ in true },
