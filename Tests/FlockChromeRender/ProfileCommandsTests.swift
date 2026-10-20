@@ -13,6 +13,11 @@ final class ProfileCommandsTests: XCTestCase {
         ])
     }
 
+    func testOnlyTheProfileCurrentAtClickTimeGoesThroughChangeServer() {
+        XCTAssertEqual(ProfilesSettingsSection.serverRoute(for: "p1", currentID: "p1"), .changeServer)
+        XCTAssertEqual(ProfilesSettingsSection.serverRoute(for: "p1", currentID: "default"), .setSocket)
+    }
+
     func testServerNameFollowsTheProfileName() {
         XCTAssertEqual(ProfilesSettingsSection.serverName(for: "Demo Video"), "demo-video")
         XCTAssertEqual(ProfilesSettingsSection.serverName(for: " .Mé & co_1.2"), "m----co_1.2")

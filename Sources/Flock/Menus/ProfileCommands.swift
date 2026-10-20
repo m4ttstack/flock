@@ -60,7 +60,7 @@ private struct ProfileMenu: View {
 
     private func manage(opensNewProfile: Bool) {
         selection.tab = .profiles
-        if opensNewProfile { selection.opensNewProfile = true }
+        selection.opensNewProfile = opensNewProfile
         openSettings()
     }
 }
