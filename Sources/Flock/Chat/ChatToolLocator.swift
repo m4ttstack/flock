@@ -43,6 +43,16 @@ enum ChatToolLocator {
         await Task.detached(priority: .userInitiated) { ToolPath.resolve("deck") != nil }.value
     }
 
+    static func autoSignInIsOn(folder: String) async -> Bool {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            ToolPath.resolve("rt").map { ($0, ToolPath.childEnvironment()) }
+        }.value
+        guard let (rt, environment) = resolved else { return false }
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatRunner.deadline)
+        guard let (stdout, exitCode) = try? await runner.run(ChatAutoSignIn.settingArguments(folder: folder)) else { return false }
+        return ChatAutoSignIn.isOn(stdout: stdout, exitCode: exitCode)
+    }
+
     static func resolve(environmentOverride: String?, devPath: String?, bundledPath: String?) -> String? {
         let resolved = ChatAvailability.resolve(
             [environmentOverride, devPath, bundledPath], isRunnable: isExecutableFile

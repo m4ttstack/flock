@@ -284,4 +284,83 @@ final class ChatStoreTests: XCTestCase {
 
         XCTAssertEqual(url, URL(string: "https://chat.example/r/general"))
     }
+
+    // MARK: - auto sign-in
+
+    private func makeAutoSignInStore(
+        results: [Result<(stdout: Data, exitCode: Int32), Error>], settingIsOn: Bool
+    ) async -> (ChatStore, FakeChatRunning, ToastCenter, PauseCounter) {
+        let runner = FakeChatRunning(results)
+        let toasts = ToastCenter()
+        let pauses = PauseCounter()
+        let store = ChatStore(
+            toasts: toasts, probe: { "/bin/echo" }, rtProbe: { true }, deckProbe: { true },
+            makeRunner: { _ in runner }, autoSignInIsOn: { _ in settingIsOn },
+            pause: { _ in await pauses.record() }
+        )
+        await store.probeTask.value
+        await store.peekTask?.value
+        return (store, runner, toasts, pauses)
+    }
+
+    func testAutoSignInAsksUntilThePaneIsSignedIn() async {
+        let (store, runner, _, _) = await makeAutoSignInStore(
+            results: [ok(Self.signedOutStatusJSON), ok(Self.signedOutStatusJSON), ok(Self.statusJSON)], settingIsOn: true
+        )
+
+        await store.followAutoSignIn(Self.pane, folder: "/src/acme")
+
+        XCTAssertEqual(store.status(for: Self.pane), Self.expectedStatus)
+        let calls = await runner.recordedCalls()
+        XCTAssertEqual(calls.count, 3)
+    }
+
+    func testAutoSignInStopsAfterItsWindow() async {
+        let results = Array(repeating: ok(Self.signedOutStatusJSON), count: ChatAutoSignIn.attempts)
+        let (store, runner, _, pauses) = await makeAutoSignInStore(results: results, settingIsOn: true)
+
+        await store.followAutoSignIn(Self.pane, folder: "/src/acme")
+
+        let calls = await runner.recordedCalls()
+        XCTAssertEqual(calls.count, ChatAutoSignIn.attempts)
+        let paused = await pauses.count
+        XCTAssertEqual(paused, ChatAutoSignIn.attempts)
+        XCTAssertEqual(store.status(for: Self.pane)?.signedIn, false)
+    }
+
+    func testAutoSignInOffAsksNothing() async {
+        let (store, runner, _, _) = await makeAutoSignInStore(results: [], settingIsOn: false)
+
+        await store.followAutoSignIn(Self.pane, folder: "/src/acme")
+
+        let calls = await runner.recordedCalls()
+        XCTAssertEqual(calls, [])
+    }
+
+    func testAutoSignInFailuresStayQuiet() async {
+        let (store, _, toasts, _) = await makeAutoSignInStore(
+            results: [failed(#"{"error":"no session in this pane yet"}"#), ok(Self.statusJSON)], settingIsOn: true
+        )
+
+        await store.followAutoSignIn(Self.pane, folder: "/src/acme")
+
+        XCTAssertNil(toasts.current)
+        XCTAssertNil(store.statusError(for: Self.pane))
+        XCTAssertEqual(store.status(for: Self.pane), Self.expectedStatus)
+    }
+
+    func testAPaneAlreadySignedInIsNotFollowed() async {
+        let (store, runner, _, _) = await makeAutoSignInStore(results: [ok(Self.statusJSON)], settingIsOn: true)
+        await store.refreshStatus(for: Self.pane)
+
+        await store.followAutoSignIn(Self.pane, folder: "/src/acme")
+
+        let calls = await runner.recordedCalls()
+        XCTAssertEqual(calls, [.status(pane: "w1:p1")])
+    }
+}
+
+private actor PauseCounter {
+    private(set) var count = 0
+    func record() { count += 1 }
 }

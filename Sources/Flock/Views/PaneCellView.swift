@@ -258,6 +258,12 @@ struct PaneCellView: View {
             guard chatStore.isAvailable else { return }
             await chatStore.refreshStatus(for: pane.paneID)
         }
+        .onChange(of: pane.agent) { previous, agent in
+            guard ChatAutoSignIn.shouldFollow(previousAgent: previous, agent: agent) else { return }
+            let paneID = pane.paneID
+            let folder = pane.foregroundCwd ?? pane.cwd
+            Task { await chatStore.followAutoSignIn(paneID, folder: folder) }
+        }
         .onDisappear {
             Task { await viewModel.detachPane(pane.paneID) }
             loaderDismissTask?.cancel()
