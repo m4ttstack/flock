@@ -1,5 +1,6 @@
 import AppKit
 import FlockCore
+import SwiftUI
 import XCTest
 
 @MainActor
@@ -88,5 +89,31 @@ final class FlockSessionTests: XCTestCase {
             await handle.detach()
         }
         XCTAssertNil(terminal)
+    }
+
+    /// SwiftUI can still update a cell's terminal after its surface is
+    /// detached, before the hierarchy goes.
+    func testADetachedSurfaceTakesNoLinkLookupFromALaterUpdate() async throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let handle = GhosttySessionSurfaceHandle(session: host.makeSession(
+            paneID: PaneID(rawValue: "w1:p1"),
+            configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors())
+        ))
+        func terminal(folder: String) -> GhosttyPaneTerminalView {
+            GhosttyPaneTerminalView(
+                surface: handle, grid: PTYSize(cols: 80, rows: 24), theme: .tokyoNight, isFocused: false,
+                fontSizePoints: 13, optionAsAlt: .left, linkFolder: { folder }
+            )
+        }
+        let hosting = NSHostingView(rootView: terminal(folder: "/acme/one"))
+        hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        hosting.layoutSubtreeIfNeeded()
+        XCTAssertEqual(handle.session.linkFolder?(), "/acme/one", "the terminal never installed its lookup")
+
+        await handle.detach()
+        hosting.rootView = terminal(folder: "/acme/two")
+        hosting.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(handle.session.linkFolder)
     }
 }

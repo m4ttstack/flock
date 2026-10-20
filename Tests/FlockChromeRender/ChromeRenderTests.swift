@@ -3816,17 +3816,6 @@ final class ChromeRenderTests: XCTestCase {
         restingWindow.close()
     }
 
-    /// The canvas in solo mode shows one pane over the whole canvas, as the
-    /// focused view draws it. The fixture's tab is zoomed on `w1:p2` and its
-    /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
-    /// layout's own zoom or the main window's focus leaks through: the box
-    /// spanning the row must be `w1:p1`'s and must wear the accent border,
-    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
-    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
-    /// mouse badge in the legend names the pane drawn and shows the legend
-    /// controls survive solo. No drag grip is drawn, and nothing is published
-    /// to the drag coordinator.
-    /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
     /// A pane's bridge lives exactly as long as its terminal session, so a
     /// session that outlives a shutdown keeps a bridge attached to a server
     /// flock has switched away from.
@@ -3851,6 +3840,17 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertNil(terminal, "the terminal session, and with it the pane's bridge, outlived the shutdown")
     }
 
+    /// The canvas in solo mode shows one pane over the whole canvas, as the
+    /// focused view draws it. The fixture's tab is zoomed on `w1:p2` and its
+    /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
+    /// layout's own zoom or the main window's focus leaks through: the box
+    /// spanning the row must be `w1:p1`'s and must wear the accent border,
+    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
+    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
+    /// mouse badge in the legend names the pane drawn and shows the legend
+    /// controls survive solo. No drag grip is drawn, and nothing is published
+    /// to the drag coordinator.
+    /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
     func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let solo = PaneID(rawValue: "w1:p1")
