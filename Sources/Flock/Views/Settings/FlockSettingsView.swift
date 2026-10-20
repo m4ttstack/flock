@@ -64,7 +64,6 @@ struct FlockSettingsView: View {
     let changeServer: ((String?) async -> Bool)?
     let newProfileDraft: String
     let serverDraft: ServerSettingsSection.Draft?
-    let serverHeldBy: (String) -> String?
 
     @Bindable var selection: SettingsTabSelection
 
@@ -77,8 +76,7 @@ struct FlockSettingsView: View {
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
         switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
-        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil,
-        serverHeldBy: @escaping (String) -> String? = { _ in nil }, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -102,7 +100,6 @@ struct FlockSettingsView: View {
         self.changeServer = changeServer
         self.newProfileDraft = newProfileDraft
         self.serverDraft = serverDraft
-        self.serverHeldBy = serverHeldBy
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
@@ -150,10 +147,7 @@ struct FlockSettingsView: View {
                 HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
                 if let serverPicker {
                     ServerSettingsSection(picker: serverPicker, draft: serverDraft)
-                    ServersSettingsSection(
-                        picker: serverPicker, profiles: profiles, currentSocket: serverPicker.currentSocketPath,
-                        heldBy: serverHeldBy, home: serverPicker.home
-                    )
+                    ServersSettingsSection(picker: serverPicker, profiles: profiles)
                 }
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }

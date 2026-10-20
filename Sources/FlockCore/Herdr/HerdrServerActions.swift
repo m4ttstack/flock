@@ -23,6 +23,18 @@ public enum HerdrServerActions {
         return entry.isRunning ? .stop : .delete
     }
 
+    /// The confirmation's message. Delete names the profiles whose server
+    /// it is, since they keep pointing at it.
+    public static func confirmationMessage(
+        for entry: HerdrSessionEntry, action: HerdrServerAction, profiles: [(name: String, socketPath: String)], home: String
+    ) -> String {
+        guard action == .delete else { return "Every pane and agent on it closes. This can't be undone." }
+        let socket = HerdrServerAddress.normalize(entry.socketPath, home: home)
+        let users = profiles.filter { HerdrServerAddress.normalize($0.socketPath, home: home) == socket }.map(\.name)
+        let base = "Its saved workspaces go. This can't be undone."
+        return users.isEmpty ? base : base + " Used by \(users.joined(separator: ", "))."
+    }
+
     private struct ErrorPayload: Decodable {
         struct Detail: Decodable { let message: String }
         let error: Detail

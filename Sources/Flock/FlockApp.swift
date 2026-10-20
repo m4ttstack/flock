@@ -168,6 +168,7 @@ struct FlockApp: App {
             currentSocket: { controller.socketPath },
             isLocked: controller.isLocked,
             home: home,
+            heldBy: { FlockClientGuard.holder(of: $0, defaultSocketPath: defaultSocketPath) },
             stop: { await HerdrSessionControl.stop(name: $0) },
             delete: { await HerdrSessionControl.delete(name: $0) }
         ))
@@ -695,9 +696,6 @@ struct FlockApp: App {
                 isLocked: controller.isLocked,
                 switchProfile: { await controller.switchTo(profileID: $0) },
                 changeServer: { await controller.changeServer(to: $0) },
-                serverHeldBy: { [defaultSocketPath] in
-                    FlockClientGuard.holder(of: $0, defaultSocketPath: defaultSocketPath)
-                },
                 selection: settingsTabSelection
             )
         }

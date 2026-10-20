@@ -6,9 +6,6 @@ import SwiftUI
 struct ServersSettingsSection: View {
     let picker: ServerPicker
     let profiles: ProfileStore?
-    let currentSocket: String
-    let heldBy: (String) -> String?
-    let home: String
 
     private struct Pending {
         let entry: HerdrSessionEntry
@@ -46,7 +43,7 @@ struct ServersSettingsSection: View {
 
     private func row(_ entry: HerdrSessionEntry) -> some View {
         LabeledContent {
-            let action = HerdrServerActions.action(for: entry, currentSocket: currentSocket, home: home, heldBy: heldBy)
+            let action = picker.action(for: entry)
             switch action {
             case .stop, .delete:
                 Button(action == .stop ? "Stop" : "Delete") { pending = Pending(entry: entry, action: action) }
@@ -66,13 +63,12 @@ struct ServersSettingsSection: View {
     }
 
     private func message(for pending: Pending) -> String {
-        guard pending.action == .delete else { return "Every pane and agent on it closes. This can't be undone." }
-        let socket = HerdrServerAddress.normalize(pending.entry.socketPath, home: home)
-        let users = (profiles?.profiles ?? []).filter {
-            HerdrServerAddress.normalize(profiles?.socketPath(of: $0) ?? "", home: home) == socket
+        let named = (profiles?.profiles ?? []).map { profile in
+            (name: profile.name, socketPath: profiles?.socketPath(of: profile) ?? "")
         }
-        let base = "Its saved workspaces go. This can't be undone."
-        return users.isEmpty ? base : base + " Used by \(users.map(\.name).joined(separator: ", "))."
+        return HerdrServerActions.confirmationMessage(
+            for: pending.entry, action: pending.action, profiles: named, home: picker.home
+        )
     }
 
     private func perform(_ pending: Pending) {

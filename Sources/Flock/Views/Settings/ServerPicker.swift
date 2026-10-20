@@ -14,12 +14,15 @@ final class ServerPicker {
     /// so it shows under that list rather than under the Server row.
     private(set) var failureIsFromServerList = false
     private(set) var isBusy = false
+    /// Which other Flock holds each listed socket, as of the last refresh.
+    private(set) var holders: [String: String] = [:]
     let isLocked: Bool
 
     @ObservationIgnored private let list: () async -> [HerdrSessionEntry]?
     @ObservationIgnored private let start: (String) -> Result<Void, HerdrServerLauncher.Failure>
     @ObservationIgnored private let chooseSocket: (String?) async -> Bool
     @ObservationIgnored private let currentSocket: () -> String
+    @ObservationIgnored private let heldBy: @MainActor (String) -> String?
     @ObservationIgnored private let stop: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored let home: String
@@ -31,6 +34,7 @@ final class ServerPicker {
         currentSocket: @escaping () -> String,
         isLocked: Bool,
         home: String,
+        heldBy: @escaping @MainActor (String) -> String? = { _ in nil },
         stop: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
         delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) }
     ) {
@@ -40,11 +44,16 @@ final class ServerPicker {
         self.currentSocket = currentSocket
         self.isLocked = isLocked
         self.home = home
+        self.heldBy = heldBy
         self.stop = stop
         self.delete = delete
     }
 
-    var currentSocketPath: String { currentSocket() }
+    /// What the Servers list offers for `entry`, from the last refresh's
+    /// holders.
+    func action(for entry: HerdrSessionEntry) -> HerdrServerAction {
+        HerdrServerActions.action(for: entry, currentSocket: currentSocket(), home: home, heldBy: { holders[$0] })
+    }
 
     var currentLabel: String {
         HerdrServerAddress(socketPath: currentSocket(), home: home).label
@@ -61,6 +70,11 @@ final class ServerPicker {
     /// A failed listing keeps the entries already shown.
     func refresh() async {
         if let listed = await list() { entries = listed }
+        var held: [String: String] = [:]
+        for entry in entries {
+            if let app = heldBy(entry.socketPath) { held[entry.socketPath] = app }
+        }
+        holders = held
     }
 
     func choose(_ entry: HerdrSessionEntry) async {
@@ -94,21 +108,39 @@ final class ServerPicker {
     }
 
     func stopServer(name: String) async {
-        await whileIdle { await control(name: name, with: stop) }
+        await whileIdle { await control(name: name, expecting: .stop, with: stop) }
     }
 
     func deleteServer(name: String) async {
-        await whileIdle { await control(name: name, with: delete) }
+        await whileIdle { await control(name: name, expecting: .delete, with: delete) }
     }
 
+    /// The row's action was decided when it drew; a confirmation can stay
+    /// open while this Flock or another one moves onto that server, so the
+    /// rule is checked again against a fresh list before herdr runs.
     private func control(
-        name: String, with action: (String) async -> Result<Void, HerdrSessionControl.Failure>
+        name: String, expecting expected: HerdrServerAction,
+        with run: (String) async -> Result<Void, HerdrSessionControl.Failure>
     ) async {
-        if case .failure(let error) = await action(name) {
-            failure = error.message
-            failureIsFromServerList = true
-        }
         await refresh()
+        if let refusal = refusal(name: name, expecting: expected) {
+            failure = refusal
+        } else if case .failure(let error) = await run(name) {
+            failure = error.message
+        }
+        failureIsFromServerList = failure != nil
+        await refresh()
+    }
+
+    private func refusal(name: String, expecting expected: HerdrServerAction) -> String? {
+        guard let entry = entries.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
+        let now = HerdrServerActions.action(for: entry, currentSocket: currentSocket(), home: home, heldBy: heldBy)
+        switch now {
+        case expected: return nil
+        case .unavailable(let reason): return "Didn't \(expected == .stop ? "stop" : "delete") \"\(name)\": \(reason)."
+        case .stop: return "\"\(name)\" is running again."
+        case .delete: return "\"\(name)\" isn't running any more."
+        }
     }
 
     /// A request made while another is in flight is dropped, so a double
