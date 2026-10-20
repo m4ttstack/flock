@@ -71,7 +71,7 @@ and sizes, top bar label and overlay sizes, rail width, section collapse,
 scroll speed, Option as Alt, trusted link schemes, notification lifetime,
 one-title-for-one-pane-tab, close warnings, starting folders, rearrange after
 move, Overview bottom line, Overview return, Overview inclusion, all
-workspaces mode, palette recents, the board logo cache.
+workspaces mode, palette recents.
 
 **Machine-wide, shared by every profile.** Stay on `UserDefaults.standard`:
 
@@ -80,6 +80,7 @@ workspaces mode, palette recents, the board logo cache.
 - `flock.herdrMousePatch.offerDismissedForVersion`, the patch cache, the
   command-line tool symlink
 - `flock.devRebuild.lastDuration`
+- `flock.boardLogo` (deck's logo, the same for every profile)
 - `ApplePersistenceIgnoreState` and the system keys `WindowChrome` reads
 - `~/Library/Application Support/Flock/clients/` (the client registry)
 - the profile list itself (section 2)
@@ -90,7 +91,8 @@ Two scopes, because a profile can change servers and come back:
 
 - **Preferences are per profile.**
 - **id-keyed state is per profile and server.** Moving a profile to another
-  server shows an empty rail for that server; moving it back restores its
+  server shows no pins, symbols, completed tabs or recents, only that
+  server's own workspaces; moving it back restores its
   pins, symbols, completed tabs and recents untouched. Nothing is pruned
   against a server it did not come from.
 
@@ -108,7 +110,10 @@ Concretely:
   `UserDefaults(suiteName: "<bundle id>.profile.<id>")`.
 - **Any other (profile, server) pair's id-keyed state** goes in
   `"<bundle id>.profile.<id>.server.<key>"`, where `<key>` is a stable short
-  hash of the socket path normalized with `FlockClientRecord.normalized`.
+  hash of the socket path with `~` expanded and `.`/`..` removed, without
+  resolving symlinks: resolution depends on whether the socket exists (for
+  `/tmp` and `/var` paths), and the key must not change with the server
+  being up or down.
   Default's id-keyed state for a non-default socket uses this form too, with
   `default` as the id.
 - Prefixing with the bundle id keeps Flock's and Flock Dev's profiles apart,
@@ -118,10 +123,17 @@ Concretely:
   be deleted, and the current profile cannot be deleted without switching
   away first.
 - **`HERDR_SOCKET_PATH` still wins** when set (tests and `e2e.sh` rely on
-  it). The server picker then shows the path as fixed by the environment and
-  is disabled, and so is switching profiles: flock stays on whichever
-  profile was current. (My call: switching would read another profile's
-  id-keyed state against the environment's server.)
+  it). flock attaches there with the current profile's preferences and
+  id-keyed state from one fixed suite, `<bundle id>.override`, shared by
+  every override run. The override socket is never recorded in the
+  profile's `knownSockets` and never saved as its server. The server picker
+  shows the path as fixed by the environment and is disabled, and so is
+  switching profiles. (My call: the override pins the server for the
+  launch, so neither control has anything to move. One fixed suite keeps
+  e2e runs, each on a fresh scratch socket, from leaving a domain behind per
+  run, and keeps them off the real Default state, which e2e's app shares a
+  defaults domain with and which today's single store lets a scratch server
+  prune.)
 
 The session is built from two `UserDefaults`, preferences and id-keyed,
 and hands each store the right one per section 1. Almost every store
@@ -151,11 +163,14 @@ the Settings scene all read from it. A switch:
 3. Rebuilds the window content from it (an identity change on the root view
    is enough; the window itself stays open).
 
-**The two-Flocks guard runs before step 1.** `FlockClientGuard.settle`
-checks the new socket first. If another Flock holds it, the alert's quit
-button becomes "Stay on <current profile>", which cancels the switch and
-leaves the old session untouched. Nothing is torn down until the guard
-passes. (My call: quitting would break "switching never quits".)
+**The two-Flocks guard runs before step 1.** The guard checks the new
+socket first. If another Flock holds it, the alert's quit button becomes
+"Stay on <current profile name>" for a profile switch, or "Stay on
+<current server label>" when only the current profile's server changes.
+Either cancels the switch. Nothing is torn down, and nothing is saved (not
+the current profile id, not a profile's server), until the guard passes,
+so a cancel leaves the next launch where this one was. (My call: quitting
+would break "switching never quits".)
 
 **Child tools follow the session's socket.** Today only the bridge sets
 `HERDR_SOCKET_PATH`; `herdr-chat`, `rt` and `cswap` run with
@@ -166,15 +181,32 @@ session-scoped, so a demo server never shows or signs in the default
 server's chat. If a tool turns out not to honor the variable, Chat is
 hidden on non-default servers instead. (My call.)
 
+The one exception is the server launcher: a server's environment becomes
+every one of its panes' shells, so it gets the socket of the server being
+started, never the current session's. The default server and named
+sessions start with `HERDR_SOCKET_PATH` removed, so their panes' shells
+see what they see today (herdr ranks the variable above `HERDR_SESSION`).
+A named session runs `herdr --session <name> server` after creating
+`~/.config/herdr/sessions/<name>/` if missing, as `scratch-session.sh`
+does. The one case with the variable set is an override socket of custom
+shape: it keeps today's Start button, which runs `herdr server` with
+`HERDR_SOCKET_PATH` set to that socket. A custom socket chosen in the
+picker gets no Start button (section 4).
+
 Teardown is the risk. A leak means a bridge still attached to the old
 server, or a store writing one profile's state into another's suite, and it
 would be quiet. So the session owns an explicit `shutdown()` that every
 resource registers with, and acceptance below checks for leftovers.
+Teardown also flushes pending writes before the session goes (pane titles
+save on a two second delay), and nothing app-level keeps a reference to an
+old session (`FlockAppDelegate.onTerminate` reads the current session
+rather than capturing the first one).
 
 Long-lived app objects that are not per profile (theme install, `ToolPath`,
-the updater, `ChatStore` unless it proves session-bound, the client guard)
-stay on `FlockApp`. Where it is unclear which side something belongs on, the
-test is: does it read a profile's suite or the socket? If so, it is session.
+the updater, the client guard, `BoardStore`, `HerdProgressStore`,
+`CswapStore`) stay on `FlockApp`. `ChatStore` is per session (above).
+Where it is unclear which side something belongs on, the test is: does it
+read a profile's suite or the socket? If so, it is session.
 
 ## 4. Choosing a server
 
@@ -187,8 +219,14 @@ In Settings > herdr, a **Server** row for the current profile:
 - **Custom socket path…** takes any path. It is stored as given.
 - Re-read the list when the menu opens; nothing polls in the background.
 
-Picking an entry saves it on the profile and switches the session in place,
-onto that server's id-keyed suite for this profile (section 2).
+Picking an entry switches the session in place, onto that server's
+id-keyed suite for this profile (section 2), and saves it on the profile
+once the guard (section 3) passes.
+
+Whether a socket is the default server, a named session or a custom path
+is read from its shape alone: `~/.config/herdr/herdr.sock` is the default,
+`~/.config/herdr/sessions/<name>/herdr.sock` is session `<name>`, anything
+else is custom. Only custom paths lack a Start button.
 
 **When the chosen server is not there.** `NoHerdrScreen` gains a third copy,
 naming the session (`sessionLabel` already derives it from the path): it is
@@ -207,9 +245,11 @@ with the herdr CLI.
   one, then **New Profile…** and **Manage Profiles…**.
 - **New Profile…** asks for a name and a server (same choices as section 4,
   with New server preselected and its name defaulting to the profile name),
-  creates the profile, and switches to it.
+  creates the profile, and switches to it. If the two-Flocks prompt
+  refuses the switch, the new profile stays in the list, not current.
 - **Manage Profiles…** opens Settings on a new **Profiles** tab: rename,
-  delete, and pick each profile's server.
+  delete, and pick each profile's server. Picking a server for a profile
+  that is not current only saves it; nothing switches.
 - The profile name shows in that menu and in Settings, nowhere in the window
   chrome. The status line already shows `herdr · <session>`; that stays.
 - A new profile starts as clean as a first launch: default preferences, no
@@ -239,9 +279,9 @@ with the herdr CLI.
 
 - With no profile list stored, flock behaves exactly as today: Default
   profile, default socket, existing settings and pins intact.
-- Creating a profile on a new server and switching to it shows an empty
-  rail, no dock cards, default theme and sizes, and no Board or Herds
-  sections. Switching back to Default shows everything as it was, pins
+- Creating a profile on a new server and switching to it shows no pins,
+  only the fresh server's own first workspace, no dock cards, no chat
+  state, default theme and sizes, and no Board or Herds sections. Switching back to Default shows everything as it was, pins
   linked to the same workspaces, completed tabs and recents intact.
 - Switching profile or server leaves flock running, the window open and in
   place.
@@ -254,12 +294,16 @@ with the herdr CLI.
   a terminal instead also attaches.
 - A custom socket path that does not exist shows the not-running screen with
   no Start button, and attaches when something binds there.
-- Moving a profile with pins to another server shows an empty rail; moving
-  it back shows the same pins, symbols, completed tabs and recents.
+- Moving a profile with pins to another server shows none of its pins,
+  symbols, completed tabs or recents; moving it back shows them all again.
+- A refused two-Flocks prompt leaves the current profile, its server and
+  the next launch unchanged.
 - Deleting a profile removes its preferences suite and every server suite;
   Default cannot be deleted.
-- `HERDR_SOCKET_PATH` set: flock uses it, and the server picker says so and
-  is disabled.
+- `HERDR_SOCKET_PATH` set: flock uses it with id-keyed state from
+  `<bundle id>.override`, the server picker says so and is disabled, profile
+  switching is disabled, and no profile's saved server or `knownSockets`
+  changes.
 - Tests stay hermetic: the session and profile stores take injected
   UserDefaults and sources; nothing under test starts herdr outside
   `Scripts/e2e.sh`.
@@ -268,7 +312,5 @@ with the herdr CLI.
 
 - The exact session type, how commands and Settings reach the current
   session, and the order of teardown.
-- Where `ChatStore`, `BoardStore` and `HerdProgressStore` sit (app or
-  session), by the test in section 3.
 - The not-running screen's check cadence and copy.
 - Validation of profile and server names.
