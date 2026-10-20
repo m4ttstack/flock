@@ -361,6 +361,10 @@ struct FlockApp: App {
             CheckForUpdatesCommands(updater: updater)
             #endif
             PasteboardCommands()
+            ProfileCommands(
+                profiles: controller.profiles, isLocked: controller.isLocked,
+                switchProfile: { await controller.switchTo(profileID: $0) }, selection: settingsTabSelection
+            )
             // Declared ahead of Chat: command menus take the menu bar in
             // declaration order.
             CommandMenu("Pane") {
@@ -685,6 +689,10 @@ struct FlockApp: App {
                 herdrVersion: viewModel.model?.herdrVersion,
                 herdrUpdateStore: herdrUpdateStore,
                 serverPicker: serverPicker,
+                profiles: controller.profiles,
+                isLocked: controller.isLocked,
+                switchProfile: { await controller.switchTo(profileID: $0) },
+                changeServer: { await controller.changeServer(to: $0) },
                 selection: settingsTabSelection
             )
         }

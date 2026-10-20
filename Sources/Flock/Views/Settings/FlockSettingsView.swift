@@ -3,11 +3,12 @@ import SwiftUI
 
 /// The Settings window's tabs, in toolbar order.
 enum SettingsTab: String, CaseIterable, Hashable {
-    case general, views, tools, herdr
+    case general, profiles, views, tools, herdr
 
     var title: String {
         switch self {
         case .general: "General"
+        case .profiles: "Profiles"
         case .views: "Views"
         case .tools: "Tools"
         case .herdr: "herdr"
@@ -17,6 +18,7 @@ enum SettingsTab: String, CaseIterable, Hashable {
     var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .profiles: "person.2"
         case .views: "square.grid.2x2"
         case .tools: "wrench.and.screwdriver"
         case .herdr: "terminal"
@@ -56,6 +58,11 @@ struct FlockSettingsView: View {
     let herdrVersion: String?
     let herdrUpdateStore: HerdrUpdateStore?
     let serverPicker: ServerPicker?
+    let profiles: ProfileStore?
+    let isLocked: Bool
+    let switchProfile: ((String) async -> Bool)?
+    let changeServer: ((String?) async -> Bool)?
+    let newProfileDraft: String
 
     @Bindable var selection: SettingsTabSelection
 
@@ -66,7 +73,9 @@ struct FlockSettingsView: View {
         oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, linkTrustStore: LinkTrustStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
-        serverPicker: ServerPicker? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
+        switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
+        newProfileDraft: String = "", tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -84,6 +93,11 @@ struct FlockSettingsView: View {
         self.herdrVersion = herdrVersion
         self.herdrUpdateStore = herdrUpdateStore
         self.serverPicker = serverPicker
+        self.profiles = profiles
+        self.isLocked = isLocked
+        self.switchProfile = switchProfile
+        self.changeServer = changeServer
+        self.newProfileDraft = newProfileDraft
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
@@ -99,6 +113,17 @@ struct FlockSettingsView: View {
             }
             .tabItem { Label(SettingsTab.general.title, systemImage: SettingsTab.general.symbol) }
             .tag(SettingsTab.general)
+            pane(.profiles) {
+                if let profiles {
+                    ProfilesSettingsSection(
+                        profiles: profiles, picker: serverPicker, isLocked: isLocked,
+                        switchProfile: switchProfile ?? { _ in false }, changeServer: changeServer ?? { _ in false },
+                        selection: selection, draftName: newProfileDraft
+                    )
+                }
+            }
+            .tabItem { Label(SettingsTab.profiles.title, systemImage: SettingsTab.profiles.symbol) }
+            .tag(SettingsTab.profiles)
             pane(.views) {
                 OverviewSettingsSection(
                     bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore, inclusionStore: overviewInclusionStore
