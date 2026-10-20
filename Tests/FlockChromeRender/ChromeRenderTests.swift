@@ -2872,6 +2872,28 @@ final class ChromeRenderTests: XCTestCase {
                 cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
             }
         }
+        let namedSocket = { (name: String) in "/Users/acme/.config/herdr/sessions/\(name)/herdr.sock" }
+        let serversEntries = [
+            serverEntries[0],
+            HerdrSessionEntry(name: "acme", isRunning: true, socketPath: namedSocket("acme"), isDefault: false),
+            HerdrSessionEntry(name: "demo", isRunning: false, socketPath: namedSocket("demo"), isDefault: false),
+            HerdrSessionEntry(name: "review", isRunning: true, socketPath: namedSocket("review"), isDefault: false),
+        ]
+        for (kind, fails) in [("servers", false), ("servers-failure", true)] {
+            for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let picker = ServerPicker(
+                    list: { serversEntries }, start: { _ in .success(()) }, choose: { _ in true },
+                    currentSocket: { namedSocket("acme") }, isLocked: false, home: "/Users/acme",
+                    delete: { _ in .failure(.herdr("session demo is still running")) }
+                )
+                await picker.refresh()
+                if fails {
+                    await picker.deleteServer(name: "demo")
+                    XCTAssertEqual(picker.failure, "session demo is still running")
+                }
+                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, nil, picker, nil))
+            }
+        }
         let profilesPicker = ServerPicker(
             list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
             currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
@@ -2939,6 +2961,7 @@ final class ChromeRenderTests: XCTestCase {
                 isLocked: profiles?.locked ?? false,
                 newProfileDraft: profiles?.draft ?? "",
                 serverDraft: serverDrafts[name],
+                serverHeldBy: { $0 == namedSocket("review") ? "Flock" : nil },
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {

@@ -10,6 +10,9 @@ import Observation
 final class ServerPicker {
     private(set) var entries: [HerdrSessionEntry] = []
     private(set) var failure: String?
+    /// True when `failure` came from stopping or deleting a listed server,
+    /// so it shows under that list rather than under the Server row.
+    private(set) var failureIsFromServerList = false
     private(set) var isBusy = false
     let isLocked: Bool
 
@@ -17,7 +20,9 @@ final class ServerPicker {
     @ObservationIgnored private let start: (String) -> Result<Void, HerdrServerLauncher.Failure>
     @ObservationIgnored private let chooseSocket: (String?) async -> Bool
     @ObservationIgnored private let currentSocket: () -> String
-    @ObservationIgnored private let home: String
+    @ObservationIgnored private let stop: (String) async -> Result<Void, HerdrSessionControl.Failure>
+    @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
+    @ObservationIgnored let home: String
 
     init(
         list: @escaping () async -> [HerdrSessionEntry]?,
@@ -25,7 +30,9 @@ final class ServerPicker {
         choose: @escaping (String?) async -> Bool,
         currentSocket: @escaping () -> String,
         isLocked: Bool,
-        home: String
+        home: String,
+        stop: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
+        delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) }
     ) {
         self.list = list
         self.start = start
@@ -33,7 +40,11 @@ final class ServerPicker {
         self.currentSocket = currentSocket
         self.isLocked = isLocked
         self.home = home
+        self.stop = stop
+        self.delete = delete
     }
+
+    var currentSocketPath: String { currentSocket() }
 
     var currentLabel: String {
         HerdrServerAddress(socketPath: currentSocket(), home: home).label
@@ -82,12 +93,31 @@ final class ServerPicker {
         }
     }
 
+    func stopServer(name: String) async {
+        await whileIdle { await control(name: name, with: stop) }
+    }
+
+    func deleteServer(name: String) async {
+        await whileIdle { await control(name: name, with: delete) }
+    }
+
+    private func control(
+        name: String, with action: (String) async -> Result<Void, HerdrSessionControl.Failure>
+    ) async {
+        if case .failure(let error) = await action(name) {
+            failure = error.message
+            failureIsFromServerList = true
+        }
+        await refresh()
+    }
+
     /// A request made while another is in flight is dropped, so a double
     /// click cannot start the same server twice.
     private func whileIdle(_ body: () async -> Void) async {
         guard !isBusy else { return }
         isBusy = true
         failure = nil
+        failureIsFromServerList = false
         await body()
         isBusy = false
     }

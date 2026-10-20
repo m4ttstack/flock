@@ -68,6 +68,11 @@ enum FlockClientGuard {
         }
     }
 
+    /// The app name of another running Flock attached to `socketPath`.
+    static func holder(of socketPath: String, defaultSocketPath: String) -> String? {
+        conflicts(on: socketPath, defaultSocketPath: defaultSocketPath).first?.appName
+    }
+
     private static func conflicts(on socketPath: String, defaultSocketPath: String) -> [RunningFlock] {
         let running = NSWorkspace.shared.runningApplications.compactMap { app -> RunningFlock? in
             guard let id = app.bundleIdentifier, flockBundleIDs.contains(id), !app.isTerminated else { return nil }
