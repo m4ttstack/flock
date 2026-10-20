@@ -65,6 +65,7 @@ struct FlockApp: App {
     @State private var herdrToolStore = HerdrToolStore()
     @State private var herdrMousePatchStore: HerdrMousePatchStore
     @State private var herdrUpdateStore: HerdrUpdateStore
+    @State private var serverPicker: ServerPicker
     @State private var settingsTabSelection = SettingsTabSelection()
     @State private var commandLineToolStore = CommandLineToolStore()
     #if FLOCK_SPARKLE
@@ -160,6 +161,14 @@ struct FlockApp: App {
         _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
             patchStore: herdrMousePatchStore, installedVersion: { controller.session.viewModel.model?.herdrVersion }
         ))
+        _serverPicker = State(initialValue: ServerPicker(
+            list: HerdrSessionLister.list,
+            start: { HerdrServerLauncher.start(.named($0)) },
+            choose: { await controller.changeServer(to: $0) },
+            currentSocket: { controller.socketPath },
+            isLocked: controller.isLocked,
+            home: home
+        ))
     }
 
     private var session: FlockSession { controller.session }
@@ -251,10 +260,8 @@ struct FlockApp: App {
                 session.isStartingHerdr = false
                 session.herdrStartFailure = "herdr didn't come up. Try running herdr in a terminal to see why."
             }
-        case .failure(.notFound):
-            session.herdrStartFailure = "flock couldn't find herdr on its PATH."
-        case .failure(.spawn(let code)):
-            session.herdrStartFailure = "herdr wouldn't start (\(String(cString: strerror(code))))."
+        case .failure(let failure):
+            session.herdrStartFailure = failure.message
         }
     }
 
@@ -677,6 +684,7 @@ struct FlockApp: App {
                 commandLineToolStore: commandLineToolStore,
                 herdrVersion: viewModel.model?.herdrVersion,
                 herdrUpdateStore: herdrUpdateStore,
+                serverPicker: serverPicker,
                 selection: settingsTabSelection
             )
         }

@@ -55,6 +55,7 @@ struct FlockSettingsView: View {
     let commandLineToolStore: CommandLineToolStore
     let herdrVersion: String?
     let herdrUpdateStore: HerdrUpdateStore?
+    let serverPicker: ServerPicker?
 
     @Bindable var selection: SettingsTabSelection
 
@@ -65,7 +66,7 @@ struct FlockSettingsView: View {
         oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, linkTrustStore: LinkTrustStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
-        tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        serverPicker: ServerPicker? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -82,6 +83,7 @@ struct FlockSettingsView: View {
         self.commandLineToolStore = commandLineToolStore
         self.herdrVersion = herdrVersion
         self.herdrUpdateStore = herdrUpdateStore
+        self.serverPicker = serverPicker
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
@@ -116,6 +118,9 @@ struct FlockSettingsView: View {
                     HerdrUpdateSection(store: herdrUpdateStore)
                 }
                 HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
+                if let serverPicker {
+                    ServerSettingsSection(picker: serverPicker)
+                }
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
             .tag(SettingsTab.herdr)
