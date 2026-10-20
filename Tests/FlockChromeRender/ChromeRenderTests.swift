@@ -2846,11 +2846,44 @@ final class ChromeRenderTests: XCTestCase {
                 cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
             }
         }
+        var serverDrafts: [String: ServerSettingsSection.Draft] = [:]
+        let serverFields: [(kind: String, draft: ServerSettingsSection.Draft)] = [
+            ("server-new", .init(field: .newServer, text: "acme-demo")),
+            ("server-custom", .init(field: .customPath, text: "~/.config/herdr/sessions/acme/herdr.sock")),
+            ("server-failure", .init(field: .newServer, text: "acme demo")),
+        ]
+        for (kind, draft) in serverFields {
+            for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let stores = try makeHerdrUpdateStores(patchInstalled: false)
+                await stores.update.checkIfDue()
+                let picker = ServerPicker(
+                    list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
+                    currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
+                )
+                await picker.refresh()
+                if kind == "server-failure" {
+                    await picker.startNew(name: draft.text)
+                    XCTAssertEqual(
+                        picker.failure, "\"acme demo\" can't be a server name. Use letters, digits, \".\", \"_\" or \"-\"."
+                    )
+                }
+                let name = "herdr-\(kind)-\(scheme)"
+                serverDrafts[name] = draft
+                cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
+            }
+        }
         let profilesPicker = ServerPicker(
             list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
             currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
         )
         await profilesPicker.refresh()
+        let failingProfilesPicker = ServerPicker(
+            list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
+        )
+        await failingProfilesPicker.refresh()
+        _ = await failingProfilesPicker.startServer(name: "default")
+        XCTAssertEqual(failingProfilesPicker.failure, "\"default\" is herdr's own server. Pick another name.")
         let listedProfiles = makeProfileStore()
         let demo = try XCTUnwrap(listedProfiles.create(name: "Demo", socketPath: "/Users/someone/.config/herdr/sessions/acme/herdr.sock"))
         listedProfiles.select(demo.id)
@@ -2866,6 +2899,12 @@ final class ChromeRenderTests: XCTestCase {
                     nil, profilesPicker, profiles
                 ))
             }
+        }
+        for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            cases.append((
+                "profiles-new-failure-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .profiles,
+                nil, failingProfilesPicker, (makeProfileStore(), false, "Default")
+            ))
         }
         defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
@@ -2899,6 +2938,7 @@ final class ChromeRenderTests: XCTestCase {
                 profiles: profiles?.store,
                 isLocked: profiles?.locked ?? false,
                 newProfileDraft: profiles?.draft ?? "",
+                serverDraft: serverDrafts[name],
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {
