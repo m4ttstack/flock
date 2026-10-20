@@ -159,6 +159,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
 /// the main actor.
 final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable {
     let session: GhosttySession
+    private var isDetached = false
 
     init(session: GhosttySession) {
         self.session = session
@@ -180,10 +181,18 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     /// reason: a view installs it, and whatever it captured must not hold the
     /// session, and so the bridge, past this point.
     func detach() async {
+        isDetached = true
         session.view?.removeFromSuperview()
         session.view = nil
         session.linkFolder = nil
         session.stopScreenActivity()
+    }
+
+    /// Ignored once detached: SwiftUI can still update the old cell between
+    /// a detach and its hierarchy going.
+    func installLinkFolder(_ lookup: @escaping () -> String?) {
+        guard !isDetached else { return }
+        session.linkFolder = lookup
     }
 
     func park() {

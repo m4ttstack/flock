@@ -805,9 +805,9 @@ struct PaneCellView: View {
                             symbols: PaneMenuSymbols(identity: identity)
                         )
                     },
-                    // The terminal session keeps this closure, and naming
-                    // `pane` in it would capture this cell, which holds the
-                    // session's own surface: a cycle no teardown breaks.
+                    // The terminal session keeps this closure, so it must not
+                    // name `pane`: that captures this cell, which holds the
+                    // session's own surface.
                     linkFolder: { [weak viewModel, paneID = pane.paneID] in
                         viewModel?.model?.panes[paneID].map { $0.foregroundCwd ?? $0.cwd }
                     },

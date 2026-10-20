@@ -241,7 +241,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             return PlaceholderGhosttyHostView(background: theme.terminalGround)
         }
         let session = handle.session
-        session.linkFolder = linkFolder
+        handle.installLinkFolder(linkFolder)
         session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if let existingView = session.view {
             // unparked here, synchronously, rather than waiting for
@@ -296,7 +296,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let ghosttyView = nsView as? GhosttySurfaceView else { return }
-        ghosttyView.session.linkFolder = linkFolder
+        (surface as? GhosttySessionSurfaceHandle)?.installLinkFolder(linkFolder)
         ghosttyView.session.setExpectedGrid(cols: grid.cols, rows: grid.rows)
         if context.coordinator.lastAppliedThemeID != theme.id
             || context.coordinator.lastAppliedFontSize != fontSizePoints
