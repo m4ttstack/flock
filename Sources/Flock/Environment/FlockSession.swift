@@ -224,6 +224,8 @@ final class FlockSession: ProfileSession {
 
     func shutdown() async {
         herdrHoldCoordinator.invalidate()
+        dragCoordinator.invalidate()
+        rearrangeMode.invalidate()
         herdrStore.stop()
         await viewModel.shutdown()
         chatStore.stop()

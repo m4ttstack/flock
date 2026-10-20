@@ -40,6 +40,7 @@ public final class RearrangeMode {
     /// receiving it.
     @ObservationIgnored nonisolated(unsafe) private var eventMonitor: Any?
     @ObservationIgnored private weak var monitoredWindow: NSWindow?
+    @ObservationIgnored private var isInvalidated = false
     @ObservationIgnored private let afterMove: @MainActor () -> RearrangeAfterMove
 
     public init(afterMove: @escaping @MainActor () -> RearrangeAfterMove = { .leave }) {
@@ -58,7 +59,7 @@ public final class RearrangeMode {
     /// `event.window === window` check inside narrows it further to the one
     /// window this instance is scoped to.
     public func attach(to window: NSWindow) {
-        guard monitoredWindow !== window else { return }
+        guard !isInvalidated, monitoredWindow !== window else { return }
         detach()
         monitoredWindow = window
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -69,6 +70,15 @@ public final class RearrangeMode {
             // reaches the pane's program, where Esc is never spare.
             return self.consumeEscape() ? nil : event
         }
+    }
+
+    var monitorsEscape: Bool { eventMonitor != nil }
+
+    /// Detaches for good: the old session's view can still update between
+    /// `shutdown()` and the swap, and must not reinstall the monitor.
+    func invalidate() {
+        isInvalidated = true
+        detach()
     }
 
     public func detach() {
@@ -103,9 +113,9 @@ public final class RearrangeMode {
 
 /// Installs `RearrangeMode`'s Esc monitor once this hosting view has a window,
 /// which a freshly made view does not have yet; hence the deferred attach
-/// below. Teardown is `RearrangeMode.deinit`, not this representable's
-/// dismantle: the app has exactly one window for its whole life, so the
-/// monitor's lifetime is the app's.
+/// below. Teardown is the session's `shutdown()`, not this representable's
+/// dismantle: the monitor lives as long as the `FlockSession` that owns
+/// `rearrangeMode`, across every rebuild of this view.
 struct RearrangeKeyMonitorHost: NSViewRepresentable {
     let rearrangeMode: RearrangeMode
 
