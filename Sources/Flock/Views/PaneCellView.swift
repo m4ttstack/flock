@@ -799,8 +799,11 @@ struct PaneCellView: View {
                             symbols: PaneMenuSymbols(identity: identity)
                         )
                     },
-                    linkFolder: { [weak viewModel] in
-                        viewModel?.model?.panes[pane.paneID].map { $0.foregroundCwd ?? $0.cwd }
+                    // The terminal session keeps this closure, and naming
+                    // `pane` in it would capture this cell, which holds the
+                    // session's own surface: a cycle no teardown breaks.
+                    linkFolder: { [weak viewModel, paneID = pane.paneID] in
+                        viewModel?.model?.panes[paneID].map { $0.foregroundCwd ?? $0.cwd }
                     },
                     onBodyDragBegan: handleBodyDragBegan
                 )

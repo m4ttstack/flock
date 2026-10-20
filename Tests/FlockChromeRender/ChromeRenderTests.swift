@@ -3804,6 +3804,30 @@ final class ChromeRenderTests: XCTestCase {
     /// controls survive solo. No drag grip is drawn, and nothing is published
     /// to the drag coordinator.
     /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
+    /// A pane's bridge lives exactly as long as its terminal session, so a
+    /// session that outlives a shutdown keeps a bridge attached to a server
+    /// flock has switched away from.
+    func testAShutDownCanvasLetsItsTerminalSessionGo() async throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        let pane = PaneID(rawValue: "w1:p1")
+        weak var terminal: GhosttySession?
+        do {
+            let harness = try await Harness(theme: .tokyoNight, attaching: [pane], ghosttyFactory: TrueSessionFactory(host: host))
+            let window = harness.makeCanvasWindow(size: Self.windowSize, solo: pane)
+            await settle(window)
+            let session = try XCTUnwrap((harness.viewModel.ghosttySurface(for: pane) as? GhosttySessionSurfaceHandle)?.session)
+            XCTAssertNotNil(session.view, "the cell never hosted its terminal")
+            terminal = session
+            await harness.viewModel.shutdown()
+            window.contentView = nil
+            window.close()
+        }
+        for _ in 0..<20 where terminal != nil {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertNil(terminal, "the terminal session, and with it the pane's bridge, outlived the shutdown")
+    }
+
     func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let solo = PaneID(rawValue: "w1:p1")
@@ -4867,7 +4891,8 @@ private struct Harness {
         // Off by default, so every render that predates Settings > Titles
         // keeps drawing each pane's own title.
         oneTitle: Bool = false,
-        agentCloseWarning: AgentCloseWarningStore? = nil
+        agentCloseWarning: AgentCloseWarningStore? = nil,
+        ghosttyFactory: (any GhosttyPaneFactory)? = nil
     ) async throws {
         ChromeType.install()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
@@ -4921,7 +4946,7 @@ private struct Harness {
             RepoBranch(repo: URL(fileURLWithPath: folder).lastPathComponent, branch: "main")
         }
         viewModel = SessionViewModel(
-            client: client, ghosttyFactory: GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
+            client: client, ghosttyFactory: ghosttyFactory ?? GroundSurfaceFactory(mouseHolders: mouseHolders), now: now,
             notificationLifetime: { notificationLifetime }, oneTitle: { oneTitle }, agentCloseWarning: agentCloseWarning,
             repoBranches: repoBranches
         )
@@ -5081,6 +5106,26 @@ private final class GroundSurface: GhosttyPaneSurface {
     var cellHeight: CGFloat? { 18 }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { programHasMouse }
+}
+
+/// Real libghostty sessions over `/usr/bin/true`, for a test that needs the
+/// terminal view a pane cell actually hosts.
+@MainActor
+private struct TrueSessionFactory: GhosttyPaneFactory {
+    let host: GhosttyHost
+
+    func makeSurface(
+        for pane: PaneID, bridgeTarget: String, onUserInput: @escaping () -> Void,
+        onClearRequested: @escaping () -> Void,
+        onScreenActivity: @escaping (ScreenActivity) -> Void
+    ) async -> any GhosttyPaneSurface {
+        GhosttySessionSurfaceHandle(session: host.makeSession(
+            paneID: pane,
+            configuration: GhosttySession.Launch(
+                commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors()
+            )
+        ))
+    }
 }
 
 @MainActor
