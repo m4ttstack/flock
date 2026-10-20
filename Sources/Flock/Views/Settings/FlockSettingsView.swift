@@ -64,6 +64,7 @@ struct FlockSettingsView: View {
     let changeServer: ((String?) async -> Bool)?
     let newProfileDraft: String
     let serverDraft: ServerSettingsSection.Draft?
+    let profilesDraft: ProfilesSettingsSection.Draft?
 
     @Bindable var selection: SettingsTabSelection
 
@@ -76,7 +77,7 @@ struct FlockSettingsView: View {
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
         switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
-        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, profilesDraft: ProfilesSettingsSection.Draft? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -100,6 +101,7 @@ struct FlockSettingsView: View {
         self.changeServer = changeServer
         self.newProfileDraft = newProfileDraft
         self.serverDraft = serverDraft
+        self.profilesDraft = profilesDraft
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
@@ -120,7 +122,7 @@ struct FlockSettingsView: View {
                     ProfilesSettingsSection(
                         profiles: profiles, picker: serverPicker, isLocked: isLocked,
                         switchProfile: switchProfile ?? { _ in false }, changeServer: changeServer ?? { _ in false },
-                        selection: selection, draftName: newProfileDraft
+                        selection: selection, draftName: newProfileDraft, draft: profilesDraft
                     )
                 }
             }

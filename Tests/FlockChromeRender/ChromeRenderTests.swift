@@ -2851,6 +2851,8 @@ final class ChromeRenderTests: XCTestCase {
             ("server-new", .init(field: .newServer, text: "acme-demo")),
             ("server-custom", .init(field: .customPath, text: "~/.config/herdr/sessions/acme/herdr.sock")),
             ("server-failure", .init(field: .newServer, text: "acme demo")),
+            ("server-new-empty", .init(field: .newServer, text: "")),
+            ("server-custom-empty", .init(field: .customPath, text: "")),
         ]
         for (kind, draft) in serverFields {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
@@ -2915,6 +2917,9 @@ final class ChromeRenderTests: XCTestCase {
             ("list", (listedProfiles, false, nil)),
             ("new", (makeProfileStore(), false, "Demo Video")),
             ("locked", (makeProfileStore(), true, nil)),
+            ("new-empty", (makeProfileStore(), false, "")),
+            ("new-custom-empty", (makeProfileStore(), false, "")),
+            ("row-custom-empty", (listedProfiles, false, nil)),
         ]
         for (kind, profiles) in profileKinds {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
@@ -2963,6 +2968,9 @@ final class ChromeRenderTests: XCTestCase {
                 isLocked: profiles?.locked ?? false,
                 newProfileDraft: profiles?.draft ?? "",
                 serverDraft: serverDrafts[name],
+                profilesDraft: name.hasPrefix("profiles-new-custom-empty")
+                    ? .init(customServer: true)
+                    : name.hasPrefix("profiles-row-custom-empty") ? .init(customPathProfile: demo.id) : nil,
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {

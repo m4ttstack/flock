@@ -16,6 +16,11 @@ struct ProfilesSettingsSection: View {
     let selection: SettingsTabSelection
     let home: String
 
+    struct Draft {
+        var customServer = false
+        var customPathProfile: String?
+    }
+
     private enum InlineField: Equatable {
         case rename(String)
         case customPath(String)
@@ -40,7 +45,7 @@ struct ProfilesSettingsSection: View {
     init(
         profiles: ProfileStore, picker: ServerPicker?, isLocked: Bool,
         switchProfile: @escaping (String) async -> Bool, changeServer: @escaping (String?) async -> Bool,
-        selection: SettingsTabSelection, home: String = NSHomeDirectory(), draftName: String = ""
+        selection: SettingsTabSelection, home: String = NSHomeDirectory(), draftName: String = "", draft: Draft? = nil
     ) {
         self.profiles = profiles
         self.picker = picker
@@ -50,6 +55,8 @@ struct ProfilesSettingsSection: View {
         self.selection = selection
         self.home = home
         _newName = State(initialValue: draftName)
+        if draft?.customServer == true { _newServer = State(initialValue: .custom) }
+        if let id = draft?.customPathProfile { _field = State(initialValue: .customPath(id)) }
     }
 
     /// herdr's session-name alphabet, from a profile name.
@@ -208,10 +215,10 @@ struct ProfilesSettingsSection: View {
                 .accessibilityIdentifier("flock.settings.profiles.newServer")
                 switch newServer {
                 case .start:
-                    TextField("Server name", text: serverName, prompt: Text("Server name"))
+                    TextField("Server name", text: serverName)
                         .accessibilityIdentifier("flock.settings.profiles.newServerName")
                 case .custom:
-                    TextField("Socket path", text: $newPath, prompt: Text("Socket path"))
+                    TextField("Socket path", text: $newPath)
                         .accessibilityIdentifier("flock.settings.profiles.newPath")
                 case .existing:
                     EmptyView()
