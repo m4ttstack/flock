@@ -30,6 +30,8 @@ final class HerdrHoldCoordinator {
     private var policy = HoldPolicy()
     private var releaseTimer: Timer?
     private var observers: [NSObjectProtocol] = []
+    private let notificationCenter: NotificationCenter
+    private var isInvalidated = false
     /// The visibility this coordinator last acted on. Without it, an app
     /// switch away from a flock the user can still see would re-assert the
     /// take over every pane's FIFO for nothing.
@@ -63,6 +65,7 @@ final class HerdrHoldCoordinator {
         self.release = release
         self.take = take
         self.isOnScreen = isOnScreen
+        self.notificationCenter = notificationCenter
         observers = [
             notificationCenter.addObserver(
                 forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -108,10 +111,19 @@ final class HerdrHoldCoordinator {
         apply(onScreen ? .becameVisible : .becameHidden)
     }
 
-    /// No teardown counterpart: one of these is built in `FlockApp.init` and
-    /// held for the process's life, so there is no point at which removing the
-    /// observers would run before the app is going away anyway.
+    /// Stops this coordinator for good, before its session's surfaces go. An
+    /// observer callback or timer tick already queued still arrives, which is
+    /// why `apply` checks too.
+    func invalidate() {
+        isInvalidated = true
+        for observer in observers { notificationCenter.removeObserver(observer) }
+        observers.removeAll()
+        releaseTimer?.invalidate()
+        releaseTimer = nil
+    }
+
     private func apply(_ event: HoldPolicy.Event) {
+        guard !isInvalidated else { return }
         switch policy.handle(event) {
         case .none:
             break

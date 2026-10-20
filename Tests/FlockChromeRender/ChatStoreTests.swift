@@ -194,6 +194,20 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertTrue(calls.isEmpty, "no verb may run before the probe has answered")
     }
 
+    func testStopCancelsTheProbe() {
+        let store = ChatStore(
+            toasts: ToastCenter(),
+            probe: {
+                try? await Task.sleep(for: .seconds(60))
+                return nil
+            }
+        )
+
+        store.stop()
+
+        XCTAssertTrue(store.probeTask.isCancelled)
+    }
+
     // MARK: - sign in/out land the same status object as a refresh
 
     func testSignInCachesTheReturnedStatus() async {
