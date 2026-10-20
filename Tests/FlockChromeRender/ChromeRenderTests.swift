@@ -2878,12 +2878,14 @@ final class ChromeRenderTests: XCTestCase {
             HerdrSessionEntry(name: "acme", isRunning: true, socketPath: namedSocket("acme"), isDefault: false),
             HerdrSessionEntry(name: "demo", isRunning: false, socketPath: namedSocket("demo"), isDefault: false),
             HerdrSessionEntry(name: "review", isRunning: true, socketPath: namedSocket("review"), isDefault: false),
+            HerdrSessionEntry(name: "build", isRunning: true, socketPath: namedSocket("build"), isDefault: false),
         ]
         for (kind, fails) in [("servers", false), ("servers-failure", true)] {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 let picker = ServerPicker(
                     list: { serversEntries }, start: { _ in .success(()) }, choose: { _ in true },
                     currentSocket: { namedSocket("acme") }, isLocked: false, home: "/Users/acme",
+                    heldBy: { $0 == namedSocket("review") ? "Flock" : nil },
                     delete: { _ in .failure(.herdr("session demo is still running")) }
                 )
                 await picker.refresh()
@@ -2961,7 +2963,6 @@ final class ChromeRenderTests: XCTestCase {
                 isLocked: profiles?.locked ?? false,
                 newProfileDraft: profiles?.draft ?? "",
                 serverDraft: serverDrafts[name],
-                serverHeldBy: { $0 == namedSocket("review") ? "Flock" : nil },
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {

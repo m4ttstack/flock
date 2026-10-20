@@ -46,6 +46,32 @@ final class HerdrServerActionsTests: XCTestCase {
         XCTAssertEqual(action(for: entry("demo", running: false)), .delete)
     }
 
+    func testStopConfirmationSaysWhatCloses() {
+        XCTAssertEqual(
+            HerdrServerActions.confirmationMessage(for: entry("acme", running: true), action: .stop, profiles: [], home: home),
+            "Every pane and agent on it closes. This can't be undone."
+        )
+    }
+
+    func testDeleteConfirmationNamesTheProfilesOnThatServer() {
+        let demo = entry("demo", running: false)
+        let base = "Its saved workspaces go. This can't be undone."
+        func message(_ profiles: [(name: String, socketPath: String)]) -> String {
+            HerdrServerActions.confirmationMessage(for: demo, action: .delete, profiles: profiles, home: home)
+        }
+        let other = (name: "Default", socketPath: home + "/.config/herdr/herdr.sock")
+        XCTAssertEqual(message([]), base)
+        XCTAssertEqual(message([other]), base)
+        XCTAssertEqual(message([other, (name: "Demo", socketPath: demo.socketPath)]), base + " Used by Demo.")
+        XCTAssertEqual(
+            message([
+                (name: "Demo", socketPath: demo.socketPath), other,
+                (name: "Video", socketPath: "~/.config/herdr/sessions/demo/./herdr.sock"),
+            ]),
+            base + " Used by Demo, Video."
+        )
+    }
+
     func testAFailureReadsHerdrsErrorMessage() {
         let json = Data(#"{"error":{"code":"session_delete_failed","message":"session acme is running"}}"#.utf8)
         XCTAssertEqual(
