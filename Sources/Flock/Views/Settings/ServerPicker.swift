@@ -10,6 +10,7 @@ import Observation
 final class ServerPicker {
     private(set) var entries: [HerdrSessionEntry] = []
     private(set) var failure: String?
+    private(set) var isBusy = false
     let isLocked: Bool
 
     @ObservationIgnored private let list: () async -> [HerdrSessionEntry]?
@@ -52,12 +53,42 @@ final class ServerPicker {
     }
 
     func choose(_ entry: HerdrSessionEntry) async {
-        failure = nil
-        _ = await chooseSocket(entry.isDefault ? nil : entry.socketPath)
+        await whileIdle { _ = await chooseSocket(entry.isDefault ? nil : entry.socketPath) }
     }
 
     func startServer(name: String) async -> String? {
+        var socket: String?
+        await whileIdle { socket = launch(name: name) }
+        return socket
+    }
+
+    func startNew(name: String) async {
+        await whileIdle {
+            guard let socket = launch(name: name) else { return }
+            _ = await chooseSocket(socket)
+        }
+    }
+
+    func chooseCustom(path: String) async {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        await whileIdle {
+            let address = HerdrServerAddress(socketPath: trimmed, home: home)
+            _ = await chooseSocket(address == .defaultServer ? nil : address.socketPath(home: home))
+        }
+    }
+
+    /// A request made while another is in flight is dropped, so a double
+    /// click cannot start the same server twice.
+    private func whileIdle(_ body: () async -> Void) async {
+        guard !isBusy else { return }
+        isBusy = true
         failure = nil
+        await body()
+        isBusy = false
+    }
+
+    private func launch(name: String) -> String? {
         guard HerdrServerAddress.isValidSessionName(name) else {
             failure = "\"\(name)\" can't be a server name. Use letters, digits, \".\", \"_\" or \"-\"."
             return nil
@@ -67,18 +98,5 @@ final class ServerPicker {
             return nil
         }
         return HerdrServerAddress.named(name).socketPath(home: home)
-    }
-
-    func startNew(name: String) async {
-        guard let socket = await startServer(name: name) else { return }
-        _ = await chooseSocket(socket)
-    }
-
-    func chooseCustom(path: String) async {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        failure = nil
-        let address = HerdrServerAddress(socketPath: trimmed, home: home)
-        _ = await chooseSocket(address == .defaultServer ? nil : address.socketPath(home: home))
     }
 }

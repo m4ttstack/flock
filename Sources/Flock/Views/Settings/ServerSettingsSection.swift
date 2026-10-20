@@ -26,14 +26,16 @@ struct ServerSettingsSection: View {
                         }
                     }
                     Divider()
-                        .onAppear { Task { await picker.refresh() } }
                     Button("New Server…") { field = .newServer }
                         .accessibilityIdentifier("flock.settings.server.new")
                     Button("Custom Socket Path…") { field = .customPath }
                         .accessibilityIdentifier("flock.settings.server.custom")
                 }
                 .fixedSize()
-                .disabled(picker.isLocked)
+                .disabled(picker.isLocked || picker.isBusy)
+                .onHover { inside in
+                    if inside { Task { await picker.refresh() } }
+                }
                 .accessibilityIdentifier("flock.settings.server.menu")
             } label: {
                 Text("Server")
@@ -73,9 +75,9 @@ struct ServerSettingsSection: View {
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
-                .onSubmit { run(perform) }
+                .onSubmit { if !picker.isBusy { run(perform) } }
             Button(action) { run(perform) }
-                .disabled(text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(picker.isBusy || text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
             Button("Cancel") { close() }
         }
     }
