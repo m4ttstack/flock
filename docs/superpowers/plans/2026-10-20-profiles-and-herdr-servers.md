@@ -35,7 +35,7 @@
 1. **A second switch while one is in flight** (two profile clicks in a row): one switch at a time, never two live sessions. Pinned in Task 4 (`testASwitchRequestedMidSwitchWaitsItsTurn`).
 2. **Switching with live transient UI** (rt modal open, parked panes, a view attaching a pane late): teardown detaches every surface, parked ones included, ends rt watches and the background timer, and refuses later attaches. Pinned in Task 3 (`testShutdownDetachesParkedSurfacesAndEndsRtWatches`, `testNoAttachAfterShutdown`).
 3. **A socket path typed with `~`, `.`, `..` or a trailing slash, or the default path typed by hand**: resolves to the same server and the same suite key as the menu entry. Pinned in Task 1 (`testSpellingsOfOneServerResolveAlike`) and Task 2 (`testSocketKeyIgnoresSpelling`).
-4. **Blank, duplicate or odd names**: profile names trim and must be non-empty (duplicates allowed, ids differ); session names match `[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}` and are not `default`, so `.` and `..` cannot escape the sessions folder. Pinned in Task 1 (`testServerNameValidation`) and Task 2 (`testCreateRejectsABlankName`).
+4. **Blank, duplicate or odd names**: profile names trim and must be non-empty (duplicates allowed, ids differ); session names match `[A-Za-z0-9_][A-Za-z0-9._-]{0,63}` and are not `default`, so `.` and `..` cannot escape the sessions folder and no name reads as a flag. Pinned in Task 1 (`testServerNameValidation`) and Task 2 (`testCreateRejectsABlankName`).
 5. **Deleting a profile whose server is still running**: its suites go, its herdr server is left alone. Pinned in Task 2 (`testDeleteRemovesEverySuiteAndNothingElse`).
 
 ---
@@ -56,7 +56,7 @@
   - `public func socketPath(home: String) -> String`
   - `public var label: String` (`"default"`, the name, or the custom path's parent directory name; replaces `FlockApp.sessionLabel(fromSocketPath:)`)
   - `public var isStartable: Bool` (false only for `.custom`)
-  - `public static func isValidSessionName(_ name: String) -> Bool` (`^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$` and not `default`)
+  - `public static func isValidSessionName(_ name: String) -> Bool` (`^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$` and not `default`)
   - `public struct HerdrSessionEntry: Equatable, Sendable { public let name: String; public let isRunning: Bool; public let socketPath: String; public let isDefault: Bool; public init(name:isRunning:socketPath:isDefault:) }`
   - `public enum HerdrSessionList { public static func parse(_ stdout: Data) -> [HerdrSessionEntry]? }` (nil for output that is not the shape below)
 
@@ -122,7 +122,7 @@ final class HerdrServerAddressTests: XCTestCase {
     }
     func testServerNameValidation() {
         XCTAssertTrue(HerdrServerAddress.isValidSessionName("acme-demo_1.2"))
-        for bad in ["", " ", "a b", "a/b", ".", "..", ".hidden", "default", String(repeating: "a", count: 65)] {
+        for bad in ["", " ", "a b", "a/b", ".", "..", ".hidden", "-x", "default", String(repeating: "a", count: 65)] {
             XCTAssertFalse(HerdrServerAddress.isValidSessionName(bad), bad)
         }
     }
@@ -416,7 +416,7 @@ public struct ProfileSessionEnvironment<Session: ProfileSession> {
 ```
 
 Rules:
-- **Contexts.** Preferences come from `ProfileSuites.preferencesSuiteName`. id state comes from `ProfileSuites.serverSuiteName` for (profile, socket), or from `overrideSuiteName` when `socketOverride` is set. Socket paths are normalized with `HerdrServerAddress.normalize`.
+- **Contexts.** Build one context by calling `defaults` for the preferences suite first, then for the id-state suite. Preferences come from `ProfileSuites.preferencesSuiteName`. id state comes from `ProfileSuites.serverSuiteName` for (profile, socket), or from `overrideSuiteName` when `socketOverride` is set. Socket paths are normalized with `HerdrServerAddress.normalize`.
 - **`init`.** Calls `setChildSocket` then `make` for the current profile on its socket (or the override). It does not call `start`, `confirmAttach` or `register`; `FlockApp`'s launch does those (Task 6).
 - **A switch, in order.**
   1. Refuse (return false) when locked, or when the target equals the current (profile, socket).
@@ -431,7 +431,7 @@ Rules:
 
 Fixtures: `home = "/Users/someone/.config/herdr/herdr.sock"`, `acme = "/Users/someone/.config/herdr/sessions/acme/herdr.sock"`, home directory `/Users/someone`, `bundleID: "b"`. A `FakeSession: ProfileSession` appends `"start <socket>"` / `"shutdown <socket>"` to a shared `[String]` log. The environment's closures append `"confirm <socket> <label>"`, `"register <socket>"`, `"child <socket>"`, `"make <profile id> <socket>"`, and `defaults` appends `"suite <name or standard>"` and returns `UserDefaults(suiteName: "psc-\(runID)-\(name ?? "standard")")!`. The `ProfileStore` uses its own per-test suite. Profile `p1` is created on `acme` before the controller is built.
 
-- `testLaunchBuildsTheCurrentProfileOnItsSocketAndStartsNothing`: log is `["child <home>", "suite standard", "suite standard", "make default <home>"]` (the two suite lines in either order); `generation == 0`.
+- `testLaunchBuildsTheCurrentProfileOnItsSocketAndStartsNothing`: log is `["child <home>", "suite standard", "suite standard", "make default <home>"]`; `generation == 0`.
 - `testASwitchRunsInOrder`: after launch, `switchTo(profileID: "p1")` appends `["confirm <acme> Default", "shutdown <home>", "child <acme>", "suite b.profile.p1", "suite b.profile.p1.server.<key acme>", "make p1 <acme>", "register <acme>", "start <acme>"]`; `generation == 1`; the store's `currentID == "p1"`.
 - `testARefusedSwitchSavesNothing`: `confirmAttach` returns false; result false; nothing after the `confirm` line; `currentID` and every profile's `socketPath` and `knownSockets` unchanged; `generation == 0`.
 - `testChangingServerKeepsTheProfileAndRemembersBothServers`: `changeServer(to: acme)` on Default logs `"confirm <acme> default"` (the server label), `"suite b.profile.default.server.<key acme>"`, `"make default <acme>"`; `current.knownSockets == [home, acme]`; `current.socketPath == acme`.
@@ -482,7 +482,7 @@ git commit -m "profiles: switch sessions in place, guard first, one at a time"
     - Strips `RT_BATCH` and sets `HERDR_MACOS_SERVER_CONTEXT=user`, as today.
     - Removes `HERDR_SOCKET_PATH` for `.defaultServer` and `.named`.
     - Sets it to the path for `.overrideSocket`.
-  - `enum HerdrSessionLister { static func list() async -> [HerdrSessionEntry]? }`: `herdr session list --json` through `ToolRunner`, with a 5 s deadline and the child environment.
+  - `enum HerdrSessionLister { static func list() async -> [HerdrSessionEntry]? }`: `herdr session list --json` through `ToolRunner`, with a 5 s deadline. It uses the child environment with `HERDR_SOCKET_PATH` removed, so the list never depends on which server is current.
   - `FlockClientGuard.register(socketPath: String)`: writes this pid's record. It installs the will-terminate unregister once per process, not once per call.
   - `FlockClientGuard.confirmAttach(socketPath: String, defaultSocketPath: String, stayLabel: String) async -> Bool`:
     - Runs the same conflict check as launch, with the buttons "Quit <other>", "Stay on <stayLabel>" and "Keep Both".
@@ -657,7 +657,7 @@ git commit -m "FlockSession: everything per profile and server in one object Flo
 **Interfaces:**
 - Consumes: `HerdrServerAddress` (Task 1); `FlockSession.address`, `isStartingHerdr`, `herdrStartFailure`, `controller.isLocked` (Task 6).
 - Produces:
-  - `static func notRunning(for address: HerdrServerAddress) -> NoHerdrScreen.Copy`. `.defaultServer` returns today's `notRunning` copy unchanged.
+  - `static func notRunning(for address: HerdrServerAddress, isOverride: Bool) -> NoHerdrScreen.Copy`. `.defaultServer` returns today's `notRunning` copy unchanged. A `.custom` address under an override keeps the custom headline and body, with the hint `Start it here, or start that server however it is normally started.` `NoHerdrScreen.Copy` becomes `Equatable` for the tests.
   - `static func startTitle(for address: HerdrServerAddress, isOverride: Bool, isStarting: Bool) -> String?`: nil means no button. A `.custom` address gets nil unless `isOverride` is true (today's override keeps its Start). Otherwise the title is today's "Start herdr", or "Starting herdr…" while `isStarting` is true.
   - `FlockApp` builds the not-running branch's `primaryAction` from `startTitle`, so no button decision lives in `FlockApp`.
 
@@ -671,7 +671,7 @@ git commit -m "FlockSession: everything per profile and server in one object Flo
 - [ ] **Step 1: Write the failing tests**
 
 - `testNamedAndCustomCopy`: asserts the table above for `.named("acme")` and `.custom("/tmp/acme/x.sock")`.
-- `testDefaultCopyIsUnchanged`: `notRunning(for: .defaultServer) == NoHerdrScreen.notRunning`.
+- `testDefaultCopyIsUnchanged`: `notRunning(for: .defaultServer, isOverride: false) == NoHerdrScreen.notRunning`; `notRunning(for: .custom("/tmp/acme/x.sock"), isOverride: true).hint == "Start it here, or start that server however it is normally started."`.
 - `testOnlyAPickedCustomPathHasNoStartButton`: `startTitle(for: .custom(p), isOverride: false, isStarting: false) == nil`; `startTitle(for: .custom(p), isOverride: true, isStarting: false) == "Start herdr"`; `startTitle(for: .named("acme"), isOverride: false, isStarting: true) == "Starting herdr…"`.
 - `HerdrStoreBackoffTests.testBackoffNeverWaitsMoreThanTwoSeconds`: `HerdrStore.defaultBackoff(attempt: 1) == .milliseconds(500)` and `defaultBackoff(attempt: 50) == .seconds(2)`.
 
@@ -680,7 +680,7 @@ Extend `testRendersOverTheThemesChromeWithNoButtonByDefault`'s theme loop (dark 
 - [ ] **Step 2: Regenerate and run them to see them fail**
 
 Run: `xcodegen && xcodebuild test -scheme FlockChromeRender -destination 'platform=macOS' -only-testing:FlockChromeRender/NoHerdrScreenTests -skipPackagePluginValidation -derivedDataPath build/dd`
-Expected: build fails, `type 'NoHerdrScreen' has no member 'notRunning(for:)'`.
+Expected: build fails, `type 'NoHerdrScreen' has no member 'notRunning(for:isOverride:)'`.
 
 - [ ] **Step 3: Implement**
 
@@ -869,8 +869,16 @@ Expected: all green; checks print `ok` for every gate.
 
 - [ ] **Step 2: Confirm herdr-chat follows the socket**
 
-With a scratch session running (`herdr --session acme-chatcheck server` started by hand, never the default), run `HERDR_SOCKET_PATH=$HOME/.config/herdr/sessions/acme-chatcheck/herdr.sock <herdr-chat path> status --pane w1:p1` and the same without the variable.
-Expected: the two answers differ (the first is about the scratch server's pane). If they match, herdr-chat ignores the variable. In that case, hide Chat when `session.address != .defaultServer` (`ChatMenuModel` and the chat views read it), add a test for that, and commit before going on. Stop the scratch server afterwards only with `HERDR_SOCKET_PATH=<its socket> herdr server stop`, never the default.
+1. Start a scratch server with the repo's own tool, which backgrounds it, waits for the bind and refuses the default socket: `Tests/FlockUITests/Support/bin/scratch-session.sh start chatcheck` (session `flock-chatcheck`).
+2. Pick a pane id that exists on the default server but not on the fresh scratch one: `herdr pane list` on the default server, choose one past `w1:p1`, for example `w3:p2`.
+3. Run `<herdr-chat> status --pane w3:p2`, where `<herdr-chat>` is the path `ChatToolLocator` resolves (in Flock Dev, the mattstack checkout's build).
+4. Run it again as `HERDR_SOCKET_PATH=$HOME/.config/herdr/sessions/flock-chatcheck/herdr.sock <herdr-chat> status --pane w3:p2`.
+
+Expected: the first call answers with a status. The second answers that the pane is unknown, or exits non-zero.
+
+If the second call answers with the default server's status instead, herdr-chat ignores the variable. In that case, hide Chat when `session.address != .defaultServer` (`ChatMenuModel` and the chat views read it), add a test for that, and commit before going on.
+
+Leave the scratch server running for Step 4 item 9.
 
 - [ ] **Step 3: Build and hand over**
 
@@ -888,9 +896,14 @@ Each line is one spec acceptance item; record what was seen.
 6. Pick a stopped session: the named not-running screen. Start brings it up, and the window attaches within about two seconds.
 7. Pick another stopped session and start it from a terminal instead (`herdr --session <name> server`): the window attaches within about two seconds.
 8. Custom socket path `/tmp/flock-nothing.sock`: the custom screen, with no Start button.
-9. With Flock (production) on the default session, switch Flock Dev's profile to Default. The prompt offers "Stay on <profile>"; choosing it leaves Flock Dev where it was, and the Profile menu's check has not moved.
-10. Profiles tab: Delete is disabled on Default and on the current profile. Deleting "demo" from Default removes it, and `defaults read dev.mattstack.Flock.dev.profile.<id>` reports no domain, while `herdr session list` still shows `demo` running.
-11. Ask Matt to quit Flock Dev himself. `herdr session list` still shows `demo` running.
-12. The locked state is covered by Task 4's tests and the `herdr-server-locked` and `profiles-locked` renders. e2e runs exercise it live; this walk does not relaunch Matt's app with an override.
+9. Custom path that comes up later:
+   - Run `ln -sf $HOME/.config/herdr/sessions/flock-chatcheck/herdr.sock /tmp/flock-custom.sock` and `Tests/FlockUITests/Support/bin/scratch-session.sh stop chatcheck`.
+   - Choose Custom Socket Path `/tmp/flock-custom.sock`. The custom screen shows.
+   - Run `Tests/FlockUITests/Support/bin/scratch-session.sh start chatcheck`. The window attaches within about two seconds.
+   - Afterwards, pick the default server again, run `scratch-session.sh stop chatcheck` and `rm /tmp/flock-custom.sock`.
+10. Switch Flock Dev to the demo profile. With Flock (production) on the default session, switch Flock Dev back to Default. The prompt offers "Stay on demo". Choosing it leaves Flock Dev on demo, and the Profile menu's check has not moved.
+11. Profiles tab: Delete is disabled on Default and on the current profile. Switch to Default, choosing Keep Both at the prompt. Deleting "demo" removes it, and `defaults read dev.mattstack.Flock.dev.profile.<id>` reports no domain, while `herdr session list` still shows `demo` running.
+12. Ask Matt to quit Flock Dev himself. `herdr session list` still shows `demo` running.
+13. The locked state is covered by Task 4's tests and the `herdr-server-locked` and `profiles-locked` renders. e2e runs exercise it live; this walk does not relaunch Matt's app with an override.
 
 - [ ] **Step 5: Fix anything found, through the owning task's tests, and commit each fix**
