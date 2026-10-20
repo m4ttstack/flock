@@ -2791,14 +2791,14 @@ final class ChromeRenderTests: XCTestCase {
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
         var cases: [(
             name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab,
-            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?
+            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?, picker: ServerPicker?
         )] = []
         for tab in SettingsTab.allCases {
-            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab, nil))
-            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab, nil))
+            cases.append(("\(tab.rawValue)-light", .aqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil))
+            cases.append(("\(tab.rawValue)-dark", .darkAqua, StartingFolderStore(userDefaults: defaults), tab, nil, nil))
         }
-        cases.append(("custom-tab-light", .aqua, customTab, .general, nil))
-        cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil))
+        cases.append(("custom-tab-light", .aqua, customTab, .general, nil, nil))
+        cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil, nil))
         let updateKinds: [(kind: String, warning: Bool, runner: HerdrCommandRunner?)] = [
             ("note", false, nil), ("warning", true, nil),
             ("updating", false, HangingHerdrRunner()), ("error", false, FailingHerdrRunner()),
@@ -2814,14 +2814,31 @@ final class ChromeRenderTests: XCTestCase {
                     stores.update.confirmUpdate()
                     if kind == "error" { await stores.update.updateTask?.value }
                 }
-                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores))
+                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, nil))
+            }
+        }
+        let serverEntries = [
+            HerdrSessionEntry(name: "default", isRunning: true, socketPath: "/Users/acme/.config/herdr/herdr.sock", isDefault: true),
+            HerdrSessionEntry(name: "acme", isRunning: false, socketPath: "/Users/acme/.config/herdr/sessions/acme/herdr.sock", isDefault: false),
+        ]
+        for (kind, locked) in [("server", false), ("server-locked", true)] {
+            for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let stores = try makeHerdrUpdateStores(patchInstalled: false)
+                await stores.update.checkIfDue()
+                let picker = ServerPicker(
+                    list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
+                    currentSocket: { locked ? "/Users/acme/sockets/override/herdr.sock" : serverEntries[0].socketPath },
+                    isLocked: locked, home: "/Users/acme"
+                )
+                await picker.refresh()
+                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker))
             }
         }
         defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
         linkTrustStore.trust("vscode")
-        for (name, appearance, startingFolderStore, tab, stores) in cases {
+        for (name, appearance, startingFolderStore, tab, stores, picker) in cases {
             let update = stores?.update
             let view = FlockSettingsView(
                 herdrMousePatchStore: stores?.patch ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
@@ -2843,6 +2860,7 @@ final class ChromeRenderTests: XCTestCase {
                 ),
                 herdrVersion: update == nil ? "0.9.3" : "0.9.5",
                 herdrUpdateStore: update,
+                serverPicker: picker,
                 tab: tab
             )
             if name.hasPrefix("herdr-update-updating") {

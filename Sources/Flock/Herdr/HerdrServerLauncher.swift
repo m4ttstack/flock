@@ -9,6 +9,13 @@ enum HerdrServerLauncher {
     enum Failure: Error, Equatable {
         case notFound
         case spawn(Int32)
+
+        var message: String {
+            switch self {
+            case .notFound: "flock couldn't find herdr on its PATH."
+            case .spawn(let code): "herdr wouldn't start (\(String(cString: strerror(code))))."
+            }
+        }
     }
 
     enum Target: Equatable {
