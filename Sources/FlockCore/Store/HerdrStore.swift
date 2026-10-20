@@ -639,7 +639,7 @@ public final class HerdrStore {
     public nonisolated static func defaultBackoff(attempt: Int) -> Duration {
         guard attempt > 1 else { return .milliseconds(500) }
         let shift = min(attempt - 1, 30)
-        return .milliseconds(min(15_000, 500 << shift))
+        return .milliseconds(min(2_000, 500 << shift))
     }
 
     private func runLoop() async {

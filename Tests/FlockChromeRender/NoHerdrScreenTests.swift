@@ -1,4 +1,5 @@
 import AppKit
+import FlockCore
 import SwiftUI
 import XCTest
 
@@ -21,6 +22,32 @@ final class NoHerdrScreenTests: XCTestCase {
         XCTAssertEqual(NoHerdrScreen.notRunning.headline, "Oops! Doesn't look like herdr has started.")
         XCTAssertEqual(NoHerdrScreen.notRunning.body, "flock shows your herdr session, and no herdr server is running yet.")
         XCTAssertEqual(NoHerdrScreen.notRunning.hint, "Start it here, or run herdr in a terminal.")
+    }
+
+    func testNamedAndCustomCopy() {
+        let named = NoHerdrScreen.notRunning(for: .named("acme"), isOverride: false)
+        XCTAssertEqual(named.headline, "The herdr server \u{201C}acme\u{201D} isn't running.")
+        XCTAssertEqual(named.body, "flock is checking for it and will attach as soon as it starts.")
+        XCTAssertEqual(named.hint, "Start it here, or run herdr --session acme in a terminal.")
+        let custom = NoHerdrScreen.notRunning(for: .custom("/tmp/acme/x.sock"), isOverride: false)
+        XCTAssertEqual(custom.headline, "Nothing is answering at /tmp/acme/x.sock.")
+        XCTAssertEqual(custom.body, "flock is checking and will attach as soon as a herdr server is listening there.")
+        XCTAssertEqual(custom.hint, "Start that server however it is normally started.")
+    }
+
+    func testDefaultCopyIsUnchanged() {
+        XCTAssertEqual(NoHerdrScreen.notRunning(for: .defaultServer, isOverride: false), NoHerdrScreen.notRunning)
+        XCTAssertEqual(
+            NoHerdrScreen.notRunning(for: .custom("/tmp/acme/x.sock"), isOverride: true).hint,
+            "Start it here, or start that server however it is normally started."
+        )
+    }
+
+    func testOnlyAPickedCustomPathHasNoStartButton() {
+        let path = "/tmp/acme/x.sock"
+        XCTAssertNil(NoHerdrScreen.startTitle(for: .custom(path), isOverride: false, isStarting: false))
+        XCTAssertEqual(NoHerdrScreen.startTitle(for: .custom(path), isOverride: true, isStarting: false), "Start herdr")
+        XCTAssertEqual(NoHerdrScreen.startTitle(for: .named("acme"), isOverride: false, isStarting: true), "Starting herdr\u{2026}")
     }
 
     func testTheNotRunningScreenOffersToStartHerdr() async throws {
@@ -86,6 +113,23 @@ final class NoHerdrScreenTests: XCTestCase {
                 "the screen paints the chrome ground, not a stray default background"
             )
             window.close()
+
+            let named = NoHerdrScreen(
+                theme: theme, copy: NoHerdrScreen.notRunning(for: .named("acme-review-session"), isOverride: false),
+                primaryAction: .init(title: "Start herdr", perform: {})
+            )
+            let custom = NoHerdrScreen(
+                theme: theme, copy: NoHerdrScreen.notRunning(for: .custom("/Users/acme/.config/herdr/sessions/review/herdr.sock"), isOverride: false)
+            )
+            for (name, screen) in [("named", AnyView(named)), ("custom", AnyView(custom))] {
+                let window = hostWindow(screen)
+                await settle(window)
+                if let directory {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("no-herdr-\(name)-\(theme.id).png")
+                    try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:])).write(to: url)
+                }
+                window.close()
+            }
         }
     }
 
