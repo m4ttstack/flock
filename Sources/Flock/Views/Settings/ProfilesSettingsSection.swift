@@ -85,6 +85,7 @@ struct ProfilesSettingsSection: View {
                 Text("Its settings and pins are removed. Its herdr server keeps running.")
             }
             .task { await picker?.refresh() }
+            .onDisappear { closeForm() }
             newProfileSection
         }
     }
@@ -106,7 +107,7 @@ struct ProfilesSettingsSection: View {
                     .accessibilityIdentifier("flock.settings.profiles.current")
             }
             Spacer(minLength: 8)
-            serverMenu(for: profile, isCurrent: isCurrent)
+            serverMenu(for: profile)
             Button("Switch") { Task { _ = await switchProfile(profile.id) } }
                 .hiddenKeepingSpace(isCurrent)
                 .accessibilityIdentifier("flock.settings.profiles.switch")
@@ -128,13 +129,13 @@ struct ProfilesSettingsSection: View {
         .accessibilityIdentifier("flock.settings.profiles.row")
     }
 
-    private func serverMenu(for profile: FlockProfile, isCurrent: Bool) -> some View {
+    private func serverMenu(for profile: FlockProfile) -> some View {
         let socket = HerdrServerAddress.normalize(profiles.socketPath(of: profile), home: home)
         return Menu(HerdrServerAddress(socketPath: socket, home: home).label) {
             ForEach(entries, id: \.socketPath) { entry in
                 Toggle(isOn: Binding(
                     get: { HerdrServerAddress.normalize(entry.socketPath, home: home) == socket },
-                    set: { _ in setServer(entry.isDefault ? nil : entry.socketPath, for: profile.id, isCurrent: isCurrent) }
+                    set: { _ in setServer(entry.isDefault ? nil : entry.socketPath, for: profile.id) }
                 )) {
                     Text(entry.name)
                     Text(entry.isRunning ? "running" : "stopped")
@@ -165,7 +166,7 @@ struct ProfilesSettingsSection: View {
         case .customPath(profile.id):
             fieldRow(placeholder: "Socket path", action: "Use") {
                 guard let socket = customSocket(fieldText) else { return }
-                setServer(socket, for: profile.id, isCurrent: profile.id == profiles.currentID)
+                setServer(socket, for: profile.id)
             }
             .accessibilityIdentifier("flock.settings.profiles.customField")
         default:
@@ -294,11 +295,21 @@ struct ProfilesSettingsSection: View {
         return .some(address == .defaultServer ? nil : address.socketPath(home: home))
     }
 
-    private func setServer(_ socket: String?, for id: String, isCurrent: Bool) {
-        if isCurrent {
-            Task { _ = await changeServer(socket) }
-        } else {
-            profiles.setSocket(socket, for: id)
+    enum ServerRoute: Equatable {
+        case changeServer
+        case setSocket
+    }
+
+    static func serverRoute(for id: String, currentID: String) -> ServerRoute {
+        id == currentID ? .changeServer : .setSocket
+    }
+
+    /// Reads the current profile when it acts, not when the menu was drawn:
+    /// a switch can land while a row's menu is open.
+    private func setServer(_ socket: String?, for id: String) {
+        switch Self.serverRoute(for: id, currentID: profiles.currentID) {
+        case .changeServer: Task { _ = await changeServer(socket) }
+        case .setSocket: profiles.setSocket(socket, for: id)
         }
     }
 }
