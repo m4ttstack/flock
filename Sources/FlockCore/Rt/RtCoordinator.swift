@@ -324,6 +324,18 @@ public final class RtCoordinator {
 
     // MARK: - watching
 
+    /// Stops this coordinator's own work for a session being torn down. The
+    /// rt items and their panes live in herdr and outlast it: nothing here
+    /// stops, closes or forgets them.
+    public func shutdown() {
+        for task in watches.values { task.cancel() }
+        for task in shutdowns.values { task.cancel() }
+        for task in pendingWork.values { task.cancel() }
+        watches.removeAll()
+        shutdowns.removeAll()
+        pendingWork.removeAll()
+    }
+
     /// `self` is taken weakly on every poll, so a coordinator that goes away
     /// ends its watches rather than being kept alive by them.
     func startWatch(_ id: String) {

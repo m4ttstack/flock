@@ -336,6 +336,9 @@ private final class FakePaneScrollSubscriber: PaneScrollSubscribing {
 
     func subscribe(pane: PaneID) { subscribed.append(pane) }
     func unsubscribe(pane: PaneID) { unsubscribed.append(pane) }
+    private(set) var unsubscribedAll = false
+
+    func unsubscribeAll() { unsubscribedAll = true }
 }
 
 /// Records which panes' agent-status feeds `SessionViewModel` arms and
@@ -347,6 +350,9 @@ private final class FakePaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
 
     func subscribe(pane: PaneID) { subscribed.append(pane) }
     func unsubscribe(pane: PaneID) { unsubscribed.append(pane) }
+    private(set) var unsubscribedAll = false
+
+    func unsubscribeAll() { unsubscribedAll = true }
 }
 
 /// `makeModel` plus one layout for `w1:t1` placing `w1:p1` at `rect` inside
@@ -2173,6 +2179,68 @@ final class SessionViewModelTests: XCTestCase {
         let noop = await viewModel.attachPane(pane)
         XCTAssertTrue(noop === surface)
         XCTAssertEqual(factory.makeSurfaceCalls.count, 1, "still only one surface ever created for this pane")
+    }
+
+    // MARK: - shutdown
+
+    @MainActor
+    func testShutdownDetachesEverySurfaceAndDropsEveryFeed() async {
+        let factory = FakeGhosttyPaneFactory()
+        let scroll = FakePaneScrollSubscriber()
+        let status = FakePaneAgentStatusSubscriber()
+        let viewModel = SessionViewModel(
+            client: RecordingCommandClient(), ghosttyFactory: factory,
+            paneScrollSubscriber: scroll, paneAgentStatusSubscriber: status
+        )
+        _ = await viewModel.attachPane(PaneID(rawValue: "w1:p1"))
+        _ = await viewModel.attachPane(PaneID(rawValue: "w1:p2"))
+        await viewModel.shutdown()
+        XCTAssertEqual(factory.surfaces.values.map(\.detachCallCount), [1, 1])
+        XCTAssertTrue(scroll.unsubscribedAll)
+        XCTAssertTrue(status.unsubscribedAll)
+    }
+
+    @MainActor
+    func testShutdownDetachesParkedSurfacesAndEndsRtWatches() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let parked = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(parked)
+        _ = await viewModel.attachPane(PaneID(rawValue: "w1:p2"))
+        await viewModel.detachPane(parked)
+        XCTAssertEqual(factory.surfaces[parked]?.parkCallCount, 1)
+        viewModel.rt.startWatch("tok1")
+        await viewModel.shutdown()
+        XCTAssertEqual(factory.surfaces.values.map(\.detachCallCount), [1, 1])
+        XCTAssertTrue(viewModel.rt.watches.isEmpty)
+    }
+
+    @MainActor
+    func testShutdownTwiceDetachesOnce() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        _ = await viewModel.attachPane(PaneID(rawValue: "w1:p1"))
+        await viewModel.shutdown()
+        await viewModel.shutdown()
+        XCTAssertEqual(factory.surfaces.values.map(\.detachCallCount), [1])
+    }
+
+    @MainActor
+    func testNoAttachAfterShutdown() async {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        await viewModel.shutdown()
+        let surface = await viewModel.attachPane(PaneID(rawValue: "w1:p1"))
+        XCTAssertNil(surface)
+        XCTAssertEqual(factory.makeSurfaceCalls, [])
+    }
+
+    @MainActor
+    func testRtLinkedPanesUseTheDefaultsTheyAreGiven() {
+        let defaults = UserDefaults(suiteName: "rt-linked-\(UUID())")!
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), rtLinkedPaneDefaults: defaults)
+        viewModel.rt.linkedPanes.record(PaneID(rawValue: "w1:p9"), for: "tok-\(UUID())")
+        XCTAssertNotNil(defaults.object(forKey: RtLinkedPanes.key))
     }
 
     // MARK: - context-menu commands (split down, close, right-click routing)

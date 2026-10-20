@@ -105,6 +105,9 @@ public final class SessionViewModel {
     // existed in the session, not by request volume, so this does not grow
     // unbounded in practice.
     private var paneWork: [PaneID: Task<Void, Never>] = [:]
+    /// Set once `shutdown()` starts; no surface is built after it.
+    @ObservationIgnored private var isShutDown = false
+    @ObservationIgnored private var shutdownWork: Task<Void, Never>?
     private let client: any HerdrCommandClient
     private let ghosttyFactory: (any GhosttyPaneFactory)?
     // Every visible pane's live surface, keyed by pane -- created exactly
@@ -256,6 +259,7 @@ public final class SessionViewModel {
         startingFolder: @escaping @MainActor (NewTerminalKind) -> StartingFolderChoice = { _ in StartingFolderChoice(folder: .currentPane) },
         homeDirectory: String = NSHomeDirectory(),
         rt: RtCoordinator? = nil,
+        rtLinkedPaneDefaults: UserDefaults? = nil,
         rightClickDefaults: UserDefaults? = nil,
         completedTabDefaults: UserDefaults? = nil,
         paneTitleDefaults: UserDefaults? = nil,
@@ -287,7 +291,11 @@ public final class SessionViewModel {
         self.backgroundWorkInterval = backgroundWorkInterval
         self.startingFolder = startingFolder
         self.homeDirectory = homeDirectory
-        self.rt = rt ?? RtCoordinator(client: client, notice: noticeSink)
+        self.rt = rt ?? RtCoordinator(
+            client: client,
+            linkedPanes: rtLinkedPaneDefaults.map { RtLinkedPanes(defaults: $0) } ?? RtLinkedPanes(),
+            notice: noticeSink
+        )
         self.rightClicks = RightClickModeStore(userDefaults: rightClickDefaults)
         self.completedTabs = TabCompletionStore(userDefaults: completedTabDefaults)
         self.paneTitles = PaneTitleStore(userDefaults: paneTitleDefaults)
@@ -1212,12 +1220,14 @@ public final class SessionViewModel {
     /// an `@Observable` access, which this sidesteps entirely.
     @discardableResult
     public func attachPane(_ pane: PaneID) async -> (any GhosttyPaneSurface)? {
-        guard let ghosttyFactory else { return nil }
+        guard let ghosttyFactory, !isShutDown else { return nil }
         parkedPanes.removeAll { $0 == pane }
         let previous = paneWork[pane]
         let task = Task { [weak self] in
             _ = await previous?.value
-            guard let self else { return }
+            // Rechecked on the chain: an attach queued behind work still in
+            // flight when `shutdown()` began runs after its surfaces are gone.
+            guard let self, !self.isShutDown else { return }
             await self.performAttach(pane: pane, factory: ghosttyFactory)
         }
         paneWork[pane] = task
@@ -1407,6 +1417,51 @@ public final class SessionViewModel {
             launcherRegistryVersion += 1
         }
         await surface.detach()
+    }
+
+    // MARK: - shutdown
+
+    /// Ends everything this session runs, for a switch to another herdr
+    /// server inside one process. Every surface, parked ones included, is
+    /// detached exactly once; a second call waits on the first.
+    public func shutdown() async {
+        if let shutdownWork {
+            await shutdownWork.value
+            return
+        }
+        isShutDown = true
+        let work = Task { [weak self] in
+            guard let self else { return }
+            await self.performShutdown()
+        }
+        shutdownWork = work
+        await work.value
+    }
+
+    private func performShutdown() async {
+        // A park or teardown already chained can chain more of its own (the
+        // warm cap's eviction), so wait until the chain stops growing.
+        var settled: [PaneID: Task<Void, Never>] = [:]
+        while paneWork != settled {
+            settled = paneWork
+            for work in settled.values { await work.value }
+        }
+        let surfaces = Array(ghosttySurfaces.values)
+        ghosttySurfaces.removeAll()
+        surfaceIdentities.removeAll()
+        parkedPanes.removeAll()
+        for watch in promptWatches.values { watch.cancel() }
+        promptWatches.removeAll()
+        for watch in navigationWatches.values { watch.cancel() }
+        navigationWatches.removeAll()
+        navigationTargets.removeAll()
+        backgroundWorkTimer?.cancel()
+        backgroundWorkTimer = nil
+        paneScrollSubscriber?.unsubscribeAll()
+        paneAgentStatusSubscriber?.unsubscribeAll()
+        rt.shutdown()
+        flushPaneTitles()
+        for surface in surfaces { await surface.detach() }
     }
 
     // MARK: - harness launcher

@@ -45,6 +45,7 @@ private final class FakePaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
 
     func subscribe(pane: PaneID) { armed.insert(pane) }
     func unsubscribe(pane: PaneID) { armed.remove(pane) }
+    func unsubscribeAll() {}
 }
 
 @MainActor

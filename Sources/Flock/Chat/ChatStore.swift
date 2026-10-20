@@ -108,7 +108,7 @@ final class ChatStore {
             guard let path = await probe() else { return }
             let rtIsFound = await rtProbe()
             let deckIsFound = await deckProbe()
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             self.viewerDisabledReason = ChatDegradation.viewerDisabledReason(deckBinaryFound: deckIsFound)
             guard ChatDegradation.isAvailable(chatBinaryFound: true, rtBinaryFound: rtIsFound) else { return }
             self.runner = makeRunner(path)
@@ -119,6 +119,13 @@ final class ChatStore {
             // actions, which is accepted rather than chased with a timer.
             self.peekTask = Task { [weak self] in await self?.peek() }
         }
+    }
+
+    /// For a session being torn down: a probe or peek still running must not
+    /// land in a store nothing shows any more.
+    func stop() {
+        probeTask.cancel()
+        peekTask?.cancel()
     }
 
     func status(for pane: PaneID) -> ChatStatus? {

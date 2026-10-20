@@ -82,6 +82,20 @@ final class HerdrHoldCoordinatorTests: XCTestCase {
         XCTAssertEqual(recorder.takes, 1)
     }
 
+    /// A torn-down session's coordinator must not reach panes that are gone.
+    func testInvalidateStopsReactingToActivation() {
+        let recorder = HoldRecorder()
+        let center = NotificationCenter()
+        let coordinator = makeCoordinator(recorder: recorder, center: center, onScreen: { true })
+        defer { withExtendedLifetime(coordinator) {} }
+
+        coordinator.invalidate()
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        waitOutTheReleaseDelay()
+
+        XCTAssertEqual(recorder.takes, 0)
+    }
+
     private func makeCoordinator(
         recorder: HoldRecorder, center: NotificationCenter, onScreen: @MainActor @escaping () -> Bool
     ) -> HerdrHoldCoordinator {

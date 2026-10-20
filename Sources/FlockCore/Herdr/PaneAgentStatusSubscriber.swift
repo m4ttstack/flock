@@ -6,6 +6,7 @@ import Foundation
 public protocol PaneAgentStatusSubscribing: AnyObject {
     func subscribe(pane: PaneID)
     func unsubscribe(pane: PaneID)
+    func unsubscribeAll()
 }
 
 /// One `events.subscribe` connection per pane, carrying exactly one
@@ -79,6 +80,12 @@ public final class HerdrPaneAgentStatusSubscriber: PaneAgentStatusSubscribing {
     public func unsubscribe(pane: PaneID) {
         armings.removeValue(forKey: pane)
         feeds.removeValue(forKey: pane)?.cancel()
+    }
+
+    public func unsubscribeAll() {
+        armings.removeAll()
+        for feed in feeds.values { feed.cancel() }
+        feeds.removeAll()
     }
 
     private func retire(pane: PaneID, arming: Int) {
