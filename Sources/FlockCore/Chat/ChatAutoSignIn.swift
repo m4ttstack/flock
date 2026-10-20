@@ -7,6 +7,8 @@ import Foundation
 public enum ChatAutoSignIn {
     public static let interval: Duration = .seconds(1)
     public static let attempts = 30
+    /// A slow status call stretches each attempt, so the window is also time.
+    public static let window: Duration = .seconds(30)
 
     public static let agent = "claude"
 

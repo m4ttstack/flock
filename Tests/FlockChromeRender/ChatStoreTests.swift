@@ -349,14 +349,19 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertEqual(store.status(for: Self.pane), Self.expectedStatus)
     }
 
-    func testAPaneAlreadySignedInIsNotFollowed() async {
-        let (store, runner, _, _) = await makeAutoSignInStore(results: [ok(Self.statusJSON)], settingIsOn: true)
+    /// The cache can hold an earlier agent's sign-in; the new agent's own
+    /// answer is what ends the follow.
+    func testAStaleSignedInStatusStillAsksForTheNewAgent() async {
+        let (store, runner, _, _) = await makeAutoSignInStore(
+            results: [ok(Self.statusJSON), ok(Self.signedOutStatusJSON), ok(Self.statusJSON)], settingIsOn: true
+        )
         await store.refreshStatus(for: Self.pane)
 
         await store.followAutoSignIn(Self.pane, folder: "/src/acme")
 
         let calls = await runner.recordedCalls()
-        XCTAssertEqual(calls, [.status(pane: "w1:p1")])
+        XCTAssertEqual(calls.count, 3)
+        XCTAssertEqual(store.status(for: Self.pane), Self.expectedStatus)
     }
 }
 

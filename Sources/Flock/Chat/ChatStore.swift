@@ -168,12 +168,15 @@ final class ChatStore {
 
     /// Asks quietly: a session still starting answers with failures the user
     /// never asked about, so none of them toast or reach the Retry banner.
+    /// The cached status is never trusted to skip the first ask, since it can
+    /// describe an earlier agent in the same pane.
     func followAutoSignIn(_ pane: PaneID, folder: String) async {
-        guard isAvailable, statuses[pane]?.signedIn != true, !followingAutoSignIn.contains(pane) else { return }
+        guard isAvailable, !followingAutoSignIn.contains(pane) else { return }
         followingAutoSignIn.insert(pane)
         defer { followingAutoSignIn.remove(pane) }
         guard await autoSignInIsOn(folder) else { return }
-        for _ in 0..<ChatAutoSignIn.attempts {
+        let deadline = ContinuousClock.now + ChatAutoSignIn.window
+        for _ in 0..<ChatAutoSignIn.attempts where ContinuousClock.now < deadline {
             do { try await pause(ChatAutoSignIn.interval) } catch { return }
             await applyStatus(from: .status(pane: pane.rawValue), pane: pane, quietly: true)
             if statuses[pane]?.signedIn == true { return }
