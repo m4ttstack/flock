@@ -69,4 +69,24 @@ final class FlockSessionTests: XCTestCase {
         XCTAssertNil(weakDrag)
         XCTAssertNil(weakRearrange)
     }
+
+    /// Whatever a view hands the terminal, a detached surface's session goes,
+    /// and its bridge with it.
+    func testADetachedSurfaceLetsItsTerminalGoWhateverItsLinkLookupHolds() async throws {
+        let host = try XCTUnwrap(try? GhosttyHost(), "libghostty would not initialize")
+        weak var terminal: GhosttySession?
+        do {
+            let handle = GhosttySessionSurfaceHandle(session: host.makeSession(
+                paneID: PaneID(rawValue: "w1:p1"),
+                configuration: GhosttySession.Launch(commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors())
+            ))
+            handle.session.linkFolder = { [handle] in
+                _ = handle
+                return nil
+            }
+            terminal = handle.session
+            await handle.detach()
+        }
+        XCTAssertNil(terminal)
+    }
 }

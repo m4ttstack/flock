@@ -176,10 +176,13 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     /// windowless pane), but a pane herdr closes while still VISIBLE reaches
     /// this same path too (`SessionViewModel.reconcileClosedPanes` does not
     /// check parked-ness), and that pane's view is still very much in a
-    /// window at the moment this runs.
+    /// window at the moment this runs. The link lookup goes for the same
+    /// reason: a view installs it, and whatever it captured must not hold the
+    /// session, and so the bridge, past this point.
     func detach() async {
         session.view?.removeFromSuperview()
         session.view = nil
+        session.linkFolder = nil
         session.stopScreenActivity()
     }
 
