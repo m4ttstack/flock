@@ -63,6 +63,7 @@ struct FlockSettingsView: View {
     let switchProfile: ((String) async -> Bool)?
     let changeServer: ((String?) async -> Bool)?
     let newProfileDraft: String
+    let serverDraft: ServerSettingsSection.Draft?
 
     @Bindable var selection: SettingsTabSelection
 
@@ -75,7 +76,7 @@ struct FlockSettingsView: View {
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
         switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
-        newProfileDraft: String = "", tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -98,6 +99,7 @@ struct FlockSettingsView: View {
         self.switchProfile = switchProfile
         self.changeServer = changeServer
         self.newProfileDraft = newProfileDraft
+        self.serverDraft = serverDraft
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
@@ -144,7 +146,7 @@ struct FlockSettingsView: View {
                 }
                 HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
                 if let serverPicker {
-                    ServerSettingsSection(picker: serverPicker)
+                    ServerSettingsSection(picker: serverPicker, draft: serverDraft)
                 }
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }

@@ -2,15 +2,28 @@ import FlockCore
 import SwiftUI
 
 /// Which herdr server the current profile talks to. New Server and Custom
-/// Socket Path open their field inline under the row rather than a sheet.
+/// Socket Path open their field inline under the row.
 struct ServerSettingsSection: View {
     let picker: ServerPicker
 
-    private enum Field { case newServer, customPath }
+    enum Field { case newServer, customPath }
+
+    /// A field already open, with its text, as the section first draws.
+    struct Draft {
+        let field: Field
+        let text: String
+    }
 
     @State private var field: Field?
-    @State private var name = ""
-    @State private var path = ""
+    @State private var name: String
+    @State private var path: String
+
+    init(picker: ServerPicker, draft: Draft? = nil) {
+        self.picker = picker
+        _field = State(initialValue: draft?.field)
+        _name = State(initialValue: draft?.field == .newServer ? draft?.text ?? "" : "")
+        _path = State(initialValue: draft?.field == .customPath ? draft?.text ?? "" : "")
+    }
 
     var body: some View {
         Section {
