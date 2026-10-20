@@ -203,7 +203,7 @@ struct ProfilesSettingsSection: View {
     private var newProfileSection: some View {
         Section {
             if selection.opensNewProfile {
-                TextField("Name", text: $newName)
+                TextField("Name", text: $newName, prompt: Text("Required"))
                     .accessibilityIdentifier("flock.settings.profiles.newName")
                 Picker("Server", selection: $newServer) {
                     Text("New server").tag(NewServer.start)
@@ -215,10 +215,10 @@ struct ProfilesSettingsSection: View {
                 .accessibilityIdentifier("flock.settings.profiles.newServer")
                 switch newServer {
                 case .start:
-                    TextField("Server name", text: serverName)
+                    TextField("Server name", text: serverName, prompt: Text("Required"))
                         .accessibilityIdentifier("flock.settings.profiles.newServerName")
                 case .custom:
-                    TextField("Socket path", text: $newPath)
+                    TextField("Socket path", text: $newPath, prompt: Text("/path/to/herdr.sock"))
                         .accessibilityIdentifier("flock.settings.profiles.newPath")
                 case .existing:
                     EmptyView()
