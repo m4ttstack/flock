@@ -165,13 +165,13 @@ struct ProfilesSettingsSection: View {
     private func inlineField(for profile: FlockProfile) -> some View {
         switch field {
         case .rename(profile.id):
-            fieldRow(placeholder: "Profile name", action: "Rename") {
+            fieldRow(placeholder: "Profile name", action: "Rename", canPerform: !fieldText.trimmingCharacters(in: .whitespaces).isEmpty) {
                 profiles.rename(profile.id, to: fieldText)
             }
             .accessibilityIdentifier("flock.settings.profiles.renameField")
         case .customPath(profile.id):
-            fieldRow(placeholder: "Socket path", action: "Use") {
-                guard let socket = customSocket(fieldText) else { return }
+            fieldRow(placeholder: "Socket path", action: "Use", canPerform: Self.customSocket(fieldText, home: home) != nil) {
+                guard let socket = Self.customSocket(fieldText, home: home) else { return }
                 setServer(socket, for: profile.id)
             }
             .accessibilityIdentifier("flock.settings.profiles.customField")
@@ -180,14 +180,13 @@ struct ProfilesSettingsSection: View {
         }
     }
 
-    private func fieldRow(placeholder: String, action: String, perform: @escaping () -> Void) -> some View {
-        let isEmpty = fieldText.trimmingCharacters(in: .whitespaces).isEmpty
-        return HStack {
+    private func fieldRow(placeholder: String, action: String, canPerform: Bool, perform: @escaping () -> Void) -> some View {
+        HStack {
             TextField(placeholder, text: $fieldText, prompt: Text(placeholder))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
                 .onSubmit {
-                    guard !isEmpty else { return }
+                    guard canPerform else { return }
                     perform()
                     field = nil
                 }
@@ -195,7 +194,7 @@ struct ProfilesSettingsSection: View {
                 perform()
                 field = nil
             }
-            .disabled(isEmpty)
+            .disabled(!canPerform)
             Button("Cancel") { field = nil }
         }
     }
@@ -261,7 +260,7 @@ struct ProfilesSettingsSection: View {
         switch newServer {
         case .start: return picker != nil && !serverName.wrappedValue.isEmpty
         case .existing: return true
-        case .custom: return customSocket(newPath) != nil
+        case .custom: return Self.customSocket(newPath, home: home) != nil
         }
     }
 
@@ -276,7 +275,7 @@ struct ProfilesSettingsSection: View {
         case .existing(let path):
             socket = path
         case .custom:
-            guard let path = customSocket(newPath) else { return }
+            guard let path = Self.customSocket(newPath, home: home) else { return }
             socket = path
         }
         guard let profile = profiles.create(name: newName, socketPath: socket) else { return }
@@ -292,11 +291,12 @@ struct ProfilesSettingsSection: View {
         newPath = ""
     }
 
-    /// nil for an empty path; the default server's socket comes back as
-    /// `.some(nil)` so the profile follows herdr's default.
-    private func customSocket(_ path: String) -> String?? {
+    /// nil for a path that is empty or relative, which would resolve against
+    /// the app's working directory; the default server's socket comes back
+    /// as `.some(nil)` so the profile follows herdr's default.
+    static func customSocket(_ path: String, home: String) -> String?? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.hasPrefix("/") || trimmed.hasPrefix("~") else { return nil }
         let address = HerdrServerAddress(socketPath: trimmed, home: home)
         return .some(address == .defaultServer ? nil : address.socketPath(home: home))
     }
