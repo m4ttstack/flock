@@ -21,6 +21,11 @@ final class HerdrServerAddressTests: XCTestCase {
         XCTAssertEqual(HerdrServerAddress(socketPath: "/Users/someone/.config/herdr/sessions/x/../acme/herdr.sock", home: home), .named("acme"))
         XCTAssertEqual(HerdrServerAddress.normalize("/tmp//acme/x.sock/", home: home), "/tmp/acme/x.sock")
     }
+    func testARelativePathKeepsItsLeadingDotDot() {
+        XCTAssertEqual(HerdrServerAddress.normalize("../herdr.sock", home: home), "../herdr.sock")
+        XCTAssertEqual(HerdrServerAddress.normalize("a/../../x.sock", home: home), "../x.sock")
+        XCTAssertEqual(HerdrServerAddress.normalize("/../x.sock", home: home), "/x.sock")
+    }
     func testADotDotSessionIsNotNamed() {
         XCTAssertEqual(HerdrServerAddress(socketPath: "/Users/someone/.config/herdr/sessions/../herdr.sock", home: home), .defaultServer)
     }

@@ -13,7 +13,8 @@ public enum HerdrServerAddress: Equatable, Sendable {
 
     /// Lexical only, never touches the filesystem: a leading `~` becomes
     /// `home`, `.` and `..` components are resolved, duplicate and trailing
-    /// slashes are dropped.
+    /// slashes are dropped. A relative path keeps its leading `..`, which
+    /// names a different file than the path without it.
     public static func normalize(_ path: String, home: String) -> String {
         var expanded = path
         if path == "~" || path.hasPrefix("~/") {
@@ -23,7 +24,12 @@ public enum HerdrServerAddress: Equatable, Sendable {
         for part in expanded.split(separator: "/", omittingEmptySubsequences: true) {
             switch part {
             case ".": continue
-            case "..": if !parts.isEmpty { parts.removeLast() }
+            case "..":
+                if let last = parts.last, last != ".." {
+                    parts.removeLast()
+                } else if !expanded.hasPrefix("/") {
+                    parts.append(part)
+                }
             default: parts.append(part)
             }
         }
