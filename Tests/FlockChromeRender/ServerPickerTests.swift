@@ -121,7 +121,7 @@ final class ServerPickerTests: XCTestCase {
 
     func testARelativeCustomPathIsRejected() async {
         let picker = makePicker()
-        for path in ["acme/x.sock", "./x.sock", "x.sock"] {
+        for path in ["acme/x.sock", "./x.sock", "x.sock", "~acme/x.sock"] {
             await picker.chooseCustom(path: path)
             XCTAssertEqual(picker.failure, "Use a full path, starting with / or ~.", path)
         }

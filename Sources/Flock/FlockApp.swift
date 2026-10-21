@@ -330,7 +330,11 @@ struct FlockApp: App {
                 .task {
                     guard !launchSettled else { return }
                     launchSettled = true
+                    // A switch can land while settle waits on a quitting
+                    // Flock, and it starts its own session.
+                    let generation = controller.generation
                     await FlockClientGuard.settle(socketPath: controller.socketPath, defaultSocketPath: defaultSocketPath)
+                    guard controller.generation == generation else { return }
                     await controller.session.start()
                 }
                 .task { await boardStore.refresh() }

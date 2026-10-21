@@ -104,7 +104,7 @@ final class ServerPicker {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         await whileIdle {
-            guard trimmed.hasPrefix("/") || trimmed.hasPrefix("~") else {
+            guard HerdrServerAddress.isFullPath(trimmed) else {
                 failure = "Use a full path, starting with / or ~."
                 return
             }
