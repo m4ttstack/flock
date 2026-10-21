@@ -76,25 +76,26 @@ final class StartScreenTests: XCTestCase {
     }
 
     @MainActor
-    func testTheFolderLastPickedThereIsOfferedAgain() throws {
+    func testTheFolderLastPickedThereIsOfferedNextSession() throws {
         let defaults = try makeDefaults()
-        StartingFolderStore(userDefaults: defaults).rememberStartScreenFolder(root.path)
+        StartingFolderStore(userDefaults: defaults).pickStartScreenFolder(root.path)
         XCTAssertEqual(StartingFolderStore(userDefaults: defaults).startScreenFolder(home: home), root.path)
     }
 
     @MainActor
     func testALastPickThatIsGoneFallsBackToHome() throws {
-        let store = StartingFolderStore(userDefaults: try makeDefaults())
-        store.rememberStartScreenFolder(root.appendingPathComponent("gone").path)
-        XCTAssertEqual(store.startScreenFolder(home: home), home)
+        let defaults = try makeDefaults()
+        StartingFolderStore(userDefaults: defaults).pickStartScreenFolder(root.appendingPathComponent("gone").path)
+        XCTAssertEqual(StartingFolderStore(userDefaults: defaults).startScreenFolder(home: home), home)
     }
 
     @MainActor
-    func testTheNewWorkspaceSettingOutranksTheLastPickForHomeAndCustom() throws {
-        let store = StartingFolderStore(userDefaults: try makeDefaults())
+    func testNextSessionTheNewWorkspaceSettingOutranksTheLastPickForHomeAndCustom() throws {
+        let defaults = try makeDefaults()
         let custom = root.appendingPathComponent("custom", isDirectory: true)
         try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
-        store.rememberStartScreenFolder(root.path)
+        StartingFolderStore(userDefaults: defaults).pickStartScreenFolder(root.path)
+        let store = StartingFolderStore(userDefaults: defaults)
 
         store.select(.home, for: .workspace)
         XCTAssertEqual(store.startScreenFolder(home: home), home)
@@ -102,6 +103,14 @@ final class StartScreenTests: XCTestCase {
         XCTAssertEqual(store.startScreenFolder(home: home), custom.path)
         store.select(.mainCheckout, for: .workspace)
         XCTAssertEqual(store.startScreenFolder(home: home), root.path, "no pane to follow, so the last pick")
+    }
+
+    @MainActor
+    func testAPickOnTheScreenOutranksTheSettingForTheRestOfTheSession() throws {
+        let store = StartingFolderStore(userDefaults: try makeDefaults())
+        store.select(.home, for: .workspace)
+        store.pickStartScreenFolder(root.path)
+        XCTAssertEqual(store.startScreenFolder(home: home), root.path)
     }
 
     // MARK: - opening a workspace

@@ -89,6 +89,10 @@ public final class StartingFolderStore {
 
     public private(set) var choices: [NewTerminalKind: StartingFolderChoice]
     public private(set) var startScreenLastPick: String?
+    /// Picked on the start screen while this store lives, and so for every
+    /// launch from it, whatever the setting says. Not persisted as such: the
+    /// next session starts from the setting again.
+    public private(set) var startScreenPick: String?
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
@@ -119,11 +123,12 @@ public final class StartingFolderStore {
         userDefaults.set(path, forKey: Self.customPathKey(for: kind))
     }
 
-    /// Where the start screen's first workspace opens. The New Workspace
-    /// setting decides when it names a folder; following a pane or its main
-    /// checkout has no pane to follow there, so the folder last picked on the
-    /// screen stands in. Touches the disk.
+    /// Where the start screen's first workspace opens: a folder picked there
+    /// this session, else the New Workspace setting when it names a folder;
+    /// following a pane or its main checkout has no pane to follow there, so
+    /// the folder last picked on the screen stands in. Touches the disk.
     public func startScreenFolder(home: String) -> String {
+        if let pick = startScreenPick, SessionViewModel.directoryExists(pick) { return pick }
         let choice = choice(for: .workspace)
         switch choice.folder {
         case .home, .custom:
@@ -134,7 +139,8 @@ public final class StartingFolderStore {
         }
     }
 
-    public func rememberStartScreenFolder(_ path: String) {
+    public func pickStartScreenFolder(_ path: String) {
+        startScreenPick = path
         startScreenLastPick = path
         userDefaults.set(path, forKey: Self.startScreenFolderKey)
     }

@@ -224,6 +224,14 @@ struct FlockApp: App {
         dragCoordinator.isGridShown ? nil : viewModel.shownEmptyPin
     }
 
+    /// The folder the start screen opens its workspace in while it is on
+    /// screen, which ⌘T, ⌘N and the launch keys then use; read as the key
+    /// lands, since it touches the disk.
+    private func startScreenFolder() -> String? {
+        guard !dragCoordinator.isGridShown, viewModel.showsStartScreen else { return nil }
+        return startingFolderStore.startScreenFolder(home: NSHomeDirectory())
+    }
+
     /// Overview and Arrange show no strip or rail, so the keys that create,
     /// close or step between tabs and workspaces would act on a selection
     /// nothing draws.
@@ -312,6 +320,7 @@ struct FlockApp: App {
                 .environment(devRebuild)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
+                .environment(startingFolderStore)
                 .environment(chatStore)
                 .environment(undoJournal)
                 .environment(rearrangeMode)
@@ -418,19 +427,24 @@ struct FlockApp: App {
                 Divider()
                 // Disabled under an agent, where ⌘1 and on reach the pane's
                 // program as they did before.
-                let canLaunch = shownEmptyPin != nil || LauncherSlots.target(on: viewModel) != nil
+                let canLaunch = shownEmptyPin != nil || (!gridShown && viewModel.showsStartScreen)
+                    || LauncherSlots.target(on: viewModel) != nil
                 Menu("Launch") {
                     ForEach(Array(LauncherSlots.current().enumerated()), id: \.element.id) { index, entry in
                         Button(LauncherSlots.title(for: entry)) {
                             // Read before the Task: the current event moves on.
                             let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
                             let pin = shownEmptyPin
+                            let folder = startScreenFolder()
                             // A key only borrows the launcher that is drawn:
                             // otherwise it would type into a line in progress.
-                            if pin == nil, path == .key, dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
+                            if pin == nil, folder == nil, path == .key,
+                               dragCoordinator.isGridShown || !viewModel.focusedPaneShowsLauncher {
                                 return NSSound.beep()
                             }
-                            Task { await LauncherSlots.launch(entry, via: path, emptyPin: pin, on: viewModel) }
+                            Task {
+                                await LauncherSlots.launch(entry, via: path, emptyPin: pin, startScreenFolder: folder, on: viewModel)
+                            }
                         }
                         // The first three digits are the View menu's, which
                         // dispatch here while the launcher shows; slots past
@@ -462,12 +476,17 @@ struct FlockApp: App {
             // Creation's macOS home. It is also the only always-visible route
             // to it: the strip and rail take a plain click on their own empty
             // space, and the tab menu carries New Tab, but neither the strip
-            // nor the rail draws a control the chrome design never had.
+            // nor the rail draws a control the chrome design never had, save
+            // the empty rail's New Workspace row.
             CommandGroup(replacing: .newItem) {
                 Button(ViewCommand.newTab.title) {
+                    let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
                     if let pin = shownEmptyPin {
-                        let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
                         Task { await EmptyPinLaunch.start(pin, with: ShellEntry.entry, via: path, on: viewModel) }
+                        return
+                    }
+                    if let folder = startScreenFolder() {
+                        Task { await StartScreenLaunch.start(with: ShellEntry.entry, via: path, in: folder, on: viewModel) }
                         return
                     }
                     guard let workspace = viewModel.selectedWorkspaceID else { return }
@@ -475,11 +494,16 @@ struct FlockApp: App {
                 }
                 .keyboardShortcut(ViewCommand.newTab.shortcut)
                 .disabled(
-                    (viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil) || viewModel.topBarOverlay.openPin != nil
-                        || gridShown
+                    (viewModel.selectedWorkspaceID == nil && shownEmptyPin == nil && !viewModel.showsStartScreen)
+                        || viewModel.topBarOverlay.openPin != nil || gridShown
                 )
                 .accessibilityIdentifier(ViewCommand.newTab.accessibilityIdentifier)
                 Button(ViewCommand.newWorkspace.title) {
+                    if let folder = startScreenFolder() {
+                        let path: LauncherSlots.LaunchPath = LauncherSlots.menuActionCameFromKey ? .key : .menu
+                        Task { await StartScreenLaunch.start(with: ShellEntry.entry, via: path, in: folder, on: viewModel) }
+                        return
+                    }
                     Task { await viewModel.createWorkspace() }
                 }
                 .keyboardShortcut(ViewCommand.newWorkspace.shortcut)
@@ -588,14 +612,17 @@ struct FlockApp: App {
                         // is on screen to borrow the digit.
                         switch DigitKeyDispatch.decide(
                             launcherShowing: shownEmptyPin != nil
-                                || (!dragCoordinator.isGridShown && viewModel.focusedPaneShowsLauncher),
+                                || (!dragCoordinator.isGridShown && (viewModel.focusedPaneShowsLauncher || viewModel.showsStartScreen)),
                             cameFromKey: LauncherSlots.menuActionCameFromKey, index: index
                         ) {
                         case .launch(let slot):
                             let slots = LauncherSlots.current()
                             guard slot < slots.count else { return viewTabs.choose(tab) }
                             let pin = shownEmptyPin
-                            Task { await LauncherSlots.launch(slots[slot], via: .key, emptyPin: pin, on: viewModel) }
+                            let folder = startScreenFolder()
+                            Task {
+                                await LauncherSlots.launch(slots[slot], via: .key, emptyPin: pin, startScreenFolder: folder, on: viewModel)
+                            }
                         case .view, .none:
                             viewTabs.choose(tab)
                         }

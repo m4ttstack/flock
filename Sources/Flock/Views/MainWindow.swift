@@ -15,6 +15,7 @@ struct MainWindow: View {
     @Environment(BoardStore.self) private var boardStore
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(OverviewInclusionStore.self) private var overviewInclusion: OverviewInclusionStore?
+    @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -74,6 +75,11 @@ struct MainWindow: View {
                     VStack(spacing: 0) {
                         if let pin = viewModel.shownEmptyPin.flatMap(viewModel.pins.pin) {
                             EmptyPinView(theme: theme, viewModel: viewModel, pin: pin)
+                        } else if viewModel.showsStartScreen, let startingFolders {
+                            StartScreenView(
+                                theme: theme, viewModel: viewModel, folders: startingFolders,
+                                serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel
+                            )
                         } else {
                             TabStrip(
                                 theme: theme,

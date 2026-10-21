@@ -118,11 +118,17 @@ enum LauncherSlots {
     }
 
     /// A launch from the menu bar or a digit: into the shown empty pin when
-    /// there is one, else the focused pane.
+    /// there is one, a new workspace in `startScreenFolder` while the start
+    /// screen shows, else the focused pane.
     @MainActor
-    static func launch(_ entry: HarnessEntry, via path: LaunchPath, emptyPin: PinID?, on viewModel: SessionViewModel) async {
+    static func launch(
+        _ entry: HarnessEntry, via path: LaunchPath, emptyPin: PinID?, startScreenFolder: String? = nil,
+        on viewModel: SessionViewModel
+    ) async {
         if let emptyPin {
             await EmptyPinLaunch.start(emptyPin, with: entry, via: path, on: viewModel)
+        } else if let startScreenFolder {
+            await StartScreenLaunch.start(with: entry, via: path, in: startScreenFolder, on: viewModel)
         } else {
             await launchInFocusedPane(entry, via: path, on: viewModel)
         }
