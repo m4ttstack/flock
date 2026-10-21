@@ -334,6 +334,8 @@ final class ServerPickerTests: XCTestCase {
         XCTAssertTrue(stopped.isEmpty)
         resume?.resume()
         await first.value
+        XCTAssertNil(picker.failure)
+        XCTAssertFalse(picker.failureIsFromServerList)
     }
 
     func testAFailedConfirmTimeListingRunsNothing() async {

@@ -125,9 +125,11 @@ final class ServerPicker {
         await whileIdle { await control(name: name, expecting: .delete, with: delete) }
     }
 
+    static let busyMessage = "Busy switching servers. Try again in a moment."
+
     private func refuseWhileBusy() -> Bool {
         guard isBusy else { return false }
-        failure = "Busy switching servers. Try again in a moment."
+        failure = Self.busyMessage
         failureIsFromServerList = true
         return true
     }
@@ -174,6 +176,10 @@ final class ServerPicker {
         failure = nil
         failureIsFromServerList = false
         await body()
+        if failure == Self.busyMessage {
+            failure = nil
+            failureIsFromServerList = false
+        }
         isBusy = false
     }
 
