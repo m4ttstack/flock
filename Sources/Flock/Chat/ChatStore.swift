@@ -53,6 +53,10 @@ final class ChatStore {
     /// reason stays on screen after a transient toast has faded.
     private var statusErrors: [PaneID: String] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
+    @ObservationIgnored private let autoSignInIsOn: (String) async -> Bool
+    @ObservationIgnored private let pause: (Duration) async throws -> Void
+    /// A pane drawn in more than one place asks once, not once per view.
+    @ObservationIgnored private var followingAutoSignIn: Set<PaneID> = []
 
     /// Resolves once, off the main actor, then installs the runner built from
     /// that same path and flips `isAvailable`. Exposed only so a test can
@@ -83,9 +87,13 @@ final class ChatStore {
         probe: @escaping () async -> String? = ChatToolLocator.probeBinaryPath,
         rtProbe: @escaping () async -> Bool = ChatToolLocator.probeRTBinaryFound,
         deckProbe: @escaping () async -> Bool = ChatToolLocator.probeDeckBinaryFound,
-        makeRunner: @escaping (String) -> ChatRunning = { ChatRunner(binaryPath: $0) }
+        makeRunner: @escaping (String) -> ChatRunning = { ChatRunner(binaryPath: $0) },
+        autoSignInIsOn: @escaping (String) async -> Bool = ChatToolLocator.autoSignInIsOn(folder:),
+        pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.toasts = toasts
+        self.autoSignInIsOn = autoSignInIsOn
+        self.pause = pause
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
 
@@ -158,6 +166,23 @@ final class ChatStore {
         await applyStatus(from: .signOut(pane: pane.rawValue), pane: pane)
     }
 
+    /// Asks quietly: a session still starting answers with failures the user
+    /// never asked about, so none of them toast or reach the Retry banner.
+    /// The cached status is never trusted to skip the first ask, since it can
+    /// describe an earlier agent in the same pane.
+    func followAutoSignIn(_ pane: PaneID, folder: String) async {
+        guard isAvailable, !followingAutoSignIn.contains(pane) else { return }
+        followingAutoSignIn.insert(pane)
+        defer { followingAutoSignIn.remove(pane) }
+        guard await autoSignInIsOn(folder) else { return }
+        let deadline = ContinuousClock.now + ChatAutoSignIn.window
+        for _ in 0..<ChatAutoSignIn.attempts where ContinuousClock.now < deadline {
+            do { try await pause(ChatAutoSignIn.interval) } catch { return }
+            await applyStatus(from: .status(pane: pane.rawValue), pane: pane, quietly: true)
+            if statuses[pane]?.signedIn == true { return }
+        }
+    }
+
     /// Peek is where unread enters the app: every buddy it names carries its
     /// own pane's unread count, which lands in `unreadCounts` here so the
     /// pane's own chat button (fed by `unreadCount(for:)`) reflects it
@@ -215,7 +240,7 @@ final class ChatStore {
     /// faster, newer one that already landed for the same pane. Unlike
     /// `run`, a failure here is kept (`statusErrors`) rather than only
     /// toasted, since the popover's Retry banner has to outlive the toast.
-    private func applyStatus(from verb: ChatVerb, pane: PaneID) async {
+    private func applyStatus(from verb: ChatVerb, pane: PaneID, quietly: Bool = false) async {
         let generation = (requestGenerations[pane] ?? 0) + 1
         requestGenerations[pane] = generation
         let outcome: RunOutcome<ChatStatus> = await attempt(verb)
@@ -225,6 +250,7 @@ final class ChatStore {
             statuses[pane] = status
             statusErrors[pane] = nil
         case let .failure(message):
+            guard !quietly else { return }
             statusErrors[pane] = message
             toasts.show(message, kind: .info)
         case .cancelled, .unavailable:
