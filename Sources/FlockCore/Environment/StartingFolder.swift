@@ -85,12 +85,16 @@ public final class StartingFolderStore {
         "flock.startingFolder.\(kind.rawValue).customPath"
     }
 
+    public static let startScreenFolderKey = "flock.startingFolder.startScreen"
+
     public private(set) var choices: [NewTerminalKind: StartingFolderChoice]
+    public private(set) var startScreenLastPick: String?
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        startScreenLastPick = userDefaults.string(forKey: Self.startScreenFolderKey)
         choices = Dictionary(uniqueKeysWithValues: NewTerminalKind.allCases.map { kind in
             let folder = userDefaults.string(forKey: Self.defaultsKey(for: kind)).flatMap(StartingFolder.init(rawValue:))
             return (kind, StartingFolderChoice(
@@ -113,5 +117,25 @@ public final class StartingFolderStore {
         choices[kind] = StartingFolderChoice(folder: .custom, customPath: path)
         userDefaults.set(StartingFolder.custom.rawValue, forKey: Self.defaultsKey(for: kind))
         userDefaults.set(path, forKey: Self.customPathKey(for: kind))
+    }
+
+    /// Where the start screen's first workspace opens. The New Workspace
+    /// setting decides when it names a folder; following a pane or its main
+    /// checkout has no pane to follow there, so the folder last picked on the
+    /// screen stands in. Touches the disk.
+    public func startScreenFolder(home: String) -> String {
+        let choice = choice(for: .workspace)
+        switch choice.folder {
+        case .home, .custom:
+            return choice.cwd(paneFolder: nil, home: home) ?? home
+        case .currentPane, .mainCheckout:
+            guard let last = startScreenLastPick, SessionViewModel.directoryExists(last) else { return home }
+            return last
+        }
+    }
+
+    public func rememberStartScreenFolder(_ path: String) {
+        startScreenLastPick = path
+        userDefaults.set(path, forKey: Self.startScreenFolderKey)
     }
 }
