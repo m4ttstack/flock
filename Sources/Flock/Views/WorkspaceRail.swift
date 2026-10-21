@@ -15,7 +15,9 @@ struct WorkspaceRail: View {
     @Environment(BoardStore.self) private var board
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(WorkspaceIdentityStore.self) private var identity
+    @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
     @State private var scrollPosition = ScrollPosition()
+    @State private var isNewWorkspaceRowHovered = false
     @State private var symbolPickerRow: WorkspaceID?
     @State private var symbolPickerPin: PinID?
     @State private var renamingPin: PinID?
@@ -48,6 +50,9 @@ struct WorkspaceRail: View {
                 // viewport keeps the rail's full width for the insertion bar.
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: ChromeMetrics.Rail.rowGap) {
+                        if viewModel.showsStartScreen, !hasPins {
+                            newWorkspaceRow
+                        }
                         if let sections, !sections.pinned.isEmpty {
                             pinnedSection(sections)
                         }
@@ -95,7 +100,8 @@ struct WorkspaceRail: View {
                         // all. herdr draws a "+" of its own in the sidebar;
                         // flock's equivalent is this zone plus File > New
                         // Workspace, so the resting chrome carries no control
-                        // the design never drew.
+                        // the design never drew, bar `newWorkspaceRow` on an
+                        // empty rail.
                         newWorkspaceZone
                     }
                     .animation(.easeOut(duration: DragVisuals.reshuffleDuration), value: drag.pinnedGrowth)
@@ -411,6 +417,35 @@ struct WorkspaceRail: View {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(DragSpace.name))
             .onChanged { railWidth.dragged(to: $0.location.x) }
             .onEnded { railWidth.released(at: $0.location.x) }
+    }
+
+    /// The one control a resting rail draws, and only while it is empty: with
+    /// no rows there is nothing to show that the space below takes a
+    /// right-click, and a new user has no reason to look in File.
+    private var newWorkspaceRow: some View {
+        Button {
+            if let startingFolders {
+                let folder = startingFolders.startScreenFolder(home: NSHomeDirectory())
+                Task { await StartScreenLaunch.start(with: ShellEntry.entry, via: .click, in: folder, on: viewModel) }
+            } else {
+                Task { await viewModel.createWorkspace() }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: ChromeType.newTabSymbolName)
+                    .font(ChromeType.newTabSymbol)
+                Text("New Workspace")
+                    .font(ChromeType.workspaceName(selected: false))
+            }
+            .foregroundStyle(isNewWorkspaceRowHovered ? theme.textStrong : theme.textLabel)
+            .frame(maxWidth: .infinity, minHeight: ChromeMetrics.WorkspaceRow.contentHeight, alignment: .leading)
+            .padding(.vertical, ChromeMetrics.WorkspaceRow.verticalPadding)
+            .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isNewWorkspaceRowHovered = $0 }
+        .accessibilityIdentifier("flock.rail.startWorkspace")
     }
 
     /// A right-click on rail space no row occupies offers New Workspace by
