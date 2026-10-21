@@ -894,6 +894,13 @@ public final class SessionViewModel {
     /// pin stands in its place.
     public var shownWorkspaceID: WorkspaceID? { shownEmptyPin == nil ? selectedWorkspaceID : nil }
 
+    /// herdr holds no workspace at all: a new server, or one whose last
+    /// workspace closed. herdr removes a workspace with its last tab, so this
+    /// is the only way the Workspaces view has nothing to draw.
+    public var showsStartScreen: Bool {
+        shownEmptyPin == nil && model?.workspaces.isEmpty == true
+    }
+
     /// The pane a canvas draws as focused and lets take the keyboard: the
     /// main canvas's resolved focus, or a solo canvas's one pane. None while
     /// the rt modal is drawn over that canvas or the top-bar overlay over
@@ -1484,6 +1491,7 @@ public final class SessionViewModel {
     public enum LauncherFlashTarget: Equatable {
         case pane(PaneID)
         case pin(PinID)
+        case startScreen
     }
 
     public struct LauncherFlash: Equatable {
@@ -2263,6 +2271,14 @@ public final class SessionViewModel {
     @discardableResult
     public func start(emptyPin id: PinID) async -> PaneID? {
         await reopen(id)
+    }
+
+    /// The start screen's workspace, in the folder it shows; its first pane,
+    /// for a launch to run in.
+    @discardableResult
+    public func startWorkspace(in folder: String) async -> PaneID? {
+        let params: [String: JSONValue] = ["focus": .bool(true), "cwd": .string(folder)]
+        return await create("workspace.create", params, label: "New workspace")?.rootPaneID
     }
 
     public func unpin(_ id: PinID) {
