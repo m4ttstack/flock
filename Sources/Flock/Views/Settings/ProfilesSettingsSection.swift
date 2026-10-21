@@ -296,7 +296,7 @@ struct ProfilesSettingsSection: View {
     /// as `.some(nil)` so the profile follows herdr's default.
     static func customSocket(_ path: String, home: String) -> String?? {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") || trimmed.hasPrefix("~") else { return nil }
+        guard HerdrServerAddress.isFullPath(trimmed) else { return nil }
         let address = HerdrServerAddress(socketPath: trimmed, home: home)
         return .some(address == .defaultServer ? nil : address.socketPath(home: home))
     }

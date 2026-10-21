@@ -27,6 +27,7 @@ final class ProfileCommandsTests: XCTestCase {
         let home = "/Users/someone"
         XCTAssertEqual(ProfilesSettingsSection.customSocket("", home: home), String??.none)
         XCTAssertEqual(ProfilesSettingsSection.customSocket("herdr.sock", home: home), String??.none)
+        XCTAssertEqual(ProfilesSettingsSection.customSocket("~acme/herdr.sock", home: home), String??.none)
         XCTAssertEqual(ProfilesSettingsSection.customSocket("sessions/acme/herdr.sock", home: home), String??.none)
         XCTAssertEqual(ProfilesSettingsSection.customSocket(" /tmp/acme.sock ", home: home), .some("/tmp/acme.sock"))
         XCTAssertEqual(ProfilesSettingsSection.customSocket("~/.config/herdr/herdr.sock", home: home), .some(nil))

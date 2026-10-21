@@ -21,6 +21,14 @@ final class HerdrServerAddressTests: XCTestCase {
         XCTAssertEqual(HerdrServerAddress(socketPath: "/Users/someone/.config/herdr/sessions/x/../acme/herdr.sock", home: home), .named("acme"))
         XCTAssertEqual(HerdrServerAddress.normalize("/tmp//acme/x.sock/", home: home), "/tmp/acme/x.sock")
     }
+    func testAFullPathIsAbsoluteOrUnderHome() {
+        XCTAssertTrue(HerdrServerAddress.isFullPath("/tmp/x.sock"))
+        XCTAssertTrue(HerdrServerAddress.isFullPath("~/x.sock"))
+        XCTAssertTrue(HerdrServerAddress.isFullPath("~"))
+        XCTAssertFalse(HerdrServerAddress.isFullPath("~acme/x.sock"))
+        XCTAssertFalse(HerdrServerAddress.isFullPath("x.sock"))
+        XCTAssertFalse(HerdrServerAddress.isFullPath(""))
+    }
     func testARelativePathKeepsItsLeadingDotDot() {
         XCTAssertEqual(HerdrServerAddress.normalize("../herdr.sock", home: home), "../herdr.sock")
         XCTAssertEqual(HerdrServerAddress.normalize("a/../../x.sock", home: home), "../x.sock")

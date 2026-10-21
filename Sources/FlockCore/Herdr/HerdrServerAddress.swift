@@ -15,6 +15,12 @@ public enum HerdrServerAddress: Equatable, Sendable {
     /// `home`, `.` and `..` components are resolved, duplicate and trailing
     /// slashes are dropped. A relative path keeps its leading `..`, which
     /// names a different file than the path without it.
+    /// Absolute, or under this user's home. `~user` is neither: `normalize`
+    /// leaves it relative, so it would resolve against the working directory.
+    public static func isFullPath(_ path: String) -> Bool {
+        path.hasPrefix("/") || path == "~" || path.hasPrefix("~/")
+    }
+
     public static func normalize(_ path: String, home: String) -> String {
         var expanded = path
         if path == "~" || path.hasPrefix("~/") {
