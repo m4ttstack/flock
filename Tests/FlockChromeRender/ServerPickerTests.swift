@@ -290,19 +290,125 @@ final class ServerPickerTests: XCTestCase {
         XCTAssertTrue(deleted.isEmpty)
     }
 
-    func testStopWhileBusyDoesNothing() async {
+    func testStopWhileBusyRunsNothingAndSaysSo() async {
         var resume: CheckedContinuation<Void, Never>?
         let picker = makeControlPicker(stopGate: { await withCheckedContinuation { resume = $0 } })
         let first = Task { await picker.stopServer(name: "build") }
         while resume == nil { await Task.yield() }
         XCTAssertTrue(picker.isBusy)
         await picker.stopServer(name: "build")
+        XCTAssertEqual(picker.failure, "Busy switching servers. Try again in a moment.")
+        XCTAssertTrue(picker.failureIsFromServerList)
         await picker.deleteServer(name: "acme")
+        XCTAssertEqual(picker.failure, "Busy switching servers. Try again in a moment.")
+        XCTAssertTrue(picker.failureIsFromServerList)
         XCTAssertEqual(stopped, ["build"])
         XCTAssertTrue(deleted.isEmpty)
         resume?.resume()
         await first.value
         XCTAssertFalse(picker.isBusy)
+    }
+
+    func testStopWhileAChooseIsInFlightSaysSo() async {
+        var resume: CheckedContinuation<Void, Never>?
+        let picker = ServerPicker(
+            list: { [Self.defaultEntry, Self.acmeEntry, Self.buildEntry] },
+            start: { _ in .success(()) },
+            choose: { _ in
+                await withCheckedContinuation { resume = $0 }
+                return true
+            },
+            currentSocket: { Self.defaultEntry.socketPath },
+            isLocked: false,
+            home: Self.home,
+            stop: { [unowned self] name in
+                stopped.append(name)
+                return .success(())
+            }
+        )
+        let first = Task { await picker.choose(Self.acmeEntry) }
+        while resume == nil { await Task.yield() }
+        await picker.stopServer(name: "build")
+        XCTAssertEqual(picker.failure, "Busy switching servers. Try again in a moment.")
+        XCTAssertTrue(picker.failureIsFromServerList)
+        XCTAssertTrue(stopped.isEmpty)
+        resume?.resume()
+        await first.value
+    }
+
+    func testAFailedConfirmTimeListingRunsNothing() async {
+        var listing: [HerdrSessionEntry]? = [Self.defaultEntry, Self.acmeEntry, Self.buildEntry]
+        let picker = ServerPicker(
+            list: { listing },
+            start: { _ in .success(()) },
+            choose: { _ in true },
+            currentSocket: { Self.defaultEntry.socketPath },
+            isLocked: false,
+            home: Self.home,
+            stop: { [unowned self] name in
+                stopped.append(name)
+                return .success(())
+            },
+            delete: { [unowned self] name in
+                deleted.append(name)
+                return .success(())
+            }
+        )
+        await picker.refresh()
+        listing = nil
+        await picker.stopServer(name: "build")
+        XCTAssertEqual(picker.failure, "Couldn't check herdr's servers, so \"build\" wasn't stopped.")
+        XCTAssertTrue(picker.failureIsFromServerList)
+        await picker.deleteServer(name: "acme")
+        XCTAssertEqual(picker.failure, "Couldn't check herdr's servers, so \"acme\" wasn't deleted.")
+        XCTAssertTrue(picker.failureIsFromServerList)
+        XCTAssertTrue(stopped.isEmpty)
+        XCTAssertTrue(deleted.isEmpty)
+    }
+
+    private func makeSwitchingPicker(switchingTo target: String?) -> ServerPicker {
+        ServerPicker(
+            list: { [Self.defaultEntry, Self.acmeEntry, Self.buildEntry] },
+            start: { _ in .success(()) },
+            choose: { _ in true },
+            currentSocket: { Self.defaultEntry.socketPath },
+            isLocked: false,
+            home: Self.home,
+            switchingTo: { target },
+            stop: { [unowned self] name in
+                stopped.append(name)
+                return .success(())
+            },
+            delete: { [unowned self] name in
+                deleted.append(name)
+                return .success(())
+            }
+        )
+    }
+
+    func testStopIsRefusedOnTheServerASwitchIsMovingOnto() async {
+        let picker = makeSwitchingPicker(switchingTo: Self.buildEntry.socketPath)
+        await picker.refresh()
+        XCTAssertEqual(picker.action(for: Self.buildEntry), .stop)
+        await picker.stopServer(name: "build")
+        XCTAssertTrue(stopped.isEmpty)
+        XCTAssertEqual(picker.failure, "Didn't stop \"build\": This Flock is on it.")
+        XCTAssertTrue(picker.failureIsFromServerList)
+    }
+
+    func testDeleteIsRefusedOnTheServerASwitchIsMovingOnto() async {
+        let picker = makeSwitchingPicker(switchingTo: Self.acmeEntry.socketPath)
+        await picker.deleteServer(name: "acme")
+        XCTAssertTrue(deleted.isEmpty)
+        XCTAssertEqual(picker.failure, "Didn't delete \"acme\": This Flock is on it.")
+        XCTAssertTrue(picker.failureIsFromServerList)
+    }
+
+    func testASwitchElsewhereDoesNotBlockAStop() async {
+        let picker = makeSwitchingPicker(switchingTo: Self.acmeEntry.socketPath)
+        await picker.stopServer(name: "build")
+        XCTAssertEqual(stopped, ["build"])
+        XCTAssertNil(picker.failure)
     }
 
     func testALockedPickerNamesTheOverride() {

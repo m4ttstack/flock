@@ -68,6 +68,9 @@ public final class ProfileSessionController<Session: ProfileSession> {
     /// Bumped on every completed switch; the window keys its content on it.
     public private(set) var generation: Int = 0
     public private(set) var socketPath: String
+    /// The socket a confirmed switch is moving onto, from confirmation until
+    /// `socketPath` holds it; the old session's teardown runs in between.
+    public private(set) var switchingTo: String?
 
     @ObservationIgnored private let environment: ProfileSessionEnvironment<Session>
     @ObservationIgnored private var queue: Task<Bool, Never>?
@@ -110,6 +113,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
               let target = profiles.profiles.first(where: { $0.id == profileID }) else { return false }
         let newSocket = normalize(profiles.socketPath(of: target))
         guard await environment.confirmAttach(newSocket, profiles.current.name) else { return false }
+        switchingTo = newSocket
         await session.shutdown()
         profiles.select(profileID)
         await rebuild(on: newSocket)
@@ -121,6 +125,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         guard !isLocked, newSocket != socketPath else { return false }
         let stayLabel = HerdrServerAddress(socketPath: socketPath, home: environment.home).label
         guard await environment.confirmAttach(newSocket, stayLabel) else { return false }
+        switchingTo = newSocket
         await session.shutdown()
         let isDefault = newSocket == normalize(environment.defaultSocketPath)
         profiles.setSocket(isDefault ? nil : newSocket, for: profiles.currentID)
@@ -132,6 +137,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         environment.setChildSocket(newSocket)
         session = environment.make(Self.context(for: profiles.current, on: newSocket, environment: environment))
         socketPath = newSocket
+        switchingTo = nil
         environment.register(newSocket)
         generation += 1
         await session.start()
