@@ -204,6 +204,39 @@ final class ProfileSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.generation, 0)
     }
 
+    func testTheTargetIsInFlightDuringShutdownForASwitchAndAServerChange() async throws {
+        let fixture = try makeFixture()
+        let controller = makeController(fixture)
+        XCTAssertNil(controller.switchingTo)
+
+        fixture.gate.armed = true
+        let switched = Task { await controller.switchTo(profileID: fixture.p1.id) }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        XCTAssertEqual(controller.switchingTo, acme)
+        fixture.gate.waiting?.resume()
+        fixture.gate.waiting = nil
+        let switchResult = await switched.value
+        XCTAssertTrue(switchResult)
+        XCTAssertNil(controller.switchingTo)
+
+        fixture.gate.armed = true
+        let changed = Task { await controller.changeServer(to: "~/.config/herdr/herdr.sock") }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        XCTAssertEqual(controller.switchingTo, home)
+        fixture.gate.waiting?.resume()
+        let changeResult = await changed.value
+        XCTAssertTrue(changeResult)
+        XCTAssertNil(controller.switchingTo)
+    }
+
+    func testARefusedSwitchLeavesNothingInFlight() async throws {
+        let fixture = try makeFixture()
+        let controller = makeController(fixture, confirm: false)
+        await controller.switchTo(profileID: fixture.p1.id)
+        await controller.changeServer(to: acme)
+        XCTAssertNil(controller.switchingTo)
+    }
+
     func testASwitchRequestedMidSwitchWaitsItsTurn() async throws {
         let fixture = try makeFixture()
         let p2 = try XCTUnwrap(fixture.store.create(name: "P2", socketPath: nil))

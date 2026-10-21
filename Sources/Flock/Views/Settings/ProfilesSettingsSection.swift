@@ -223,7 +223,7 @@ struct ProfilesSettingsSection: View {
                 case .existing:
                     EmptyView()
                 }
-                if let failure = picker?.failure {
+                if let picker, let failure = picker.failure, !picker.failureIsFromServerList {
                     Label(failure, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                         .accessibilityIdentifier("flock.settings.profiles.error")

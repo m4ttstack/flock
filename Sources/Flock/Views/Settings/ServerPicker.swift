@@ -22,6 +22,7 @@ final class ServerPicker {
     @ObservationIgnored private let start: (String) -> Result<Void, HerdrServerLauncher.Failure>
     @ObservationIgnored private let chooseSocket: (String?) async -> Bool
     @ObservationIgnored private let currentSocket: () -> String
+    @ObservationIgnored private let switchingTo: () -> String?
     @ObservationIgnored private let heldBy: @MainActor (String) -> String?
     @ObservationIgnored private let stop: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
@@ -35,6 +36,7 @@ final class ServerPicker {
         isLocked: Bool,
         home: String,
         heldBy: @escaping @MainActor (String) -> String? = { _ in nil },
+        switchingTo: @escaping () -> String? = { nil },
         stop: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
         delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) }
     ) {
@@ -45,6 +47,7 @@ final class ServerPicker {
         self.isLocked = isLocked
         self.home = home
         self.heldBy = heldBy
+        self.switchingTo = switchingTo
         self.stop = stop
         self.delete = delete
     }
@@ -67,14 +70,17 @@ final class ServerPicker {
         HerdrServerAddress.normalize(entry.socketPath, home: home) == HerdrServerAddress.normalize(currentSocket(), home: home)
     }
 
-    /// A failed listing keeps the entries already shown.
-    func refresh() async {
-        if let listed = await list() { entries = listed }
+    /// A failed listing keeps the entries already shown and returns false.
+    @discardableResult
+    func refresh() async -> Bool {
+        let listed = await list()
+        if let listed { entries = listed }
         var held: [String: String] = [:]
         for entry in entries {
             if let app = heldBy(entry.socketPath) { held[entry.socketPath] = app }
         }
         holders = held
+        return listed != nil
     }
 
     func choose(_ entry: HerdrSessionEntry) async {
@@ -107,12 +113,23 @@ final class ServerPicker {
         }
     }
 
+    /// Unlike the other requests, a confirmed Stop or Delete made while
+    /// busy says why nothing happened: its alert has already closed.
     func stopServer(name: String) async {
+        guard !refuseWhileBusy() else { return }
         await whileIdle { await control(name: name, expecting: .stop, with: stop) }
     }
 
     func deleteServer(name: String) async {
+        guard !refuseWhileBusy() else { return }
         await whileIdle { await control(name: name, expecting: .delete, with: delete) }
+    }
+
+    private func refuseWhileBusy() -> Bool {
+        guard isBusy else { return false }
+        failure = "Busy switching servers. Try again in a moment."
+        failureIsFromServerList = true
+        return true
     }
 
     /// The row's action was decided when it drew; a confirmation can stay
@@ -122,8 +139,9 @@ final class ServerPicker {
         name: String, expecting expected: HerdrServerAction,
         with run: (String) async -> Result<Void, HerdrSessionControl.Failure>
     ) async {
-        await refresh()
-        if let refusal = refusal(name: name, expecting: expected) {
+        if !(await refresh()) {
+            failure = "Couldn't check herdr's servers, so \"\(name)\" wasn't \(expected == .stop ? "stopped" : "deleted")."
+        } else if let refusal = refusal(name: name, expecting: expected) {
             failure = refusal
         } else if case .failure(let error) = await run(name) {
             failure = error.message
@@ -134,10 +152,15 @@ final class ServerPicker {
 
     private func refusal(name: String, expecting expected: HerdrServerAction) -> String? {
         guard let entry = entries.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
+        let verb = expected == .stop ? "stop" : "delete"
+        if let target = switchingTo(),
+           case .unavailable(let reason) = HerdrServerActions.action(for: entry, currentSocket: target, home: home, heldBy: heldBy) {
+            return "Didn't \(verb) \"\(name)\": \(reason)."
+        }
         let now = HerdrServerActions.action(for: entry, currentSocket: currentSocket(), home: home, heldBy: heldBy)
         switch now {
         case expected: return nil
-        case .unavailable(let reason): return "Didn't \(expected == .stop ? "stop" : "delete") \"\(name)\": \(reason)."
+        case .unavailable(let reason): return "Didn't \(verb) \"\(name)\": \(reason)."
         case .stop: return "\"\(name)\" is running again."
         case .delete: return "\"\(name)\" isn't running any more."
         }
