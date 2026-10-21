@@ -67,6 +67,10 @@ struct FlockApp: App {
     @State private var herdrUpdateStore: HerdrUpdateStore
     @State private var serverPicker: ServerPicker
     @State private var settingsTabSelection = SettingsTabSelection()
+    /// The window's content is rebuilt on every switch, which reruns its
+    /// tasks; the launch guard and first start belong to launch alone, since
+    /// a switch has already asked and started its own session.
+    @State private var launchSettled = false
     @State private var commandLineToolStore = CommandLineToolStore()
     #if FLOCK_SPARKLE
     @State private var updater = Updater()
@@ -324,6 +328,8 @@ struct FlockApp: App {
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .id(controller.generation)
                 .task {
+                    guard !launchSettled else { return }
+                    launchSettled = true
                     await FlockClientGuard.settle(socketPath: controller.socketPath, defaultSocketPath: defaultSocketPath)
                     await controller.session.start()
                 }
