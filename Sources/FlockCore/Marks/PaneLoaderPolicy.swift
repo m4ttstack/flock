@@ -34,6 +34,10 @@ public enum PaneLoaderPolicy {
     /// `Duration` because SwiftUI's animation curves take a `Double`.
     public static let dismissCrossFade: Double = 0.1
 
+    /// How long the badge runs before it rests. A running badge redraws every
+    /// display frame, so a pane that never paints must not hold that cost.
+    public static let motionLimit: Duration = .seconds(10)
+
     public static func dismissAt(
         shownAt: ContinuousClock.Instant,
         firstFrameAt: ContinuousClock.Instant,
