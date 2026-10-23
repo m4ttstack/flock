@@ -17,8 +17,9 @@ import SwiftUI
 ///
 /// The mark's brand colours are `HerdrRamTrail`'s, shared with the app icon
 /// so this can never repaint the ram in the active theme; the trail's dots
-/// follow `theme`. Under reduced motion the mark rests, still, in the
-/// bottom-right corner the run starts from.
+/// follow `theme`. Under reduced motion, and once the run has gone on for
+/// `PaneLoaderPolicy.motionLimit`, the mark rests, still, in the bottom-right
+/// corner the run starts from.
 struct PaneLoaderView: View {
     let theme: Theme
     /// Lets a render test force the static path deterministically. Always
@@ -31,6 +32,7 @@ struct PaneLoaderView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var appeared = false
     @State private var start = Date()
+    @State private var hasRunOut = false
 
     private var reduceMotion: Bool { reducedMotionOverride ?? systemReduceMotion }
 
@@ -45,7 +47,7 @@ struct PaneLoaderView: View {
 
     var body: some View {
         Group {
-            if reduceMotion {
+            if reduceMotion || hasRunOut {
                 HerdrRamMark(size: Self.markSize)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(ChromeMetrics.Loader.badgeInset)
@@ -60,6 +62,10 @@ struct PaneLoaderView: View {
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade)) { appeared = true }
+        }
+        .task {
+            guard frozenElapsed == nil, (try? await Task.sleep(for: PaneLoaderPolicy.motionLimit)) != nil else { return }
+            withAnimation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade)) { hasRunOut = true }
         }
         // Nothing here is aimable, and the pane underneath owns every click
         // it would otherwise swallow.
