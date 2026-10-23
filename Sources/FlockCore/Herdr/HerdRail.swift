@@ -20,11 +20,9 @@ public struct HerdRail: Equatable, Sendable {
     public struct Summary: Equatable, Sendable {
         public let running: Int
         public let done: Int
-        public let isAnyRunning: Bool
 
         /// Herds finished out of all herds, in the same N/M form each herd
-        /// row uses for its workers. Whether anything is still moving is the
-        /// glyph's to say, which is what lets this fit the default rail
+        /// row uses for its workers, short enough to fit the default rail
         /// beside the heading and its chevron.
         public var text: String { "\(done)/\(running + done) done" }
     }
@@ -38,7 +36,7 @@ public struct HerdRail: Equatable, Sendable {
     static func summary(of herds: [Herd]) -> Summary? {
         guard !herds.isEmpty else { return nil }
         let done = herds.filter(\.isFinished).count
-        return Summary(running: herds.count - done, done: done, isAnyRunning: herds.contains(where: \.isRunning))
+        return Summary(running: herds.count - done, done: done)
     }
 
     /// `progress` is rt's count for each herd it answered for, keyed by
