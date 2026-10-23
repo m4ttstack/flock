@@ -191,7 +191,7 @@ struct WorkspaceMark: View {
             .frame(width: size, height: size)
             .accessibilityHidden(true)
         } else {
-            HerdMark(theme: theme, size: size, isMoving: false)
+            HerdMark(theme: theme, size: size)
                 .frame(width: size, height: size)
         }
     }

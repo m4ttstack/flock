@@ -204,17 +204,15 @@ final class HerdRailTests: XCTestCase {
         ])).summary
         XCTAssertEqual(summary?.running, 2)
         XCTAssertEqual(summary?.done, 1)
-        XCTAssertEqual(summary?.isAnyRunning, true)
         XCTAssertEqual(summary?.text, "1/3 done")
     }
 
-    func testEveryHerdDoneReadsOnlyDoneAndStops() {
+    func testEveryHerdDoneReadsOnlyDone() {
         let summary = HerdRail(model: model([
             WorkspaceSpec(id: "w1", label: "herd: review-shapes", statuses: [.done]),
             WorkspaceSpec(id: "w2", label: "herd: ci-sweep", statuses: [.idle, .done]),
         ])).summary
         XCTAssertEqual(summary?.text, "2/2 done")
-        XCTAssertEqual(summary?.isAnyRunning, false)
     }
 
     func testNoHerdDoneYetReadsOnlyRunning() {
@@ -222,17 +220,14 @@ final class HerdRailTests: XCTestCase {
             WorkspaceSpec(id: "w1", label: "herd: review-shapes", statuses: [.working]),
         ])).summary
         XCTAssertEqual(summary?.text, "0/1 done")
-        XCTAssertEqual(summary?.isAnyRunning, true)
     }
 
-    /// A herd held open by a pane with no agent still counts as running,
-    /// while the mark stays still because nothing in it is working.
-    func testAnOpenHerdWithNothingWorkingIsRunningButStill() {
+    /// A herd held open by a pane with no agent still counts as running.
+    func testAnOpenHerdWithNothingWorkingIsRunning() {
         let summary = HerdRail(model: model([
             WorkspaceSpec(id: "w1", label: "herd: review-shapes", statuses: [.done, .unknown]),
         ])).summary
         XCTAssertEqual(summary?.running, 1)
-        XCTAssertEqual(summary?.isAnyRunning, false)
     }
 
     // MARK: - Lookup by id

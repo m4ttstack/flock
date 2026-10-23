@@ -142,10 +142,6 @@ enum ChromeMetrics {
         static let markEchoOpacity: Double = 0.4
         /// A finished herd, which stays listed until its workspace closes.
         static let finishedOpacity: Double = 0.45
-        /// The loader's own loop, slowed and shallowed: rail furniture that
-        /// moves is only ever a hint, never a spinner.
-        static let motionTempo: Double = 0.4
-        static let motionDepth: Double = 0.5
     }
 
     enum Strip {

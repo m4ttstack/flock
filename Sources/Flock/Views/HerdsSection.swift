@@ -24,7 +24,7 @@ struct HerdsSection: View {
                 // The section's one mark. Rows carry none: one moving glyph
                 // says "something in here is still going" without a row of
                 // them competing for the eye.
-                HerdMark(theme: theme, size: ChromeMetrics.RailSection.herdsMark, isMoving: summary.isAnyRunning)
+                HerdMark(theme: theme, size: ChromeMetrics.RailSection.herdsMark)
                     .offset(y: -ChromeMetrics.RailSection.herdsMarkLift)
             } trailing: {
                 // The summary is the only notice a folded section gives, so
@@ -78,28 +78,14 @@ private struct HerdRow: View {
     }
 }
 
-/// The ram as a grey glyph, drifting while its herd works and still when it
-/// does not. Only the echoes move, as in the loader, so the leader stays put
-/// where the eye already found it.
+/// The ram as a grey glyph, never animated: a per-frame timeline here
+/// re-lays out the whole window on every display frame while a herd runs.
 struct HerdMark: View {
     let theme: Theme
     let size: CGFloat
-    let isMoving: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var start = Date()
 
     var body: some View {
-        if isMoving && !reduceMotion {
-            TimelineView(.animation) { context in
-                let elapsed = context.date.timeIntervalSince(start) * ChromeMetrics.Herds.motionTempo
-                HerdrRamMark(size: size, progress: { delay in
-                    PaneLoaderChoreography.mergeProgress(elapsed: elapsed, startDelay: delay) * ChromeMetrics.Herds.motionDepth
-                }, tint: theme.textLabel, echoOpacityScale: ChromeMetrics.Herds.markEchoOpacity)
-            }
-        } else {
-            HerdrRamMark(size: size, tint: theme.textLabel, echoOpacityScale: ChromeMetrics.Herds.markEchoOpacity)
-        }
+        HerdrRamMark(size: size, tint: theme.textLabel, echoOpacityScale: ChromeMetrics.Herds.markEchoOpacity)
     }
 }
 
