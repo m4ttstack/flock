@@ -177,12 +177,78 @@ final class PaneControlChannelTests: XCTestCase {
     func testAPasteWaitsOutAFIFONobodyReadsOnlyOnce() throws {
         let channel = try XCTUnwrap(PaneControlChannel())
         defer { channel.close() }
-        for _ in 0..<400 { channel.scroll(direction: .up, lines: 3) }
+        fill(channel)
 
+        var started = Date()
         channel.paste("first")
-        let started = Date()
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 1, "the first paste never waited")
+        started = Date()
         channel.paste("second")
         XCTAssertLessThan(Date().timeIntervalSince(started), 0.1, "the second paste waited again")
+    }
+
+    /// A short paste is still the user's paste: a bridge that is only behind
+    /// gets it once it catches up, rather than it being dropped like a scroll.
+    func testAShortPasteReachesABridgeThatCatchesUp() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+        fill(channel)
+
+        let expected = Data("\u{1B}[200~hi\u{1B}[201~".utf8).base64EncodedString()
+        let collected = FIFOLineCollector()
+        let finished = DispatchSemaphore(value: 0)
+        Thread {
+            usleep(300_000)
+            var scratch = [UInt8](repeating: 0, count: 8192)
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline, !collected.contains(expected) {
+                let n = read(readerFD, &scratch, scratch.count)
+                if n > 0 { _ = collected.append(Data(scratch.prefix(n))) } else { usleep(1_000) }
+            }
+            finished.signal()
+        }.start()
+
+        channel.paste("hi")
+        finished.wait()
+        XCTAssertTrue(collected.contains(expected), "a short paste was dropped while the bridge caught up")
+    }
+
+    /// Once a wait has run out, a paste too big to go in one atomic write is
+    /// dropped before any of it is written: a reader freeing a little room
+    /// must not let half a line in, nor buy it another wait.
+    func testAStalledChannelWritesNoPartOfAnOversizedPaste() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+        fill(channel)
+        channel.paste("stalls")
+
+        var scratch = [UInt8](repeating: 0, count: 1024)
+        XCTAssertEqual(read(readerFD, &scratch, scratch.count), 1024)
+        let before = bytesWaiting(readerFD)
+
+        let started = Date()
+        channel.paste(String(repeating: "x", count: 4 * Int(PIPE_BUF)))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.1, "a stalled channel waited on an oversized paste")
+        XCTAssertEqual(bytesWaiting(readerFD), before, "part of an oversized paste went into a stalled FIFO")
+    }
+
+    /// Far past the largest buffer macOS gives a FIFO, so every later write
+    /// meets a full one.
+    private func fill(_ channel: PaneControlChannel) {
+        for _ in 0..<2_000 { channel.scroll(direction: .up, lines: 3) }
+    }
+
+    private func bytesWaiting(_ fd: Int32) -> Int32 {
+        // FIONREAD, `_IOR('f', 127, int)`: a function-like macro Swift does not import.
+        var count: Int32 = 0
+        _ = ioctl(fd, 0x4004_667F, &count)
+        return count
     }
 
     func testCloseUnlinksTheFIFOAndSendBecomesANoOp() {
@@ -225,6 +291,12 @@ private final class FIFOLineCollector: @unchecked Sendable {
         defer { lock.unlock() }
         guard let newline = buffer.firstIndex(of: 0x0A) else { return nil }
         return Data(buffer[buffer.startIndex..<newline])
+    }
+
+    func contains(_ text: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffer.range(of: Data(text.utf8)) != nil
     }
 }
 
