@@ -20,9 +20,10 @@ public enum HoldCommand: String, Equatable, Sendable, CaseIterable {
 
 /// What a bridge tells the app about its hold, on the status FIFO.
 public enum HoldStatus: String, Equatable, Sendable, CaseIterable {
-    /// Every retake herdr would accept has been tried and refused. The pane has
-    /// no herdr client at all and no further attempt is pending, so the app
-    /// shows its status card rather than a frame that is no longer live.
+    /// The pane has no herdr client and no attempt is pending: every retake
+    /// was refused, or another client took the pane over. The app shows its
+    /// status card rather than a frame that is no longer live, and its next
+    /// take tries again.
     case lost = "flock.hold_lost"
 }
 
