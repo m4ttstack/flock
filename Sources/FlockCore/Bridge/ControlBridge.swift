@@ -243,7 +243,10 @@ public enum ControlBridge {
         let status = supervisor.waitUntilFinished()
         io.close()
         if statusFD >= 0 { Foundation.close(statusFD) }
-        if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSAFLUSH, &cookedTerminal) }
+        // TCSANOW: TCSAFLUSH first waits for the surface to read every byte
+        // already written, and a surface that has stopped reading would keep
+        // this process alive forever.
+        if var cookedTerminal { tcsetattr(STDIN_FILENO, TCSANOW, &cookedTerminal) }
         exit(status == 0 ? 0 : max(Int32(status), 1))
     }
 
@@ -382,11 +385,12 @@ struct PTYResizeRelay: Sendable {
 
 /// Whether the bridge's herdr child is flock's to keep.
 ///
-/// A child that exits while flock holds the pane means herdr or the pane
-/// itself is gone, and the bridge is finished with it. A child that exits
-/// after a release IS the release: the bridge stays up, keeping the surface,
-/// its PTY and its scrollback, and waits for the take that spawns the next
-/// one. Pure, so both readings are testable without a real child.
+/// A child that exits after a release IS the release: the bridge stays up,
+/// keeping the surface, its PTY and its scrollback, and waits for the take
+/// that spawns the next one. One that exits while flock holds the pane has
+/// lost it, and the bridge stays up for the same take. Only a first child that
+/// never attached ends the bridge. Pure, so every reading is testable without
+/// a real child.
 struct BridgeHoldState: Equatable, Sendable {
     /// How a child's exit is read.
     enum ChildExit: Equatable, Sendable {
@@ -400,8 +404,14 @@ struct BridgeHoldState: Equatable, Sendable {
         /// land in this window, because flock only ever takes a pane whose
         /// frames it was already being sent.
         case refusedTake
-        /// herdr or the pane is gone, and so is the bridge's reason to exist.
+        /// The bridge's first child never attached: the pane cannot be
+        /// attached at all, and the bridge has no reason to exist.
         case bridgeIsFinished
+        /// A child that had attached ended while flock held the pane: herdr
+        /// dropped the client, which is what another client attaching with
+        /// takeover does. The pane may be fine, so the bridge stays up and the
+        /// app's next take brings it back.
+        case lost
     }
 
     /// A retake's child that exits within this of its spawn is read as a
@@ -409,9 +419,8 @@ struct BridgeHoldState: Equatable, Sendable {
     ///
     /// herdr refuses by dropping the connection, which takes milliseconds, so
     /// the width is all headroom against a loaded machine. Too narrow and a
-    /// refusal that arrives late reads as the pane ending: the bridge
-    /// finishes, and the surface is frozen with nothing left to rebuild it.
-    /// Too wide costs only the opposite case, a pane whose own program exits
+    /// refusal that arrives late reads as a lost hold: it is not retried, and
+    /// the pane shows its status card until the app's next take. Too wide costs only the opposite case, a pane whose own program exits
     /// just after a retake, which is retried the two times the backoff allows
     /// and then reported as a lost hold.
     static let refusedTakeWindow: TimeInterval = 2
@@ -443,8 +452,8 @@ struct BridgeHoldState: Equatable, Sendable {
     /// bridge, exactly as it did before retakes existed.
     func reading(fromTake: Bool, childAge: TimeInterval) -> ChildExit {
         guard isHolding else { return .expectedRelease }
-        guard fromTake, childAge < Self.refusedTakeWindow else { return .bridgeIsFinished }
-        return .refusedTake
+        guard childAge < Self.refusedTakeWindow else { return .lost }
+        return fromTake ? .refusedTake : .bridgeIsFinished
     }
 
     /// How long to wait before trying a refused take again, or nil when the
@@ -534,12 +543,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
     private let ptySize: () -> PTYSize
     private let now: () -> Date
     private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
-    /// Runs between a refusal being classified and the retry being armed.
-    /// Empty in production, and injected only by this class's own tests: that
-    /// window is a few instructions wide, so a release landing inside it cannot
-    /// be driven any other way, and it is the window in which the retry's
-    /// baseline epoch would go wrong.
-    private let afterRefusalObserved: () -> Void
+    /// Runs once a refused or lost child's exit has been classified and the
+    /// lock let go, before a refusal's retry is armed. Empty in production, and
+    /// injected only by this class's own tests: that window is a few
+    /// instructions wide, so a release or take landing inside it cannot be
+    /// driven any other way, and it is where the retry's baseline epoch, or
+    /// the parked child's input, would go wrong.
+    private let afterExitClassified: () -> Void
     private var io: BridgeIO?
     private var current: Child?
     private var hold = BridgeHoldState()
@@ -572,13 +582,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: work)
         },
-        afterRefusalObserved: @escaping () -> Void = {},
+        afterExitClassified: @escaping () -> Void = {},
         spawn: @escaping (PTYSize) -> Spawned?
     ) {
         self.ptySize = ptySize
         self.now = now
         self.scheduleRetry = scheduleRetry
-        self.afterRefusalObserved = afterRefusalObserved
+        self.afterExitClassified = afterExitClassified
         self.spawn = spawn
     }
 
@@ -626,12 +636,12 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         }
         lock.unlock()
         guard !stale else { return }
-        if reading == .refusedTake {
-            // The watcher classifies a refusal, and only the child's EXIT wakes
-            // it. A child whose output has already ended has nothing left to
-            // say, so ending it here is what makes that wakeup certain rather
-            // than assumed: without it, a child that closed stdout and did not
-            // exit would park the watcher forever with the hold still claimed.
+        if reading == .refusedTake || reading == .lost {
+            // The watcher classifies both, and only the child's EXIT wakes it.
+            // A child whose output has already ended has nothing left to say,
+            // so ending it here is what makes that wakeup certain rather than
+            // assumed: without it, a child that closed stdout and did not exit
+            // would park the watcher forever with the hold still claimed.
             child?.owner.terminate()
             return
         }
@@ -838,13 +848,30 @@ final class BridgeChildSupervisor: @unchecked Sendable {
                 lock.unlock()
                 break
             }
+            // The IO below runs before the unlock: releasing the hold lets an
+            // app take install its child the moment the lock is free, and this
+            // child's park would then close that child's input instead.
             if reading == .refusedTake {
                 _ = hold.release()
                 expectedOutputGeneration = 0
-                lock.unlock()
                 io?.swapHerdrInput(to: nil)
-                afterRefusalObserved()
+                lock.unlock()
+                afterExitClassified()
                 retryOrGiveUp(epoch: child.epoch)
+            } else if reading == .lost {
+                // No retry: another client has the pane, and taking it back
+                // at once would fight it. The app's next take is the retake.
+                _ = hold.release()
+                expectedOutputGeneration = 0
+                io?.swapHerdrInput(to: nil)
+                // The exit can be seen before the pipe is drained, and a full
+                // frame still in it would announce a first frame and clear
+                // the card this puts up.
+                io?.retireHerdrOutput()
+                io?.rearmFirstFrame()
+                io?.sendStatus(["type": HoldStatus.lost.rawValue])
+                lock.unlock()
+                afterExitClassified()
             } else {
                 lock.unlock()
             }
@@ -1424,10 +1451,19 @@ final class BridgeIO: @unchecked Sendable {
         statusChannel.write(payload)
     }
 
+    /// Makes the installed herdr output inert, as a newer one would: its
+    /// buffered frames and its EOF reach nothing. For a child the supervisor
+    /// has already written off, before the next take installs another.
+    func retireHerdrOutput() {
+        stdoutLock.lock()
+        defer { stdoutLock.unlock() }
+        herdrOutputGeneration += 1
+    }
+
     /// Un-latches the first-frame gate so the next full frame announces itself
-    /// again. Only the give-up path calls this: the app puts a pane's status
-    /// card back when its hold is lost for good, and that card has to be able
-    /// to go away again when a later take succeeds.
+    /// again. Called wherever the app is told a hold is lost: that puts the
+    /// pane's status card back, and the card has to be able to go away again
+    /// when a later take succeeds.
     func rearmFirstFrame() {
         stdoutLock.lock()
         defer { stdoutLock.unlock() }

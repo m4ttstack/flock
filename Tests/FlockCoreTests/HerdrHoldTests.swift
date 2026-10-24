@@ -182,7 +182,7 @@ final class HerdrHoldTests: XCTestCase {
     func testAChildExitIsTheExpectedReleaseOnlyWhileFlockDoesNotHold() {
         var state = BridgeHoldState()
         let old = BridgeHoldState.refusedTakeWindow + 1
-        XCTAssertEqual(state.reading(fromTake: false, childAge: old), .bridgeIsFinished)
+        XCTAssertEqual(state.reading(fromTake: false, childAge: old), .lost)
         XCTAssertTrue(state.release())
         XCTAssertEqual(
             state.reading(fromTake: true, childAge: old), .expectedRelease,
@@ -190,7 +190,18 @@ final class HerdrHoldTests: XCTestCase {
         )
         XCTAssertEqual(state.reading(fromTake: false, childAge: 0), .expectedRelease)
         XCTAssertTrue(state.take())
-        XCTAssertEqual(state.reading(fromTake: true, childAge: old), .bridgeIsFinished)
+        XCTAssertEqual(state.reading(fromTake: true, childAge: old), .lost)
+    }
+
+    /// Another client attaching to the pane makes herdr drop flock's, so a
+    /// child that had been attached for a while ends with nothing wrong with
+    /// the pane. Ending the bridge there leaves a surface that looks live and
+    /// takes no input or mouse.
+    func testAHeldChildThatEndsAfterItAttachedLosesTheHoldRatherThanEndingTheBridge() {
+        let state = BridgeHoldState()
+        let late = BridgeHoldState.refusedTakeWindow + 0.001
+        XCTAssertEqual(state.reading(fromTake: false, childAge: late), .lost)
+        XCTAssertEqual(state.reading(fromTake: true, childAge: late), .lost)
     }
 
     /// herdr refuses an attach by shutting the connection down, which at the
@@ -203,7 +214,7 @@ final class HerdrHoldTests: XCTestCase {
         let early = BridgeHoldState.refusedTakeWindow / 2
         let late = BridgeHoldState.refusedTakeWindow + 0.001
         XCTAssertEqual(state.reading(fromTake: true, childAge: early), .refusedTake)
-        XCTAssertEqual(state.reading(fromTake: true, childAge: late), .bridgeIsFinished)
+        XCTAssertEqual(state.reading(fromTake: true, childAge: late), .lost)
         XCTAssertEqual(
             state.reading(fromTake: false, childAge: early), .bridgeIsFinished,
             "a first child that could not attach must still end the bridge"

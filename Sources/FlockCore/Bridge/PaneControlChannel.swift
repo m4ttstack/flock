@@ -71,8 +71,12 @@ public final class PaneControlChannel {
     deinit { close() }
 
     public func send(_ command: [String: Any]) {
+        send(command, waitsForReader: false)
+    }
+
+    private func send(_ command: [String: Any], waitsForReader: Bool) {
         guard fd >= 0, let payload = ControlBridge.encodeLine(command) else { return }
-        writeWholeLine(payload)
+        writeWholeLine(payload, waitsForReader: waitsForReader)
     }
 
     /// How long a write waits for the bridge to drain the FIFO before giving
@@ -81,14 +85,36 @@ public final class PaneControlChannel {
     /// rather than budgeting anything a working one spends.
     private static let drainTimeout: TimeInterval = 2
 
+    /// Set when a wait ran out, cleared by the next line that goes whole. A
+    /// FIFO in this state has no reader worth waiting for, and each wait costs
+    /// the window `drainTimeout`.
+    private var stalled = false
+
+    /// Set when a wait ran out partway through a line. The next write ends
+    /// that line with a lone newline first, so the bridge drops the torn
+    /// paste alone rather than fusing it with the command after it.
+    private var tornLine = false
+
     /// The descriptor is non-blocking, so a line longer than the FIFO's buffer
     /// comes back `EAGAIN` partway through. Stopping there would leave half a
     /// line in the FIFO, and the bridge splits on newlines: the remainder would
     /// fuse with whatever command came next and take that one down with it.
-    private func writeWholeLine(_ payload: Data) {
-        let deadline = Date().addingTimeInterval(Self.drainTimeout)
-        payload.withUnsafeBytes { raw in
-            guard let base = raw.baseAddress else { return }
+    ///
+    /// Only a paste waits. Every mouse, scroll, hold and size command is
+    /// dropped on a full FIFO, since one wheel gesture sends a command per
+    /// cell crossed; a line that may not wait is written only if it is at most
+    /// `PIPE_BUF` bytes, which the FIFO takes whole or not at all.
+    private func writeWholeLine(_ payload: Data, waitsForReader: Bool) {
+        let mayWait = waitsForReader && !stalled
+        guard mayWait || payload.count <= Int(PIPE_BUF) else { return }
+        if tornLine {
+            var newline: UInt8 = 0x0A
+            guard write(fd, &newline, 1) == 1 else { return }
+            tornLine = false
+        }
+        var deadline: Date?
+        let delivered: Bool = payload.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress else { return false }
             var sent = 0
             while sent < raw.count {
                 let written = write(fd, base.advanced(by: sent), raw.count - sent)
@@ -97,13 +123,21 @@ public final class PaneControlChannel {
                     continue
                 }
                 if written < 0, errno == EINTR { continue }
-                guard written < 0, errno == EAGAIN else { return }
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else { return }
+                guard written < 0, errno == EAGAIN, mayWait else { return false }
+                let until = deadline ?? Date().addingTimeInterval(Self.drainTimeout)
+                deadline = until
+                let remaining = until.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    stalled = true
+                    tornLine = sent > 0
+                    return false
+                }
                 var writable = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
                 _ = poll(&writable, 1, Int32(remaining * 1000))
             }
+            return true
         }
+        if delivered { stalled = false }
     }
 
     /// A `terminal.scroll` line: moves the pane's real, shared herdr
@@ -135,7 +169,7 @@ public final class PaneControlChannel {
     /// reading something that is not one complete bracketed paste.
     public func paste(_ text: String) {
         guard let payload = BracketedPaste.payload(text) else { return }
-        send(["type": "terminal.input", "bytes": payload.base64EncodedString()])
+        send(["type": "terminal.input", "bytes": payload.base64EncodedString()], waitsForReader: true)
     }
 
     /// A hold command. Unlike everything else on this channel these are acted
