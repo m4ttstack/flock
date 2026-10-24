@@ -154,6 +154,37 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertEqual(bytes, Data("\u{1B}[200~\(text)\u{1B}[201~".utf8))
     }
 
+    /// A bridge that stopped reading leaves the FIFO full, and these writes
+    /// run on the main actor: one wheel gesture is a command per cell crossed,
+    /// so any wait here is multiplied into a frozen window.
+    func testAFullFIFOWithNoReaderNeverHoldsUpASmallCommand() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+
+        var slowest: TimeInterval = 0
+        for _ in 0..<400 {
+            let started = Date()
+            channel.scroll(direction: .up, lines: 3)
+            slowest = max(slowest, Date().timeIntervalSince(started))
+            if slowest > 0.1 { break }
+        }
+        XCTAssertLessThan(slowest, 0.1, "a scroll waited on a FIFO nobody reads")
+    }
+
+    /// A paste may wait for a slow reader, once. A FIFO that already let a
+    /// wait run out has no reader worth waiting for, and every further paste
+    /// would cost the window the whole timeout again.
+    func testAPasteWaitsOutAFIFONobodyReadsOnlyOnce() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        for _ in 0..<400 { channel.scroll(direction: .up, lines: 3) }
+
+        channel.paste("first")
+        let started = Date()
+        channel.paste("second")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.1, "the second paste waited again")
+    }
+
     func testCloseUnlinksTheFIFOAndSendBecomesANoOp() {
         guard let channel = PaneControlChannel() else {
             XCTFail("expected a FIFO to be created")
