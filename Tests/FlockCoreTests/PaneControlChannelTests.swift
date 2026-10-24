@@ -238,6 +238,36 @@ final class PaneControlChannelTests: XCTestCase {
         XCTAssertEqual(bytesWaiting(readerFD), before, "part of an oversized paste went into a stalled FIFO")
     }
 
+    /// A paste whose wait runs out partway leaves half a line in the FIFO.
+    /// The next command has to arrive as a line of its own, not fused onto
+    /// that half where the bridge would fail to parse both.
+    func testACommandAfterATornPasteArrivesOnALineOfItsOwn() throws {
+        let channel = try XCTUnwrap(PaneControlChannel())
+        defer { channel.close() }
+        let readerFD = open(channel.path, O_RDONLY | O_NONBLOCK)
+        XCTAssertGreaterThanOrEqual(readerFD, 0)
+        defer { close(readerFD) }
+        fill(channel)
+
+        let roomMade = DispatchSemaphore(value: 0)
+        Thread {
+            usleep(200_000)
+            var scratch = [UInt8](repeating: 0, count: 1024)
+            _ = read(readerFD, &scratch, scratch.count)
+            roomMade.signal()
+        }.start()
+        channel.paste(String(repeating: "x", count: 4 * Int(PIPE_BUF)))
+        roomMade.wait()
+        _ = readAllAvailableForTest(readerFD)
+
+        channel.scroll(direction: .up, lines: 3)
+        let after = readAllAvailableForTest(readerFD)
+        XCTAssertEqual(after.first, 0x0A, "the torn paste was never ended")
+        let line = after.dropFirst().split(separator: 0x0A).first.map { Data($0) } ?? Data()
+        let object = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        XCTAssertEqual(object?["type"] as? String, "terminal.scroll", "the scroll did not arrive whole")
+    }
+
     /// Far past the largest buffer macOS gives a FIFO, so every later write
     /// meets a full one.
     private func fill(_ channel: PaneControlChannel) {

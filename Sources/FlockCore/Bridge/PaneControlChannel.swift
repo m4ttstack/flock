@@ -90,6 +90,11 @@ public final class PaneControlChannel {
     /// the window `drainTimeout`.
     private var stalled = false
 
+    /// Set when a wait ran out partway through a line. The next write ends
+    /// that line with a lone newline first, so the bridge drops the torn
+    /// paste alone rather than fusing it with the command after it.
+    private var tornLine = false
+
     /// The descriptor is non-blocking, so a line longer than the FIFO's buffer
     /// comes back `EAGAIN` partway through. Stopping there would leave half a
     /// line in the FIFO, and the bridge splits on newlines: the remainder would
@@ -102,6 +107,11 @@ public final class PaneControlChannel {
     private func writeWholeLine(_ payload: Data, waitsForReader: Bool) {
         let mayWait = waitsForReader && !stalled
         guard mayWait || payload.count <= Int(PIPE_BUF) else { return }
+        if tornLine {
+            var newline: UInt8 = 0x0A
+            guard write(fd, &newline, 1) == 1 else { return }
+            tornLine = false
+        }
         var deadline: Date?
         let delivered: Bool = payload.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return false }
@@ -119,6 +129,7 @@ public final class PaneControlChannel {
                 let remaining = until.timeIntervalSinceNow
                 guard remaining > 0 else {
                     stalled = true
+                    tornLine = sent > 0
                     return false
                 }
                 var writable = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
