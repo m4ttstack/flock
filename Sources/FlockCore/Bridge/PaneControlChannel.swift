@@ -71,8 +71,12 @@ public final class PaneControlChannel {
     deinit { close() }
 
     public func send(_ command: [String: Any]) {
+        send(command, waitsForReader: false)
+    }
+
+    private func send(_ command: [String: Any], waitsForReader: Bool) {
         guard fd >= 0, let payload = ControlBridge.encodeLine(command) else { return }
-        writeWholeLine(payload)
+        writeWholeLine(payload, waitsForReader: waitsForReader)
     }
 
     /// How long a write waits for the bridge to drain the FIFO before giving
@@ -91,11 +95,13 @@ public final class PaneControlChannel {
     /// line in the FIFO, and the bridge splits on newlines: the remainder would
     /// fuse with whatever command came next and take that one down with it.
     ///
-    /// A line of at most `PIPE_BUF` bytes is written whole or not at all, so a
-    /// full FIFO drops it without tearing anything. Every mouse, scroll, hold
-    /// and size command is that small, and none of them is worth a wait: one
-    /// wheel gesture sends a command per cell crossed.
-    private func writeWholeLine(_ payload: Data) {
+    /// Only a paste waits. Every mouse, scroll, hold and size command is
+    /// dropped on a full FIFO, since one wheel gesture sends a command per
+    /// cell crossed; a line that may not wait is written only if it is at most
+    /// `PIPE_BUF` bytes, which the FIFO takes whole or not at all.
+    private func writeWholeLine(_ payload: Data, waitsForReader: Bool) {
+        let mayWait = waitsForReader && !stalled
+        guard mayWait || payload.count <= Int(PIPE_BUF) else { return }
         var deadline: Date?
         let delivered: Bool = payload.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return false }
@@ -107,8 +113,7 @@ public final class PaneControlChannel {
                     continue
                 }
                 if written < 0, errno == EINTR { continue }
-                guard written < 0, errno == EAGAIN else { return false }
-                if sent == 0, raw.count <= Int(PIPE_BUF) || stalled { return false }
+                guard written < 0, errno == EAGAIN, mayWait else { return false }
                 let until = deadline ?? Date().addingTimeInterval(Self.drainTimeout)
                 deadline = until
                 let remaining = until.timeIntervalSinceNow
@@ -153,7 +158,7 @@ public final class PaneControlChannel {
     /// reading something that is not one complete bracketed paste.
     public func paste(_ text: String) {
         guard let payload = BracketedPaste.payload(text) else { return }
-        send(["type": "terminal.input", "bytes": payload.base64EncodedString()])
+        send(["type": "terminal.input", "bytes": payload.base64EncodedString()], waitsForReader: true)
     }
 
     /// A hold command. Unlike everything else on this channel these are acted
