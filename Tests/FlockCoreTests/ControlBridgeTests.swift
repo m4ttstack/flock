@@ -996,6 +996,39 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(decoded, freshPayload, "the current-generation handle's own frame must still decode normally")
     }
 
+    /// A lost child's pipe can still hold a full frame after its exit is
+    /// seen. Once retired, that frame reaches neither the surface nor the
+    /// status FIFO, so it cannot announce a first frame over the lost card.
+    func testARetiredOutputWritesNothingAndAnnouncesNoFirstFrame() async throws {
+        let stdoutCapture = Pipe()
+        let statusCapture = Pipe()
+        let lostOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: Pipe().fileHandleForWriting.fileDescriptor,
+            stdinFD: Pipe().fileHandleForReading.fileDescriptor,
+            stdoutFD: stdoutCapture.fileHandleForWriting.fileDescriptor,
+            statusFD: statusCapture.fileHandleForWriting.fileDescriptor,
+            onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(lostOut.fileHandleForReading)
+        io.retireHerdrOutput()
+        io.rearmFirstFrame()
+
+        let frame = ControlBridge.encodeLine([
+            "type": "terminal.frame", "bytes": Data("stale".utf8).base64EncodedString(), "full": true,
+        ])!
+        lostOut.fileHandleForWriting.write(frame)
+        try await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(
+            readAllAvailableForTest(stdoutCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "a retired handle's frame reached the surface")
+        XCTAssertEqual(
+            readAllAvailableForTest(statusCapture.fileHandleForReading.fileDescriptor).count, 0,
+            "a retired handle's frame announced a first frame")
+    }
+
     // MARK: - a surface that stops draining
 
     /// The one the whole write path exists for. A pane's frame write runs

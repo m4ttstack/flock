@@ -543,12 +543,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
     private let ptySize: () -> PTYSize
     private let now: () -> Date
     private let scheduleRetry: (TimeInterval, @escaping () -> Void) -> Void
-    /// Runs between a refusal being classified and the retry being armed.
-    /// Empty in production, and injected only by this class's own tests: that
-    /// window is a few instructions wide, so a release landing inside it cannot
-    /// be driven any other way, and it is the window in which the retry's
-    /// baseline epoch would go wrong.
-    private let afterRefusalObserved: () -> Void
+    /// Runs once a refused or lost child's exit has been classified and the
+    /// lock let go, before a refusal's retry is armed. Empty in production, and
+    /// injected only by this class's own tests: that window is a few
+    /// instructions wide, so a release or take landing inside it cannot be
+    /// driven any other way, and it is where the retry's baseline epoch, or
+    /// the parked child's input, would go wrong.
+    private let afterExitClassified: () -> Void
     private var io: BridgeIO?
     private var current: Child?
     private var hold = BridgeHoldState()
@@ -581,13 +582,13 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         scheduleRetry: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay, execute: work)
         },
-        afterRefusalObserved: @escaping () -> Void = {},
+        afterExitClassified: @escaping () -> Void = {},
         spawn: @escaping (PTYSize) -> Spawned?
     ) {
         self.ptySize = ptySize
         self.now = now
         self.scheduleRetry = scheduleRetry
-        self.afterRefusalObserved = afterRefusalObserved
+        self.afterExitClassified = afterExitClassified
         self.spawn = spawn
     }
 
@@ -847,22 +848,30 @@ final class BridgeChildSupervisor: @unchecked Sendable {
                 lock.unlock()
                 break
             }
+            // The IO below runs before the unlock: releasing the hold lets an
+            // app take install its child the moment the lock is free, and this
+            // child's park would then close that child's input instead.
             if reading == .refusedTake {
                 _ = hold.release()
                 expectedOutputGeneration = 0
-                lock.unlock()
                 io?.swapHerdrInput(to: nil)
-                afterRefusalObserved()
+                lock.unlock()
+                afterExitClassified()
                 retryOrGiveUp(epoch: child.epoch)
             } else if reading == .lost {
                 // No retry: another client has the pane, and taking it back
                 // at once would fight it. The app's next take is the retake.
                 _ = hold.release()
                 expectedOutputGeneration = 0
-                lock.unlock()
                 io?.swapHerdrInput(to: nil)
+                // The exit can be seen before the pipe is drained, and a full
+                // frame still in it would announce a first frame and clear
+                // the card this puts up.
+                io?.retireHerdrOutput()
                 io?.rearmFirstFrame()
                 io?.sendStatus(["type": HoldStatus.lost.rawValue])
+                lock.unlock()
+                afterExitClassified()
             } else {
                 lock.unlock()
             }
@@ -1442,10 +1451,19 @@ final class BridgeIO: @unchecked Sendable {
         statusChannel.write(payload)
     }
 
+    /// Makes the installed herdr output inert, as a newer one would: its
+    /// buffered frames and its EOF reach nothing. For a child the supervisor
+    /// has already written off, before the next take installs another.
+    func retireHerdrOutput() {
+        stdoutLock.lock()
+        defer { stdoutLock.unlock() }
+        herdrOutputGeneration += 1
+    }
+
     /// Un-latches the first-frame gate so the next full frame announces itself
-    /// again. Only the give-up path calls this: the app puts a pane's status
-    /// card back when its hold is lost for good, and that card has to be able
-    /// to go away again when a later take succeeds.
+    /// again. Called wherever the app is told a hold is lost: that puts the
+    /// pane's status card back, and the card has to be able to go away again
+    /// when a later take succeeds.
     func rearmFirstFrame() {
         stdoutLock.lock()
         defer { stdoutLock.unlock() }

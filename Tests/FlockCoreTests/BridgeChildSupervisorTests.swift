@@ -132,7 +132,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         runRetries: Bool = true,
         clock: LockedBox<Date>? = nil,
         retryDelayInTest: TimeInterval = 0.01,
-        afterRefusalObserved: @escaping () -> Void = {}
+        afterExitClassified: @escaping () -> Void = {}
     ) -> Rig {
         let supervisor = BridgeChildSupervisor(
             ptySize: { PTYSize(cols: 80, rows: 24) },
@@ -142,7 +142,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
                 guard runRetries else { return }
                 DispatchQueue.global().asyncAfter(deadline: .now() + retryDelayInTest, execute: work)
             },
-            afterRefusalObserved: afterRefusalObserved,
+            afterExitClassified: afterExitClassified,
             spawn: { spawner.spawn($0) }
         )
         let first = supervisor.startFirstChild()
@@ -331,6 +331,29 @@ final class BridgeChildSupervisorTests: XCTestCase {
         XCTAssertFalse(supervisor.isFinished)
     }
 
+    /// The app's take landing the instant the lost hold is let go: the lost
+    /// child's park has to be behind it, never in front, or it closes the new
+    /// child's input and the pane loses the hold it just got back.
+    func testATakeLandingAsTheHoldIsLostKeepsItsInput() {
+        let spawner = Spawner(scripts: [])
+        defer { spawner.terminateAll() }
+        let clock = LockedBox(Date())
+        let holder = LockedBox<BridgeChildSupervisor?>(nil)
+        let rig = makeSupervisor(
+            spawner: spawner, status: Pipe(), clock: clock,
+            afterExitClassified: { holder.value?.handle(.take) }
+        )
+        holder.mutate { $0 = rig.supervisor }
+
+        clock.mutate { $0 = $0.addingTimeInterval(BridgeHoldState.refusedTakeWindow + 1) }
+        spawner.end(0)
+        waitUntil("the take to spawn a new client") { spawner.spawnCount == 2 && spawner.isRunning(1) }
+
+        rig.io.send(["type": "terminal.input", "bytes": "aGk="])
+        waitUntil("the new child to receive the line") { spawner.sink(1).contains("terminal.input") }
+        XCTAssertFalse(rig.supervisor.isFinished)
+    }
+
     /// N5's half of the lost-status bug: a shutdown, not the watcher, is what
     /// finishes the bridge here, and the status still has to be the child's.
     /// The child traps SIGTERM and exits 7, so the ordering is forced rather
@@ -416,7 +439,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
     /// the attempt that failed is what closes it.
     ///
     /// The window is a few instructions wide, so the release is landed inside
-    /// it through the supervisor's own `afterRefusalObserved` seam rather than
+    /// it through the supervisor's own `afterExitClassified` seam rather than
     /// by racing it.
     func testAReleaseLandingBetweenTheRefusalAndTheRetryStillCancelsIt() {
         // The retake is refused; the retry after it would succeed, so only a
@@ -429,7 +452,7 @@ final class BridgeChildSupervisorTests: XCTestCase {
         let holder = LockedBox<BridgeChildSupervisor?>(nil)
         let rig = makeSupervisor(
             spawner: spawner, status: status, retries: delays, retryDelayInTest: 0.2,
-            afterRefusalObserved: {
+            afterExitClassified: {
                 // Once, and only for the refusal this test is about.
                 guard !released.value else { return }
                 released.mutate { $0 = true }
