@@ -95,6 +95,14 @@ final class BridgeChildSupervisorTests: XCTestCase {
             return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         }
 
+        /// Ends one child from outside, the way herdr dropping its client ends it.
+        func end(_ index: Int) {
+            lock.lock()
+            let pid = pids[index]
+            lock.unlock()
+            kill(pid, SIGTERM)
+        }
+
         func terminateAll() {
             lock.lock()
             let all = pids
@@ -262,18 +270,19 @@ final class BridgeChildSupervisorTests: XCTestCase {
     }
 
     /// I1: an EOF from a handle that is no longer installed decides nothing,
-    /// and the one from the installed handle still ends the bridge.
+    /// and the one from the installed handle still loses the hold.
     ///
     /// The clock is advanced past `refusedTakeWindow` first, deliberately: with
     /// a young child every EOF reads `.refusedTake` and returns before the
     /// staleness check is reached, so the test would pass with that check
     /// deleted. Aged, the staleness check is the ONLY thing separating the two
     /// calls below.
-    func testAStaleOutputEOFDecidesNothingAndTheCurrentOneEndsTheBridge() {
+    func testAStaleOutputEOFDecidesNothingAndTheCurrentOneLosesTheHold() {
         let spawner = Spawner(scripts: [])
         defer { spawner.terminateAll() }
         let clock = LockedBox(Date())
-        let rig = makeSupervisor(spawner: spawner, clock: clock)
+        let status = Pipe()
+        let rig = makeSupervisor(spawner: spawner, status: status, clock: clock)
         let supervisor = rig.supervisor
 
         clock.mutate { $0 = $0.addingTimeInterval(BridgeHoldState.refusedTakeWindow + 1) }
@@ -289,7 +298,37 @@ final class BridgeChildSupervisorTests: XCTestCase {
         XCTAssertFalse(supervisor.isFinished)
 
         supervisor.herdrOutputEnded(generation: rig.firstOutputGeneration)
-        waitUntil("the current handle's EOF to end the bridge") { supervisor.isFinished }
+        waitUntil("the current handle's EOF to end its child") { !spawner.isRunning(0) }
+        waitUntil("the app to be told the hold is lost") {
+            readAllAvailableForTest(status.fileHandleForReading.fileDescriptor)
+                .split(separator: 0x0A).contains { PaneStatusChannel.parseHoldLost(Data($0)) }
+        }
+        XCTAssertFalse(supervisor.isFinished, "a lost client ended the bridge")
+    }
+
+    /// Another client taking the pane: herdr drops flock's client after it had
+    /// long been attached. The bridge stays, says so, and the app's next take
+    /// brings the pane back.
+    func testAClientDroppedAfterItAttachedIsLostAndTheNextTakeBringsItBack() {
+        let spawner = Spawner(scripts: [])
+        defer { spawner.terminateAll() }
+        let clock = LockedBox(Date())
+        let status = Pipe()
+        let supervisor = makeSupervisor(spawner: spawner, status: status, clock: clock).supervisor
+
+        clock.mutate { $0 = $0.addingTimeInterval(BridgeHoldState.refusedTakeWindow + 1) }
+        spawner.end(0)
+
+        waitUntil("the app to be told the hold is lost") {
+            readAllAvailableForTest(status.fileHandleForReading.fileDescriptor)
+                .split(separator: 0x0A).contains { PaneStatusChannel.parseHoldLost(Data($0)) }
+        }
+        XCTAssertFalse(supervisor.isFinished, "a takeover ended the bridge and froze the surface")
+        XCTAssertEqual(spawner.spawnCount, 1, "a lost hold was taken back without the app asking")
+
+        supervisor.handle(.take)
+        waitUntil("the take to spawn a new client") { spawner.spawnCount == 2 && spawner.isRunning(1) }
+        XCTAssertFalse(supervisor.isFinished)
     }
 
     /// N5's half of the lost-status bug: a shutdown, not the watcher, is what
