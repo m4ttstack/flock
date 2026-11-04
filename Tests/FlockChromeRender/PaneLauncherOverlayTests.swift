@@ -535,10 +535,7 @@ final class LauncherStripStyleTests: XCTestCase {
         for theme in Theme.builtins {
             let style = LauncherStripStyle(theme: theme)
             XCTAssertGreaterThanOrEqual(
-                contrast(style.inkTone, style.bandTone), 4, "\(theme.id): resting text is too faint on the band"
-            )
-            XCTAssertGreaterThanOrEqual(
-                contrast(style.titleTone, style.bandTone), 4, "\(theme.id): the title is too faint on the band"
+                contrast(style.inkTone, style.bandTone), 4.5, "\(theme.id): resting text is too faint on the band"
             )
         }
     }

@@ -31,10 +31,8 @@ extension ChromeMetrics {
         static let lightLit = RGB(0x2C, 0x2D, 0x36)
         /// How far resting text sits from the band toward the lit color, which
         /// holds it near 4.5:1 on any theme's ground.
-        static let darkInkMix: Double = 0.6
+        static let darkInkMix: Double = 0.62
         static let lightInkMix: Double = 0.74
-        /// A step under the items' ink: the title labels them, it is not one.
-        static let darkTitleMix: Double = 0.58
         static let darkDividerOpacity: Double = 0.12
         static let lightDividerOpacity: Double = 0.15
 

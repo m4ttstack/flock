@@ -1424,7 +1424,7 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertTrue(waiting.isCancelled)
         XCTAssertNil(viewModel.promptWatches[pane])
-        XCTAssertEqual(viewModel.launcherOccupiedRows(pane), 0, "forgotten")
+        XCTAssertFalse(viewModel.isLauncherShowing(pane), "forgotten")
         let pollsAtTeardown = await client.calls.filter { $0.method == "pane.process_info" }.count
         await waiting.value
         var polls = await client.calls.filter { $0.method == "pane.process_info" }.count
@@ -1433,7 +1433,7 @@ final class SessionViewModelTests: XCTestCase {
         // A tick the surface had already queued lands after the teardown.
         try XCTUnwrap(factory.onScreenActivityHandlers[pane])(3)
         XCTAssertNil(viewModel.promptWatches[pane], "a late report revived a forgotten pane")
-        XCTAssertEqual(viewModel.launcherOccupiedRows(pane), 0)
+        XCTAssertFalse(viewModel.isLauncherShowing(pane))
         await Task.yield()
         polls = await client.calls.filter { $0.method == "pane.process_info" }.count
         XCTAssertEqual(polls, pollsAtTeardown)

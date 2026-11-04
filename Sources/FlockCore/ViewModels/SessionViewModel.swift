@@ -1520,12 +1520,6 @@ public final class SessionViewModel {
         return paneLauncherRegistry.isShowing(pane)
     }
 
-    /// The rows the pane's screen holds.
-    public func launcherOccupiedRows(_ pane: PaneID) -> Int {
-        _ = launcherRegistryVersion
-        return paneLauncherRegistry.occupiedRows(pane)
-    }
-
     /// Whether ⌘1 and on launch rather than switch views: the canvas's
     /// focused pane, with no detected agent, is showing the launcher.
     public var focusedPaneShowsLauncher: Bool {
@@ -1552,19 +1546,14 @@ public final class SessionViewModel {
         launcherChange(pane) { $0.recordRows(pane, rows: rows, screen: screen, lastRow: lastRow, at: now()) }
     }
 
-    /// Applies one registry mutation, bumps the observation seam only when a
-    /// reader would see a change (the pane's answer flipped, or the rows an
-    /// overlay on screen keeps clear of moved), and re-arms or cancels the
-    /// pane's herdr poll to match the registry's new question. Every visible
-    /// cell reads the seam, and a busy program's pane changes rows twice a
-    /// second.
+    /// Applies one registry mutation, bumps the observation seam only when the
+    /// pane's answer flipped, and re-arms or cancels the pane's herdr poll to
+    /// match the registry's new question. Every visible cell reads the seam,
+    /// and a busy program's pane changes rows twice a second.
     private func launcherChange(_ pane: PaneID, _ mutate: (PaneLauncherRegistry) -> Void) {
         let showingBefore = paneLauncherRegistry.isShowing(pane)
-        let rowsBefore = paneLauncherRegistry.occupiedRows(pane)
         mutate(paneLauncherRegistry)
-        let showingAfter = paneLauncherRegistry.isShowing(pane)
-        let rowsMoved = rowsBefore != paneLauncherRegistry.occupiedRows(pane)
-        if showingBefore != showingAfter || (rowsMoved && showingAfter) {
+        if showingBefore != paneLauncherRegistry.isShowing(pane) {
             launcherRegistryVersion += 1
         }
         schedulePromptPoll(pane)

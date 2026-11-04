@@ -214,8 +214,8 @@ struct PaneLauncherOverlay: View {
     var body: some View {
         let style = LauncherStripStyle(theme: theme)
         let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
-        // A narrow pane drops the title, then the keycaps, before it would
-        // cut off a name.
+        // A narrow pane drops the title, then the keycaps, and scrolls only
+        // when the names alone still do not fit: every item stays reachable.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: M.titleSpacing) {
                 title(style: style)
@@ -223,6 +223,9 @@ struct PaneLauncherOverlay: View {
             }
             row(style: style, slots: slots, showsKeys: true)
             row(style: style, slots: slots, showsKeys: false)
+            ScrollView(.horizontal, showsIndicators: false) {
+                row(style: style, slots: slots, showsKeys: false)
+            }
         }
         // The same inset the terminal's text has, so the strip lines up with
         // the prompt.
@@ -244,7 +247,7 @@ struct PaneLauncherOverlay: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            .foregroundStyle(style.title)
+            .foregroundStyle(style.ink)
             Rectangle()
                 .fill(style.divider)
                 .frame(width: M.dividerWidth, height: M.dividerHeight)
@@ -290,12 +293,10 @@ struct LauncherStripStyle: Equatable {
     /// its items.
     let bandTone: RGB
     let inkTone: RGB
-    let titleTone: RGB
     let litTone: RGB
 
     var band: Color { Color(bandTone) }
     var ink: Color { Color(inkTone) }
-    var title: Color { Color(titleTone) }
 
     var divider: Color {
         (isDark ? Color.white : Color.black).opacity(isDark ? M.darkDividerOpacity : M.lightDividerOpacity)
@@ -306,7 +307,6 @@ struct LauncherStripStyle: Equatable {
         litTone = isDark ? M.darkLit : M.lightLit
         bandTone = theme.palette.terminalGround.mixed(with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: M.bandTint)
         inkTone = bandTone.mixed(with: litTone, amount: isDark ? M.darkInkMix : M.lightInkMix)
-        titleTone = bandTone.mixed(with: litTone, amount: isDark ? M.darkTitleMix : M.lightInkMix)
     }
 
     func text(_ state: KeyState) -> Color {
