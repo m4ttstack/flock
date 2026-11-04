@@ -97,6 +97,7 @@ struct PaneCellView: View {
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(\.paneCellRole) private var role
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
     @Environment(BoardStore.self) private var board: BoardStore?
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
@@ -354,7 +355,27 @@ struct PaneCellView: View {
             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
+            // While the launcher shows, the surface claims no point at all
+            // (`GhosttySurfaceView.hitTest`), which also removes ITS own
+            // click-to-focus -- this is that route's SwiftUI equivalent,
+            // launcher-only so an ordinary live pane keeps going through the
+            // AppKit path exactly as before. On the box, not the surface, so
+            // it answers across the strip, which runs past the surface's
+            // edges. Checked fresh per tap, not cached: the launcher can hide
+            // (a keystroke, real output) between this view updating and the
+            // next click landing. Guarded the same way `title`'s own tap is,
+            // so a right-click still opens the pane menu rather than also
+            // firing a focus jump.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
+                focusInHerdr()
+            }
             .background(theme.pane)
+            // On the box, not the surface: a surface holds whole cells, so it
+            // can stop short of the pane's edge by part of a row.
+            .overlay(alignment: .bottom) { launcherStrip }
             .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
@@ -782,6 +803,49 @@ struct PaneCellView: View {
             }
     }
 
+    /// Routed through `pane.send_input`, never straight into the PTY: a
+    /// launcher click can land on a pane that is NOT the resolved-focused one
+    /// (split right, click back into the original pane, then click the strip
+    /// on the new pane), and only the focused pane holds AppKit key focus.
+    /// send_input is focus-independent.
+    private var launcherStrip: some View {
+        // A container that outlives the strip: without one a removal has
+        // nothing to animate inside.
+        ZStack {
+            if showsLauncherStrip {
+                PaneLauncherOverlay(
+                    theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
+                    flashedSlot: viewModel.flashedLauncherSlot(on: .pane(pane.paneID)),
+                    onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, via: .click, on: viewModel) } }
+                )
+                .transition(launcherStripTransition)
+            }
+        }
+    }
+
+    private var showsLauncherStrip: Bool {
+        guard let ghosttySurface else { return false }
+        return PaneLoaderPolicy.showsLauncherOverlay(
+            // A key press hides the launcher as it launches; the lit item
+            // stays on screen until its flash ends.
+            isLauncherShowing: viewModel.isLauncherShowing(pane.paneID) || viewModel.flashedLauncherSlot(on: .pane(pane.paneID)) != nil,
+            hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
+        ) && PaneLauncherOverlay.leavesPromptVisible(
+            occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), gridRows: grid.rows, surfaceHeight: surfaceSize.height
+        )
+    }
+
+    /// Rises out of the pane's edge, which the box's clip hides it behind, and
+    /// only fades on the way out: it leaves as typing starts, when any motion
+    /// would compete with the text.
+    private var launcherStripTransition: AnyTransition {
+        typealias M = ChromeMetrics.LauncherStrip
+        let arrival: AnyTransition = reduceMotion
+            ? AnyTransition.opacity.animation(.easeOut(duration: M.reducedMotionFade))
+            : AnyTransition.move(edge: .bottom).combined(with: .opacity).animation(.smooth(duration: M.riseDuration))
+        return .asymmetric(insertion: arrival, removal: AnyTransition.opacity.animation(.easeOut(duration: M.dismissFade)))
+    }
+
     @ViewBuilder
     private func paneBody(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
@@ -824,42 +888,6 @@ struct PaneCellView: View {
                         hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
                     ) ? 1 : 0
                 )
-                // Routed through `pane.send_input`, never straight into the
-                // PTY: a launcher click can land on a pane that is NOT the
-                // resolved-focused one (split right, click back into the
-                // original pane, then click the overlay on the new pane), and
-                // only the focused pane holds AppKit key focus. send_input is
-                // focus-independent.
-                if PaneLoaderPolicy.showsLauncherOverlay(
-                    // A key press hides the launcher as it launches; the lit
-                    // item stays on screen until its flash ends.
-                    isLauncherShowing: viewModel.isLauncherShowing(pane.paneID) || viewModel.flashedLauncherSlot(on: .pane(pane.paneID)) != nil,
-                    hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
-                ) {
-                    PaneLauncherOverlay(
-                        theme: theme, entries: HarnessRoster.detected(), navigator: NavigatorRoster.detected(),
-                        occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), cellHeight: ghosttySurface.cellHeight,
-                        flashedSlot: viewModel.flashedLauncherSlot(on: .pane(pane.paneID)),
-                        onLaunch: { entry in Task { await LauncherSlots.launch(entry, in: pane.paneID, via: .click, on: viewModel) } }
-                    )
-                    .transition(.opacity)
-                }
-            }
-            // While the launcher shows, the surface below claims no point at
-            // all (`GhosttySurfaceView.hitTest`), which also removes ITS own
-            // click-to-focus for the body OUTSIDE the button row -- this is
-            // that route's SwiftUI equivalent, launcher-only so an ordinary
-            // live pane keeps going through the AppKit path exactly as
-            // before. Checked fresh per tap, not cached: the launcher can
-            // hide (a keystroke, real output) between this view updating and
-            // the next click landing. Guarded the same way `title`'s own
-            // tap is, so a right-click still opens the pane menu rather than
-            // also firing a focus jump.
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
-                focusInHerdr()
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
             .onChange(of: holdsTerminalSize) { _, held in
@@ -875,6 +903,9 @@ struct PaneCellView: View {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)
                         .id(ownToast.id)
                         .padding(ChromeMetrics.Pane.toastInset)
+                        // The strip draws above the body, so the pill rises
+                        // clear of it.
+                        .padding(.bottom, showsLauncherStrip ? PaneLauncherOverlay.coveredHeight : 0)
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }

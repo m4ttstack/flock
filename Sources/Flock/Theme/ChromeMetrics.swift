@@ -809,27 +809,10 @@ enum ChromeMetrics {
         static let itemTrailingPadding: CGFloat = 16
         static let itemCornerRadius: CGFloat = ChromeRadius.container
         static let logo: CGFloat = 26
-        /// An item's height: the logo is the tallest thing in its row.
-        static let itemHeight: CGFloat = logo + 2 * itemVerticalPadding
-        static let barHeight: CGFloat = itemHeight + 2 * barPadding
-        /// The room the bar needs above and below it to sit under the prompt
-        /// rather than over the pane's text.
-        static let barMargin: CGFloat = 12
-        /// The share of the free space above the bar: a third, the optical
-        /// center, which reads as centered where the true center reads low.
-        static let barRise: CGFloat = 1.0 / 3.0
-        /// Keeps the bar off the pane's side edges, and is what a narrow pane
-        /// measures against before it drops the key hints.
-        static let barSideMargin: CGFloat = 12
-        static let hintSpacing: CGFloat = 8
         static let hintHorizontalPadding: CGFloat = 20
         /// Open space between a vendor mark and the edge of its badge, which
         /// OpenAI's terms for the Blossom ask for by name.
         static let markInset: CGFloat = 5
-        /// Clears the prompt row a fresh shell prints above the launcher. It
-        /// is measured against terminal rows, which the chrome scale leaves
-        /// alone, so it is not scaled.
-        static let promptClearance: CGFloat = 28
         static let darkTint = RGB(0x3A, 0x3D, 0x52)
         static let darkTintOpacity: Double = 0.25
         static let lightTintOpacity: Double = 0.45

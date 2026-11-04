@@ -1,6 +1,6 @@
 import Foundation
 
-/// The line under a launcher pane's launcher buttons, shown only when no
+/// The note beside a pane's launcher items, shown only when no
 /// agent CLI resolved: a PATH that holds none is otherwise indistinguishable
 /// from a pane with nothing to say.
 public enum LauncherHint {

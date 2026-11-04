@@ -41,7 +41,7 @@ public struct RGB: Hashable, Sendable, CustomStringConvertible {
         return RGB(clampByte(red + delta.0), clampByte(green + delta.1), clampByte(blue + delta.2))
     }
 
-    func mixed(with other: RGB, amount: Double) -> RGB {
+    public func mixed(with other: RGB, amount: Double) -> RGB {
         func mix(_ a: Int, _ b: Int) -> Int { Int((Double(a) + (Double(b) - Double(a)) * amount).rounded()) }
         return RGB(mix(red, other.red), mix(green, other.green), mix(blue, other.blue))
     }

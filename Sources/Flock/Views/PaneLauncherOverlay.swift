@@ -91,6 +91,16 @@ enum LauncherSlots {
         ShortcutLabel.text(key: key(at: index), modifiers: .command)
     }
 
+    static func digit(at index: Int) -> String {
+        String(index + 1)
+    }
+
+    /// The strip names what a key runs, so the navigator reads as its command
+    /// rather than the bare `cd` beside the bar's rt badge.
+    static func stripLabel(for entry: HarnessEntry) -> String {
+        entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.title : entry.displayName
+    }
+
     static func title(for entry: HarnessEntry) -> String {
         entry.id == NavigatorRoster.rtCd.id ? NavigatorRoster.title : "Launch \(entry.displayName)"
     }
@@ -178,89 +188,219 @@ enum LauncherSlots {
     }
 }
 
-/// Renders on a pane showing the launcher: one frosted bar holding the
-/// navigator when there is one and an item per detected harness, centered
-/// below the rows the screen holds when it fits there and over them when it
-/// does not, and, only when a PATH resolved no harness at all, a dim line
-/// directly below it saying so (`LauncherHint`), rather than leaving an empty
-/// bar to be read as a pane with nothing to offer.
+/// Renders along the bottom edge of a pane showing the launcher: a slim strip
+/// of keycaps and names, in the terminal's own face, holding the navigator
+/// when there is one and an item per detected harness. Only a PATH that
+/// resolved no harness adds `LauncherHint`, rather than leaving a strip to be
+/// read as a pane with nothing to offer.
 ///
-/// The items are the only thing here that answers the pointer: the bar's
-/// ground, its padding and the gaps between items opt out, as does the hint,
-/// which leaves every other click reaching the terminal underneath
-/// (plain-click-to-focus, or typing). `PaneLauncherOverlayTests` asserts both
-/// halves of that by hit-testing the real view.
+/// A strip, not a centered bar: an object floating in the middle of a terminal
+/// reads as something to dismiss before typing, and typing here just works.
+/// It stands aside when the screen reaches it (`leavesPromptVisible`): a shell
+/// with a tall banner has its prompt on the last rows, where the strip would
+/// hide the prompt and the cursor. The ⌘ digits still work without it.
+///
+/// The items are the only thing here that answers the pointer: the band, its
+/// padding and the gaps between items opt out, as does the hint, which leaves
+/// every other click reaching the terminal underneath. `PaneLauncherOverlayTests`
+/// asserts both halves of that by hit-testing the real view.
 struct PaneLauncherOverlay: View {
+    private typealias M = ChromeMetrics.LauncherStrip
+
     let theme: Theme
     let entries: [HarnessEntry]
     let navigator: HarnessEntry?
-    /// The rows the screen holds, which the bar sits below when it can.
-    let occupiedRows: Int
-    /// One terminal row in points; nil before the surface knows its cell size.
-    let cellHeight: CGFloat?
     /// The slot a key press just fired, drawn pressed.
     var flashedSlot: String? = nil
     let onLaunch: (HarnessEntry) -> Void
 
-    /// One row of breathing room below whatever the screen holds, and never
-    /// less than the fixed clearance a fresh pane gets before its cell size is
-    /// known.
-    static func promptClearance(occupiedRows: Int, cellHeight: CGFloat?) -> CGFloat {
-        let floor = ChromeMetrics.Launcher.promptClearance
-        guard let cellHeight, cellHeight > 0, occupiedRows > 0 else { return floor }
-        return max(floor, CGFloat(occupiedRows + 1) * cellHeight)
-    }
+    /// What the strip covers of a surface: its height, less the padding it
+    /// lies over below the surface.
+    static let coveredHeight = M.height - PaneChrome.verticalPadding
 
-    /// The bar's top edge, at the optical center (`barRise`) of the space below
-    /// the prompt when the bar and a `barMargin` either side fit there;
-    /// otherwise of the whole pane, where its blur covers the text behind it:
-    /// a startup banner
-    /// can be taller than the pane, and a bar pushed off the pane cannot be
-    /// clicked.
-    static func barTop(clearance: CGFloat, availableHeight: CGFloat, barHeight: CGFloat) -> CGFloat {
-        let rise = ChromeMetrics.Launcher.barRise
-        let below = availableHeight - clearance
-        guard below >= barHeight + 2 * ChromeMetrics.Launcher.barMargin else {
-            return max(0, (availableHeight - barHeight) * rise)
-        }
-        return clearance + max(ChromeMetrics.Launcher.barMargin, (below - barHeight) * rise)
+    /// Whether the rows the screen holds, and one more for a prompt to grow
+    /// into, stay above the strip.
+    static func leavesPromptVisible(occupiedRows: Int, gridRows: Int, surfaceHeight: CGFloat) -> Bool {
+        guard gridRows > 0 else { return false }
+        let rowHeight = surfaceHeight / CGFloat(gridRows)
+        return CGFloat(occupiedRows + 1) * rowHeight <= surfaceHeight - coveredHeight
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            content.padding(.top, Self.barTop(
-                clearance: Self.promptClearance(occupiedRows: occupiedRows, cellHeight: cellHeight),
-                availableHeight: geometry.size.height, barHeight: ChromeMetrics.Launcher.barHeight
-            ))
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+        let style = LauncherStripStyle(theme: theme)
+        let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
+        // A narrow pane drops the title, then the keycaps, then the names:
+        // the keycaps alone are the narrowest way to keep every item in reach.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: M.titleSpacing) {
+                title(style: style)
+                row(style: style, slots: slots, showsKeys: true, showsNames: true)
+            }
+            row(style: style, slots: slots, showsKeys: true, showsNames: true)
+            row(style: style, slots: slots, showsKeys: false, showsNames: true)
+            row(style: style, slots: slots, showsKeys: true, showsNames: false)
         }
+        // The same inset the terminal's text has, so the strip lines up with
+        // the prompt.
+        .padding(.horizontal, PaneChrome.horizontalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: M.height)
+        .background { style.band.allowsHitTesting(false) }
     }
 
-    private var content: some View {
-        let style = LauncherBarStyle(theme: theme)
-        let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
-        return VStack(spacing: ChromeMetrics.Launcher.hintSpacing) {
-            if !slots.isEmpty {
-                // A narrow pane drops the key hints before it would wrap a
-                // harness name or push the bar past its edges.
-                ViewThatFits(in: .horizontal) {
-                    LauncherBar(style: style, slots: slots, showsShortcuts: true, flashedSlot: flashedSlot, onLaunch: onLaunch)
-                    LauncherBar(style: style, slots: slots, showsShortcuts: false, flashedSlot: flashedSlot, onLaunch: onLaunch)
+    /// Set like the rail's own section headings, so the strip reads as a part
+    /// of the app rather than as something laid over it.
+    private func title(style: LauncherStripStyle) -> some View {
+        HStack(spacing: M.titleSpacing) {
+            HStack(spacing: M.boltSpacing) {
+                Image(systemName: "bolt.fill").font(ChromeType.launcherStripBolt)
+                Text(verbatim: "QUICK LAUNCH")
+                    .font(ChromeType.railHeading)
+                    .tracking(ChromeType.railHeadingTracking)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(style.ink)
+            Rectangle()
+                .fill(style.divider)
+                .frame(width: M.dividerWidth, height: M.dividerHeight)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func row(style: LauncherStripStyle, slots: [HarnessEntry], showsKeys: Bool, showsNames: Bool) -> some View {
+        HStack(spacing: M.itemSpacing) {
+            ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
+                LauncherStripItem(
+                    style: style, entry: entry, digit: showsKeys ? LauncherSlots.digit(at: index) : nil,
+                    showsName: showsNames, isFlashed: flashedSlot == entry.id
+                ) {
+                    onLaunch(entry)
                 }
-                .padding(.horizontal, ChromeMetrics.Launcher.barSideMargin)
             }
             if let hint = LauncherHint.text(detected: entries.map(\.binary), searched: HarnessRoster.known.map(\.binary)) {
                 Text(hint)
-                    .font(ChromeType.launcherHint)
-                    .foregroundStyle(style.keyHint)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
+                    .font(ChromeType.launcherStripText)
+                    .foregroundStyle(style.ink)
+                    .lineLimit(1)
+                    // No ideal width, so a long hint truncates in the space
+                    // left rather than pushing the strip to a narrower row.
+                    .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
                     // Hit testing is off per drawn element, never on the stack
                     // around them: a disabled ancestor takes its whole subtree
                     // out of hit testing, and a descendant cannot opt back in.
                     .allowsHitTesting(false)
             }
         }
+    }
+}
+
+/// The strip's colors for one theme, each mixed from the terminal ground so
+/// the strip keeps its relationship to the pane on every theme.
+struct LauncherStripStyle: Equatable {
+    private typealias M = ChromeMetrics.LauncherStrip
+
+    enum KeyState: Int {
+        case rest, hovered, pressed
+    }
+
+    let isDark: Bool
+    /// Opaque: a banner tall enough to reach the strip must not run through
+    /// its items.
+    let bandTone: RGB
+    let inkTone: RGB
+    let litTone: RGB
+
+    var band: Color { Color(bandTone) }
+    var ink: Color { Color(inkTone) }
+
+    var divider: Color {
+        (isDark ? Color.white : Color.black).opacity(isDark ? M.darkDividerOpacity : M.lightDividerOpacity)
+    }
+
+    init(theme: Theme) {
+        isDark = !ChromeRoles.isLight(panelBg: theme.palette.panelBg)
+        litTone = isDark ? M.darkLit : M.lightLit
+        bandTone = theme.palette.terminalGround.mixed(with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: M.bandTint)
+        inkTone = bandTone.mixed(with: litTone, amount: isDark ? M.darkInkMix : M.lightInkMix)
+    }
+
+    func text(_ state: KeyState) -> Color {
+        state == .rest ? ink : Color(litTone)
+    }
+
+    func keyFill(_ state: KeyState) -> Color {
+        Color.white.opacity((isDark ? M.darkKeyFill : M.lightKeyFill)[state.rawValue])
+    }
+
+    func keyEdge(_ state: KeyState) -> Color {
+        (isDark ? Color.white : Color.black).opacity((isDark ? M.darkKeyEdge : M.lightKeyEdge)[state.rawValue])
+    }
+}
+
+/// One slot on the strip. `isHovering` is held here so each item answers only
+/// for the pointer being over itself.
+private struct LauncherStripItem: View {
+    let style: LauncherStripStyle
+    let entry: HarnessEntry
+    let digit: String?
+    let showsName: Bool
+    let isFlashed: Bool
+    let onLaunch: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onLaunch) {
+            if showsName {
+                Text(LauncherSlots.stripLabel(for: entry))
+                    .font(ChromeType.launcherStripText)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        .buttonStyle(LauncherStripItemStyle(style: style, digit: digit, isHovering: isHovering, isFlashed: isFlashed))
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(LauncherSlots.stripLabel(for: entry))
+        .accessibilityIdentifier("flock.pane.launcher.\(entry.binary)")
+    }
+}
+
+/// The keycap is drawn here, not in the button's label, because a label cannot
+/// see the press that changes its color.
+private struct LauncherStripItemStyle: ButtonStyle {
+    private typealias M = ChromeMetrics.LauncherStrip
+
+    let style: LauncherStripStyle
+    let digit: String?
+    let isHovering: Bool
+    let isFlashed: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let state: LauncherStripStyle.KeyState = configuration.isPressed || isFlashed ? .pressed : isHovering ? .hovered : .rest
+        return HStack(spacing: M.keyLabelSpacing) {
+            if let digit {
+                key(digit: digit, state: state)
+            }
+            configuration.label.foregroundStyle(style.text(state))
+        }
+        // With no fill, only the glyphs would take a click.
+        .contentShape(Rectangle())
+        .animation(.easeOut(duration: ChromeMetrics.Launcher.hoverFade), value: state)
+    }
+
+    /// The command glyph is set apart from the digit: the terminal's face has
+    /// none of its own, and the one a fallback gives it crowds the digit.
+    private func key(digit: String, state: LauncherStripStyle.KeyState) -> some View {
+        let shape = RoundedRectangle(cornerRadius: M.keyCornerRadius, style: .continuous)
+        return HStack(spacing: M.keyGlyphSpacing) {
+            Text(verbatim: "\u{2318}").font(ChromeType.launcherStripCommandGlyph)
+            Text(digit).font(ChromeType.launcherStripText)
+        }
+        .foregroundStyle(style.text(state))
+        .frame(width: M.keyWidth, height: M.keyHeight)
+        .background(shape.fill(style.keyFill(state)))
+        .overlay(shape.strokeBorder(style.keyEdge(state), lineWidth: 1))
     }
 }
 
@@ -308,7 +448,7 @@ struct LauncherBarStyle: Equatable {
     }
 }
 
-/// The frosted bar alone, shared by a pane's launcher and an empty pin's.
+/// The frosted bar alone, shared by the start screen and an empty pin.
 /// `leading` is an item ahead of the numbered slots with its own key hint.
 struct LauncherBar: View {
     let style: LauncherBarStyle
@@ -376,7 +516,7 @@ private struct LauncherBarGround: View {
 }
 
 /// A behind-window blur would show the desktop; within-window blends what the
-/// window itself draws behind the bar, which is the pane's terminal surface.
+/// window itself draws behind the bar.
 private struct LauncherBlur: NSViewRepresentable {
     let isDark: Bool
     let cornerRadius: CGFloat
@@ -400,7 +540,7 @@ private struct LauncherBlur: NSViewRepresentable {
 
 /// An `NSView` answers hit tests over its whole frame, which SwiftUI's
 /// `allowsHitTesting` does not reach; this one never does, so the bar's
-/// padding and the gaps between its items reach the terminal.
+/// padding and the gaps between its items reach what lies beneath them.
 private final class PassThroughEffectView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
