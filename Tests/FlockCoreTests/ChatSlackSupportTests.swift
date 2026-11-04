@@ -198,6 +198,50 @@ final class ChatSlackSupportTests: XCTestCase {
         XCTAssertNil(ChatSlackPeopleSearch.titleToShow(for: unique[0], among: unique))
     }
 
+    // MARK: - The Person box
+
+    private var alex: ChatSlackPerson { people[0] }
+
+    func testPickingFillsTheBoxWithTheName() {
+        var entry = ChatSlackPersonEntry()
+        entry.type("al")
+        entry.pick(alex)
+        XCTAssertEqual(entry.query, "Alex Example")
+        XCTAssertEqual(entry.picked, alex)
+    }
+
+    /// AppKit writes a text field's value back when it loses focus, which is
+    /// exactly what happens as a pick moves focus to Problem.
+    func testTheSameTextWrittenBackKeepsThePick() {
+        var entry = ChatSlackPersonEntry()
+        entry.pick(alex)
+        entry.type("Alex Example")
+        XCTAssertEqual(entry.picked, alex)
+    }
+
+    func testEditingThePickedNameClearsThePick() {
+        var entry = ChatSlackPersonEntry()
+        entry.pick(alex)
+        entry.type("Alex Exampl")
+        XCTAssertNil(entry.picked)
+    }
+
+    func testTypingResetsTheHighlight() {
+        var entry = ChatSlackPersonEntry()
+        entry.type("al")
+        entry.moveHighlight(by: 1, among: 4)
+        entry.type("ale")
+        XCTAssertEqual(entry.highlighted, 0)
+    }
+
+    func testTheHighlightWrapsBothWays() {
+        var entry = ChatSlackPersonEntry()
+        entry.moveHighlight(by: -1, among: 3)
+        XCTAssertEqual(entry.highlighted, 2)
+        entry.moveHighlight(by: 1, among: 3)
+        XCTAssertEqual(entry.highlighted, 0)
+    }
+
     /// A picked person is typed by id, which is one bare word.
     func testAnIdGoesIntoTheLineBare() {
         XCTAssertEqual(ChatSlackCommand.line(person: "U0TEST", problem: "hi"), "/slack-support U0TEST hi")

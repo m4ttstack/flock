@@ -11,6 +11,7 @@ struct ChatComposeField: View {
     let cornerRadius: CGFloat
     let verticalPadding: CGFloat
     let horizontalPadding: CGFloat
+    var stroke: Color? = nil
 
     var body: some View {
         TextEditor(text: $text)
@@ -21,7 +22,7 @@ struct ChatComposeField: View {
             .padding(.horizontal, horizontalPadding)
             .frame(width: size.width, height: size.height)
             .background(RoundedRectangle(cornerRadius: cornerRadius).fill(Color(theme.palette.surface0)))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(theme.accent, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(stroke ?? theme.accent, lineWidth: 1))
     }
 }
 
@@ -38,6 +39,7 @@ struct ChatComposeSendButton: View {
     let verticalPadding: CGFloat
     let horizontalPadding: CGFloat
     let gap: CGFloat
+    var labelColor: Color? = nil
     let action: () -> Void
 
     var body: some View {
@@ -46,7 +48,7 @@ struct ChatComposeSendButton: View {
                 Text(title).font(ChromeType.chatComposeSendLabel)
                 Text("⌘⏎").font(ChromeType.chatComposeSendShortcut).opacity(0.67)
             }
-            .foregroundStyle(Color(theme.palette.panelBg))
+            .foregroundStyle(labelColor ?? Color(theme.palette.panelBg))
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
             .frame(width: size.width, height: size.height)

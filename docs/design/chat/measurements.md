@@ -165,6 +165,30 @@ Field band 130 tall, pad 14, gap 9, stroke `surface0` above. Field 372x64, same
 treatment as quick send. Footer hint counts the selected panes. The send button
 is 112x29 and fills `mauve`, not `accent`.
 
+## Slack support
+
+Frames `Slack A` to `Slack E` and `Slack B1` to `B6`. `Slack D alt`, the
+`B1` to `B4` check-after-typing states, and the Person results list growing the
+form in `B6` were not chosen. None of this draws unless `status` prints a
+`slackChat` key and the pane is signed in, so a popover without it keeps every
+number above.
+
+- **Features.** One 31 tall row between Quick send and Open viewer, with a 12pt
+  chevron where the others have a shortcut. It dims, with the tooltip "One Slack
+  chat per pane", while a chat is opening, open or closing.
+- **Status.** A 26 tall line under the room chips, 7 below them, while a chat is
+  opening, open or closing. Icon or spinner 13: `green` for an open
+  chat, `yellow` opening, `overlay0` closing.
+- **Sign out.** Disabled while a chat is open or closing, because a sign-out
+  closes the chat with no goodbye. Fill `surface0`, label `overlay0`, and a 12
+  tall hint 7 below the button, which grows the band by 19.
+
+The form is 360x263. Person field 332x33, Problem field 332x74, gap 7 under each
+label. The focused field strokes `accent` and the other `surface1`. Up to four
+27 tall results float 4 below the Person field, over Problem, so searching never
+changes the form's height. A result shows its title only when two results share
+a name.
+
 ## Menu bar
 
 300x203, r8, pad 6, fill `#20212E`, stroke `surface1`. Items 288x27, r4, pad 6/9,

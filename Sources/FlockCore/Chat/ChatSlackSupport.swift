@@ -146,6 +146,39 @@ public enum ChatSlackPeopleSearch {
     }
 }
 
+/// The form's Person box: what is typed, who was picked, and which result the
+/// arrow keys are on.
+public struct ChatSlackPersonEntry: Equatable, Sendable {
+    public private(set) var query: String
+    public private(set) var picked: ChatSlackPerson?
+    public private(set) var highlighted = 0
+
+    public init(query: String = "", picked: ChatSlackPerson? = nil) {
+        self.query = query
+        self.picked = picked
+    }
+
+    /// AppKit writes a field's value back as it loses focus, so unchanged
+    /// text is not typing and must not undo a pick.
+    public mutating func type(_ text: String) {
+        guard text != query else { return }
+        query = text
+        picked = nil
+        highlighted = 0
+    }
+
+    public mutating func pick(_ person: ChatSlackPerson) {
+        query = person.name
+        picked = person
+        highlighted = 0
+    }
+
+    public mutating func moveHighlight(by step: Int, among count: Int) {
+        guard count > 0 else { return }
+        highlighted = (highlighted + step + count) % count
+    }
+}
+
 /// What `slack-close` prints. A close by pane answers `closed: false` while
 /// the pane says goodbye, so the store follows `slackChat`, not this.
 public struct ChatSlackClosed: Decodable, Equatable, Sendable {

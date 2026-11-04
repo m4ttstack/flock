@@ -3,13 +3,14 @@ import Carbon.HIToolbox
 import FlockCore
 import SwiftUI
 
-/// One of the four rows the FEATURES band lists, each carrying its own
-/// shortcut and glyph. `chevron.left`/`xmark`, the two icons every sub-view's
-/// own header carries, are not here: nothing in this enum routes to them.
+/// One of the rows the FEATURES band lists, each carrying its own shortcut
+/// and glyph. `chevron.left`/`xmark`, the two icons every sub-view's own
+/// header carries, are not here: nothing in this enum routes to them.
 enum ChatPopoverFeature: CaseIterable, Identifiable {
     case broadcast
     case peek
     case quickSend
+    case slackSupport
     case openViewer
 
     var id: Self { self }
@@ -19,15 +20,18 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
         case .broadcast: "Broadcast to panes"
         case .peek: "Chat peek"
         case .quickSend: "Quick send"
+        case .slackSupport: "Slack support"
         case .openViewer: "Open viewer"
         }
     }
 
-    var shortcut: String {
+    /// Slack support is reached only from its row, so it has no shortcut.
+    var shortcut: String? {
         switch self {
         case .broadcast: "⌘⇧B"
         case .peek: "⌘⇧P"
         case .quickSend: "⌘⇧S"
+        case .slackSupport: nil
         case .openViewer: "⌘⇧V"
         }
     }
@@ -37,6 +41,7 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
         case .broadcast: "dot.radiowaves.left.and.right"
         case .peek: "person.2.fill"
         case .quickSend: "paperplane.fill"
+        case .slackSupport: "bubble.left.and.bubble.right.fill"
         case .openViewer: "arrow.up.forward.square"
         }
     }
@@ -69,6 +74,11 @@ struct ChatPopover: View {
     /// compiling; only the real pane chrome supplies the real one. Nil hides
     /// the jump (see `ChatPeekView`).
     let onJump: ((PaneID) -> Void)?
+    /// Nil hides every Slack control: chat is not signed in here, or this
+    /// herdr-chat has no Slack support.
+    let slackRow: ChatSlackRow?
+    let onStartSlackChat: (_ person: String, _ problem: String) async -> Bool
+    let onEndSlackChat: () -> Void
 
     @Binding private var isPresented: Bool
     @State private var route: Route = .status
@@ -99,7 +109,9 @@ struct ChatPopover: View {
         theme: Theme, status: ChatStatus?, statusError: String? = nil, isPresented: Binding<Bool>,
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
         viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
-        onJump: ((PaneID) -> Void)? = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil
+        onJump: ((PaneID) -> Void)? = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil,
+        slackRow: ChatSlackRow? = nil, onStartSlackChat: @escaping (_ person: String, _ problem: String) async -> Bool = { _, _ in false },
+        onEndSlackChat: @escaping () -> Void = {}
     ) {
         self.theme = theme
         self.status = status
@@ -111,6 +123,9 @@ struct ChatPopover: View {
         self.viewerDisabledReason = viewerDisabledReason
         self.onRetry = onRetry
         self.onJump = onJump
+        self.slackRow = slackRow
+        self.onStartSlackChat = onStartSlackChat
+        self.onEndSlackChat = onEndSlackChat
         self._route = State(initialValue: initialFeature.map(Route.feature) ?? .status)
         self._hoveredFeature = State(initialValue: previewHoveredFeature)
     }
@@ -232,6 +247,7 @@ struct ChatPopover: View {
                     }
                 }
             }
+            slackLine
         }
         .padding(.top, ChromeMetrics.ChatPopover.Status.topPadding)
         .padding(.trailing, ChromeMetrics.ChatPopover.Status.trailingPadding)
@@ -239,10 +255,85 @@ struct ChatPopover: View {
         .padding(.leading, ChromeMetrics.ChatPopover.Status.leadingPadding)
         .frame(
             width: ChromeMetrics.ChatPopover.width,
-            height: hasRooms ? ChromeMetrics.ChatPopover.Status.heightSignedIn : ChromeMetrics.ChatPopover.Status.heightSignedOut,
+            height: statusHeight,
             alignment: .top
         )
         .overlay(alignment: .bottom) { bandRule }
+    }
+
+    private var statusHeight: CGFloat {
+        let status = ChromeMetrics.ChatPopover.Status.self
+        let base = hasRooms ? status.heightSignedIn : status.heightSignedOut
+        return slackLineIsShown ? base + status.slackLineHeight + status.slackLineGap : base
+    }
+
+    private var slackLineIsShown: Bool {
+        switch slackRow {
+        case .opening, .open, .closing: true
+        case .available, nil: false
+        }
+    }
+
+    /// A live chat is part of this pane's chat state, so it reads under the
+    /// identity rather than beside Sign out.
+    @ViewBuilder
+    private var slackLine: some View {
+        if let slackRow, slackLineIsShown {
+            HStack(spacing: ChromeMetrics.ChatPopover.Status.gap) {
+                slackLineIcon(slackRow)
+                slackLineText(slackRow)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if case .open = slackRow { endChatButton }
+            }
+            .frame(height: ChromeMetrics.ChatPopover.Status.slackLineHeight)
+        }
+    }
+
+    @ViewBuilder
+    private func slackLineIcon(_ row: ChatSlackRow) -> some View {
+        if case .open = row {
+            Image(systemName: ChatPopoverFeature.slackSupport.symbolName)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(theme.green)
+                .frame(width: ChromeMetrics.ChatPopover.Status.slackIconSize, height: ChromeMetrics.ChatPopover.Status.slackIconSize)
+        } else {
+            ChatSpinner(
+                color: row == .opening ? theme.yellow : theme.overlay0, size: ChromeMetrics.ChatPopover.Status.slackIconSize
+            )
+        }
+    }
+
+    private func slackLineText(_ row: ChatSlackRow) -> some View {
+        let name = { (value: String) in Text(value).font(ChromeType.chatPopoverButtonLabel) }
+        return Group {
+            switch row {
+            case let .open(person):
+                Text("Talking to \(name(person)) on Slack").foregroundStyle(theme.text)
+            case let .closing(person):
+                Text("Closing chat with \(name(person))").foregroundStyle(theme.subtext0)
+            case .opening, .available:
+                Text("Opening Slack chat…").foregroundStyle(theme.subtext0)
+            }
+        }
+        .font(ChromeType.chatPopoverFeatureName)
+    }
+
+    private var endChatButton: some View {
+        Button(action: onEndSlackChat) {
+            Text("End chat")
+                .font(ChromeType.chatQuickSendChipSelected)
+                .foregroundStyle(theme.red)
+                .padding(.vertical, ChromeMetrics.ChatPopover.Status.slackButtonVerticalPadding)
+                .padding(.horizontal, ChromeMetrics.ChatPopover.Status.slackButtonHorizontalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.slackButtonCornerRadius)
+                        .fill(Color(theme.palette.surface0))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("End this Slack chat")
     }
 
     /// The header and the status band are the only bands the popover rules
@@ -275,17 +366,35 @@ struct ChatPopover: View {
 
     var featuresBlock: some View {
         VStack(spacing: 0) {
-            ForEach(ChatPopoverFeature.allCases) { feature in
+            ForEach(visibleFeatures) { feature in
                 featureRow(feature)
             }
         }
         .padding(.horizontal, ChromeMetrics.ChatPopover.Features.horizontalInset)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.Features.bandHeight)
+        .frame(width: ChromeMetrics.ChatPopover.width, height: featuresHeight)
+    }
+
+    private var visibleFeatures: [ChatPopoverFeature] {
+        ChatPopoverFeature.allCases.filter { $0 != .slackSupport || slackRow != nil }
+    }
+
+    private var featuresHeight: CGFloat {
+        let extraRows = CGFloat(visibleFeatures.count - 4)
+        return ChromeMetrics.ChatPopover.Features.bandHeight + extraRows * ChromeMetrics.ChatPopover.Features.rowSize.height
+    }
+
+    private func disabledReason(_ feature: ChatPopoverFeature) -> String? {
+        switch feature {
+        case .openViewer: viewerDisabledReason
+        case .slackSupport: slackRow == .available ? nil : "One Slack chat per pane"
+        case .broadcast, .peek, .quickSend: nil
+        }
     }
 
     private func featureRow(_ feature: ChatPopoverFeature) -> some View {
         let isHighlighted = hoveredFeature == feature
-        let isDisabled = feature == .openViewer && viewerDisabledReason != nil
+        let disabledReason = disabledReason(feature)
+        let isDisabled = disabledReason != nil
         return Button(action: { select(feature) }) {
             HStack(spacing: ChromeMetrics.ChatPopover.Features.rowGap) {
                 Image(systemName: feature.symbolName)
@@ -297,9 +406,17 @@ struct ChatPopover: View {
                     .font(ChromeType.chatPopoverFeatureName)
                     .foregroundStyle(isDisabled ? theme.overlay0 : theme.text)
                 Spacer(minLength: 0)
-                Text(feature.shortcut)
-                    .font(ChromeType.chatPopoverFeatureShortcut)
-                    .foregroundStyle(theme.overlay0)
+                if let shortcut = feature.shortcut {
+                    Text(shortcut)
+                        .font(ChromeType.chatPopoverFeatureShortcut)
+                        .foregroundStyle(theme.overlay0)
+                } else if !isDisabled {
+                    Image(systemName: "chevron.right")
+                        .resizable()
+                        .scaledToFit()
+                        .foregroundStyle(theme.overlay0)
+                        .frame(width: ChromeMetrics.ChatPopover.Features.chevronSize.width, height: ChromeMetrics.ChatPopover.Features.chevronSize.height)
+                }
             }
             .padding(.horizontal, ChromeMetrics.ChatPopover.Features.rowHorizontalPadding)
             .frame(width: ChromeMetrics.ChatPopover.Features.rowSize.width, height: ChromeMetrics.ChatPopover.Features.rowSize.height)
@@ -311,7 +428,7 @@ struct ChatPopover: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .help(isDisabled ? (viewerDisabledReason ?? "") : "")
+        .help(disabledReason ?? "")
         .onHover { hovering in hoveredFeature = hovering ? feature : (hoveredFeature == feature ? nil : hoveredFeature) }
     }
 
@@ -328,13 +445,28 @@ struct ChatPopover: View {
         isPresented = false
     }
 
+    private var signOutIsBlocked: Bool { slackRow?.blocksSignOut ?? false }
+
     var signButtonsBlock: some View {
-        signButton(for: ChatPresence.signAction(for: status))
-            .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
-            .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
-            .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
-            .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
-            .frame(width: ChromeMetrics.ChatPopover.width, height: ChromeMetrics.ChatPopover.SignButtons.bandHeight, alignment: .top)
+        VStack(spacing: ChromeMetrics.ChatPopover.SignButtons.hintGap) {
+            signButton(for: ChatPresence.signAction(for: status))
+            if signOutIsBlocked {
+                Text("End the Slack chat first")
+                    .font(ChromeType.chatComposeFooterHint)
+                    .foregroundStyle(theme.overlay0)
+                    .frame(height: ChromeMetrics.ChatPopover.SignButtons.hintHeight)
+            }
+        }
+        .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
+        .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
+        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
+        .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
+        .frame(width: ChromeMetrics.ChatPopover.width, height: signButtonsHeight, alignment: .top)
+    }
+
+    private var signButtonsHeight: CGFloat {
+        let band = ChromeMetrics.ChatPopover.SignButtons.self
+        return signOutIsBlocked ? band.bandHeight + band.hintGap + band.hintHeight : band.bandHeight
     }
 
     private func signButton(for signAction: ChatSignAction) -> some View {
@@ -351,7 +483,7 @@ struct ChatPopover: View {
         case .signOut:
             title = "Sign out"
             symbolName = "rectangle.portrait.and.arrow.right"
-            isEnabled = true
+            isEnabled = !signOutIsBlocked
             action = onSignOut
         }
         return Button(action: action) {
@@ -366,11 +498,11 @@ struct ChatPopover: View {
                 Text(title)
                     .font(ChromeType.chatPopoverButtonLabel)
             }
-            .foregroundStyle(Color(theme.palette.panelBg))
+            .foregroundStyle(signOutIsBlocked ? theme.overlay0 : Color(theme.palette.panelBg))
             .frame(width: ChromeMetrics.ChatPopover.SignButtons.buttonSize.width, height: ChromeMetrics.ChatPopover.SignButtons.buttonSize.height)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                    .fill(theme.accent)
+                    .fill(signOutIsBlocked ? Color(theme.palette.surface0) : theme.accent)
             )
         }
         .buttonStyle(.plain)
@@ -393,6 +525,8 @@ struct ChatPopover: View {
                 ChatPeekView(theme: theme, onBack: onBack, onClose: onClose, onJump: onJump)
             case .quickSend:
                 ChatQuickSendView(theme: theme, status: status, onBack: onBack, onClose: onClose)
+            case .slackSupport:
+                ChatSlackSupportView(theme: theme, onBack: onBack, onClose: onClose, onStart: onStartSlackChat)
             case .openViewer:
                 EmptyView()
             }

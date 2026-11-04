@@ -361,6 +361,15 @@ enum ChromeMetrics {
             static let roomChipVerticalPadding: CGFloat = 2
             static let roomChipHorizontalPadding: CGFloat = 7
             static let roomChipGap: CGFloat = 6
+            /// The Slack line under the room chips. The band grows by this
+            /// height plus `gap` while a chat is opening, open or closing.
+            static let slackLineHeight: CGFloat = 26
+            static let slackLineGap: CGFloat = 7
+            static let slackIconSize: CGFloat = 13
+            static let slackNameGap: CGFloat = 4
+            static let slackButtonCornerRadius: CGFloat = ChromeRadius.tiny
+            static let slackButtonVerticalPadding: CGFloat = 4
+            static let slackButtonHorizontalPadding: CGFloat = 11
         }
 
         /// Shared by the FEATURES and THIS PANE section labels: 14 top, 14
@@ -373,9 +382,10 @@ enum ChromeMetrics {
             static let leadingPadding: CGFloat = 14
         }
 
-        /// Four rows, zero gap, exactly filling the band (4 x 31 = 124): the
-        /// band's own padding is horizontal only (8 each side, matching each
-        /// row's own narrower 344 width), never vertical.
+        /// Four rows, zero gap, exactly filling the band (4 x 31 = 124), and
+        /// one more row when Slack support is on offer: the band's own padding
+        /// is horizontal only (8 each side, matching each row's own narrower
+        /// 344 width), never vertical.
         enum Features {
             static let bandHeight: CGFloat = 124
             static let horizontalInset: CGFloat = 8
@@ -384,6 +394,7 @@ enum ChromeMetrics {
             static let rowHorizontalPadding: CGFloat = 8
             static let rowGap: CGFloat = 9
             static let iconSize = CGSize(width: 14, height: 14)
+            static let chevronSize = CGSize(width: 12, height: 12)
         }
 
         /// One button spanning the band's full inner width (360 - the 14pt
@@ -402,6 +413,45 @@ enum ChromeMetrics {
             static let buttonHorizontalPadding: CGFloat = 10
             static let contentGap: CGFloat = 7
             static let iconSize = CGSize(width: 13, height: 13)
+            /// The line under a disabled Sign out, which the band grows by.
+            static let hintGap: CGFloat = 7
+            static let hintHeight: CGFloat = 12
+        }
+    }
+
+    /// The Slack support form: Person, Problem, and a results list that floats
+    /// over Problem rather than growing the form.
+    enum ChatSlack {
+        static let width: CGFloat = 360
+        static let height: CGFloat = 263
+        static let horizontalPadding: CGFloat = 14
+        static let fieldWidth: CGFloat = 332
+        static let fieldCornerRadius: CGFloat = ChromeRadius.control
+
+        enum PersonBand {
+            static let topPadding: CGFloat = 13
+            static let bottomPadding: CGFloat = 4
+            static let gap: CGFloat = 7
+            static let fieldHeight: CGFloat = 33
+            static let fieldHorizontalPadding: CGFloat = 11
+            static let fieldGap: CGFloat = 7
+            static let statusIconSize: CGFloat = 12
+        }
+
+        enum ProblemBand {
+            static let topPadding: CGFloat = 10
+            static let bottomPadding: CGFloat = 14
+            static let gap: CGFloat = 7
+            static let fieldSize = CGSize(width: 332, height: 74)
+        }
+
+        enum Results {
+            static let gap: CGFloat = 4
+            static let padding: CGFloat = 4
+            static let rowHeight: CGFloat = 27
+            static let rowHorizontalPadding: CGFloat = 8
+            static let rowCornerRadius: CGFloat = ChromeRadius.tiny
+            static let rowGap: CGFloat = 8
         }
     }
 
