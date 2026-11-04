@@ -301,7 +301,7 @@ public final class PaneLauncherRegistry {
         }
     }
 
-    /// The rows the pane's screen holds, which the overlay keeps clear of.
+    /// The rows the pane's screen holds.
     public func occupiedRows(_ pane: PaneID) -> Int {
         panes[pane]?.rows ?? 0
     }

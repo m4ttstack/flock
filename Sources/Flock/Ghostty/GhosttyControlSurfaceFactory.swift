@@ -215,8 +215,6 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
         session.sendHold(.take)
     }
 
-    var cellHeight: CGFloat? { session.cellHeight }
-
     var hasFirstFrame: Bool { session.hasFirstFrame }
 
     var hasClaimedMouse: Bool { session.hasClaimedMouse }

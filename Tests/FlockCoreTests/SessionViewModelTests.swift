@@ -278,7 +278,6 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         rekeys.append(pane)
     }
 
-    var cellHeight: CGFloat? = 18
 }
 
 /// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach

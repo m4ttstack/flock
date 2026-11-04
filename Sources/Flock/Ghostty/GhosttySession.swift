@@ -473,11 +473,6 @@ final class GhosttySession {
         screenActivityTimer = timer
     }
 
-    /// One row in points: libghostty reports the cell in pixels.
-    var cellHeight: CGFloat? {
-        state.cellSize.map { CGFloat($0.height) / scale }
-    }
-
     /// The ACTIVE area -- the editable screen a running program can address --
     /// not `GHOSTTY_POINT_SCREEN`, which ghostty defines as reaching "the
     /// furthest back in the scrollback history" (`terminal/point.zig`).

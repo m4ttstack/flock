@@ -487,7 +487,6 @@ private final class OverlaySurface: GhosttyPaneSurface {
     var isOnScreen: Bool { false }
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    var cellHeight: CGFloat? { nil }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { false }
     var programHasMouse: Bool { false }

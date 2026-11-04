@@ -162,8 +162,11 @@ enum ChromeType {
     /// face, not the chrome's Inter.
     static let launcherName = Font.system(size: 17, weight: .medium)
     static let launcherMonogram = inter(12, .bold)
-    static let launcherHint = Font.system(size: 13)
     static let launcherShortcut = Font.system(size: 13, weight: .medium)
+    /// In the terminal's own face, so the strip reads as part of the pane.
+    static let launcherStripText = Font.custom(TerminalFont.face, size: ChromeMetrics.LauncherStrip.textSize)
+    static let launcherStripBolt = Font.system(size: ChromeMetrics.LauncherStrip.boltSize, weight: .semibold)
+    static let launcherStripCommandGlyph = Font.system(size: ChromeMetrics.LauncherStrip.commandGlyphSize, weight: .medium)
     static let launcherPromptMonogram = Font.system(size: 10.5, weight: .heavy, design: .monospaced)
 
     static let emptyPinName = inter(22, .semibold)

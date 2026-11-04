@@ -302,7 +302,6 @@ private final class GroundSurface: GhosttyPaneSurface {
     var isOnScreen: Bool { false }
     func releaseHerdrHold() {}
     func takeHerdrHold() {}
-    var cellHeight: CGFloat? { 18 }
     var hasFirstFrame: Bool { true }
     var hasClaimedMouse: Bool { false }
     var programHasMouse: Bool { false }

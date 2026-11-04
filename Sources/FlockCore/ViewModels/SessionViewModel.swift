@@ -1520,7 +1520,7 @@ public final class SessionViewModel {
         return paneLauncherRegistry.isShowing(pane)
     }
 
-    /// The rows the pane's screen holds, which the overlay keeps clear of.
+    /// The rows the pane's screen holds.
     public func launcherOccupiedRows(_ pane: PaneID) -> Int {
         _ = launcherRegistryVersion
         return paneLauncherRegistry.occupiedRows(pane)

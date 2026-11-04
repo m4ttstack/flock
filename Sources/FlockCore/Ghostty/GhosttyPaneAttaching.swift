@@ -132,11 +132,6 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// card has fully faded.
     var hasFirstFrame: Bool { get }
 
-    /// One terminal row in points, or nil before libghostty has reported its
-    /// cell size. The launcher overlay keeps this many rows clear per row the
-    /// screen holds.
-    var cellHeight: CGFloat? { get }
-
     /// Whether the pane's program has ever asked for mouse reporting, as the
     /// bridge reports it. Every rt-ui program does as it takes the screen,
     /// which is how the rt modal knows its program has drawn.
