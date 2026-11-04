@@ -55,6 +55,11 @@ final class ChatDegradationRenderTests: XCTestCase {
         XCTAssertTrue(row(.signIn, in: signedOut).isEnabled)
         XCTAssertFalse(row(.signOut, in: signedOut).isEnabled)
 
+        let blocked = try XCTUnwrap(
+            ChatMenuModel.rows(isAvailable: true, hasFocusedPane: true, isSignedIn: true, signOutIsBlocked: true, viewerDisabledReason: nil)
+        )
+        XCTAssertEqual(blocked.first { $0.item == .signOut }?.isEnabled, false, "an open Slack chat holds Sign Out")
+
         let signedIn = try XCTUnwrap(ChatMenuModel.rows(isAvailable: true, hasFocusedPane: true, isSignedIn: true, viewerDisabledReason: nil))
         XCTAssertFalse(row(.signIn, in: signedIn).isEnabled)
         XCTAssertTrue(row(.signOut, in: signedIn).isEnabled)

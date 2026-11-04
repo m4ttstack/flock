@@ -51,7 +51,7 @@ enum ChatMenuModel {
     }
 
     static func rows(
-        isAvailable: Bool, hasFocusedPane: Bool, isSignedIn: Bool, viewerDisabledReason: String?
+        isAvailable: Bool, hasFocusedPane: Bool, isSignedIn: Bool, signOutIsBlocked: Bool = false, viewerDisabledReason: String?
     ) -> [Row]? {
         guard isAvailable else { return nil }
         return ChatMenuItem.allCases.map { item in
@@ -59,7 +59,7 @@ enum ChatMenuModel {
                 item: item,
                 isEnabled: isEnabled(
                     item, hasFocusedPane: hasFocusedPane, isSignedIn: isSignedIn,
-                    viewerDisabledReason: viewerDisabledReason
+                    signOutIsBlocked: signOutIsBlocked, viewerDisabledReason: viewerDisabledReason
                 )
             )
         }
@@ -68,13 +68,13 @@ enum ChatMenuModel {
     /// Every row needs a focused pane to act on; Open Viewer additionally
     /// needs deck, and the two sign rows are each other's mirror image.
     private static func isEnabled(
-        _ item: ChatMenuItem, hasFocusedPane: Bool, isSignedIn: Bool, viewerDisabledReason: String?
+        _ item: ChatMenuItem, hasFocusedPane: Bool, isSignedIn: Bool, signOutIsBlocked: Bool, viewerDisabledReason: String?
     ) -> Bool {
         guard hasFocusedPane else { return false }
         switch item {
         case .openViewer: return viewerDisabledReason == nil
         case .signIn: return !isSignedIn
-        case .signOut: return isSignedIn
+        case .signOut: return isSignedIn && !signOutIsBlocked
         case .chatPanel, .broadcast, .peek, .quickSend: return true
         }
     }

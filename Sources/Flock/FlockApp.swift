@@ -470,6 +470,7 @@ struct FlockApp: App {
                 rows: ChatMenuModel.rows(
                     isAvailable: chatStore.isAvailable, hasFocusedPane: viewModel.resolvedFocusedPaneID != nil,
                     isSignedIn: viewModel.resolvedFocusedPaneID.flatMap { chatStore.status(for: $0) }?.signedIn ?? false,
+                    signOutIsBlocked: viewModel.resolvedFocusedPaneID.map { chatStore.signOutIsBlocked(for: $0) } ?? false,
                     viewerDisabledReason: chatStore.viewerDisabledReason
                 )
             )

@@ -53,6 +53,20 @@ enum ChatToolLocator {
         return ChatAutoSignIn.isOn(stdout: stdout, exitCode: exitCode)
     }
 
+    /// Why the pane refused `line`, or nil. A run that timed out or failed may
+    /// still have typed it, so nil only means no refusal came back.
+    @Sendable
+    static func typeIntoPane(_ pane: String, line: String) async -> String? {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            ToolPath.resolve("rt").map { ($0, ChatSlackCommand.sendEnvironment(ToolPath.childEnvironment())) }
+        }.value
+        guard let (rt, environment) = resolved else { return "rt not found" }
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatSlackCommand.sendDeadline)
+        let arguments = ChatSlackCommand.sendArguments(pane: pane, line: line)
+        guard let (stdout, exitCode) = try? await runner.run(arguments) else { return nil }
+        return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode)
+    }
+
     static func resolve(environmentOverride: String?, devPath: String?, bundledPath: String?) -> String? {
         let resolved = ChatAvailability.resolve(
             [environmentOverride, devPath, bundledPath], isRunnable: isExecutableFile

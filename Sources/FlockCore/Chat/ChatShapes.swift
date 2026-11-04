@@ -8,9 +8,37 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
     public let pane: String?
     public let signedIn: Bool
     public let rooms: [String]
+    public var slack: ChatSlackState = .unsupported
 
     public var displayName: String? {
         handle.map { ChatDisplayName.text(name: name, handle: $0) }
+    }
+}
+
+extension ChatStatus {
+    private enum CodingKeys: String, CodingKey {
+        case handle, name, state, pane, signedIn, rooms, slackChat
+    }
+
+    private struct SlackChat: Decodable {
+        let name: String
+        let displayName: String?
+
+        var shownName: String { displayName.flatMap { $0.isEmpty ? nil : $0 } ?? name }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        handle = try container.decodeIfPresent(String.self, forKey: .handle)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        state = try container.decode(String.self, forKey: .state)
+        pane = try container.decodeIfPresent(String.self, forKey: .pane)
+        signedIn = try container.decode(Bool.self, forKey: .signedIn)
+        rooms = try container.decode([String].self, forKey: .rooms)
+        if container.contains(.slackChat) {
+            let chat = try container.decodeIfPresent(SlackChat.self, forKey: .slackChat)
+            slack = chat.map { .open(name: $0.shownName) } ?? .noChat
+        }
     }
 }
 
