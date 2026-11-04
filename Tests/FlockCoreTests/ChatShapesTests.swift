@@ -119,6 +119,37 @@ final class ChatShapesTests: XCTestCase {
         XCTAssertNil(reply.people)
     }
 
+    /// Bytes captured from a herdr-chat built with Slack support, so a wire
+    /// change fails here rather than in a pane.
+    func testHerdrChatsOwnOutputDecodes() throws {
+        let status = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"##
+        )
+        XCTAssertEqual(status.slack, .open(name: "Alex Example"))
+        XCTAssertEqual(status.rooms, ["#rt"])
+
+        let people = try decode(
+            ChatSlackPeople.self,
+            #"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Other","person":"U0SAM"}]}"#
+        )
+        XCTAssertEqual(people.people?.map(\.person), ["U0TEST", "U0SAM"])
+        XCTAssertNil(people.people?.last?.title)
+
+        let closed = try decode(ChatSlackClosed.self, #"{"ok":true,"conversationId":4,"closed":false}"#)
+        XCTAssertFalse(closed.closed)
+    }
+
+    /// This one reply exits 0, so `ok` and the missing list are what say so.
+    func testAnRtWithNoPeopleVerbReadsAsUnavailable() throws {
+        let reply = try ChatOutcome.decode(
+            ChatSlackPeople.self,
+            stdout: Data(#"{"ok":false,"reason":"unavailable","error":"rt chat has no verb called slack-people"}"#.utf8),
+            exitCode: 0
+        )
+        XCTAssertNil(reply.people)
+    }
+
     func testANullSlackChatMeansSupportedWithNoChatOpen() throws {
         let status = try decode(
             ChatStatus.self, #"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":null}"#
