@@ -9170,6 +9170,1085 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "OFXJ8",
+      "x": 6080,
+      "y": 0,
+      "name": "Launcher etched options",
+      "fill": "#101014",
+      "layout": "vertical",
+      "gap": 36,
+      "padding": 40,
+      "children": [
+        {
+          "type": "frame",
+          "id": "Yir5D",
+          "name": "P  Keycaps in the status strip",
+          "layout": "vertical",
+          "gap": 12,
+          "children": [
+            {
+              "type": "text",
+              "id": "n0sErN",
+              "name": "P  Keycaps in the status strip",
+              "fill": "#F2F3F7",
+              "content": "P  Keycaps in the status strip",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "irAQH",
+              "name": "Note",
+              "fill": "#9A9CA8",
+              "content": "K's keys in N's slim band along the bottom edge. Hover is a stronger step of the same key and label; nothing appears or moves.",
+              "fontFamily": "Inter",
+              "fontSize": 14,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "GKWXu",
+              "name": "States",
+              "gap": 16,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ChHVI",
+                  "name": "Dark at rest",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "xBvyJ",
+                      "name": "Dark at rest",
+                      "fill": "#6F7180",
+                      "content": "Dark at rest",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sy1Dc",
+                      "name": "Pane",
+                      "clip": true,
+                      "width": 590,
+                      "height": 210,
+                      "fill": "#1B1C24",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "Wp4hX",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "layout": "vertical",
+                          "padding": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "tw46d",
+                              "name": "Prompt row",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "Tj2gc",
+                                  "name": "~/src/acme $",
+                                  "fill": "#C9CBD6",
+                                  "content": "~/src/acme $",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "u9uTGA",
+                                  "name": "Cursor",
+                                  "fill": "#C9CBD6",
+                                  "width": 8,
+                                  "height": 16
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "idi8K",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "height": 28,
+                          "fill": "#FFFFFF0A",
+                          "gap": 20,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "o9VS5q",
+                              "name": "rt cd",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "N7fqB",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF0D",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF14",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "DRVu7",
+                                      "name": "Command glyph",
+                                      "fill": "#9598AB",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "T54dHs",
+                                      "name": "Digit",
+                                      "fill": "#9598AB",
+                                      "content": "1",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "h6vn8",
+                                  "name": "rt cd",
+                                  "fill": "#9598AB",
+                                  "content": "rt cd",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "JDC7o",
+                              "name": "claude",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "eH596",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF0D",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF14",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "j580M",
+                                      "name": "Command glyph",
+                                      "fill": "#9598AB",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "o91Pb",
+                                      "name": "Digit",
+                                      "fill": "#9598AB",
+                                      "content": "2",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "IhFYa",
+                                  "name": "claude",
+                                  "fill": "#9598AB",
+                                  "content": "claude",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "m2rT1h",
+                              "name": "codex",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "q62BV",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF0D",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF14",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "GIRXc",
+                                      "name": "Command glyph",
+                                      "fill": "#9598AB",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "ZdN6E",
+                                      "name": "Digit",
+                                      "fill": "#9598AB",
+                                      "content": "3",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "btqj5",
+                                  "name": "codex",
+                                  "fill": "#9598AB",
+                                  "content": "codex",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "kekhr",
+                  "name": "Light at rest",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "D6xdlH",
+                      "name": "Light at rest",
+                      "fill": "#6F7180",
+                      "content": "Light at rest",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sFQWP",
+                      "name": "Pane",
+                      "clip": true,
+                      "width": 590,
+                      "height": 210,
+                      "fill": "#DFE0E3",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "eyYUz",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "layout": "vertical",
+                          "padding": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "Y0sl4",
+                              "name": "Prompt row",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "sApyu",
+                                  "name": "~/src/acme $",
+                                  "fill": "#2C2D36",
+                                  "content": "~/src/acme $",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "cZwY9",
+                                  "name": "Cursor",
+                                  "fill": "#2C2D36",
+                                  "width": 8,
+                                  "height": 16
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "J5U30r",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "height": 28,
+                          "fill": "#0000000A",
+                          "gap": 20,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "R14qGi",
+                              "name": "rt cd",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "b0aI8X",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF66",
+                                  "cornerRadius": 4,
+                                  "stroke": "#0000001A",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "iQg4r",
+                                      "name": "Command glyph",
+                                      "fill": "#5D5F6B",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "e2seP",
+                                      "name": "Digit",
+                                      "fill": "#5D5F6B",
+                                      "content": "1",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "oJFL5",
+                                  "name": "rt cd",
+                                  "fill": "#5D5F6B",
+                                  "content": "rt cd",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "m3tp2",
+                              "name": "claude",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "XBgc8",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF66",
+                                  "cornerRadius": 4,
+                                  "stroke": "#0000001A",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "CVp2T",
+                                      "name": "Command glyph",
+                                      "fill": "#5D5F6B",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "R5lmu",
+                                      "name": "Digit",
+                                      "fill": "#5D5F6B",
+                                      "content": "2",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "O7AqH",
+                                  "name": "claude",
+                                  "fill": "#5D5F6B",
+                                  "content": "claude",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "j4QQ2",
+                              "name": "codex",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "c1GLx",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF66",
+                                  "cornerRadius": 4,
+                                  "stroke": "#0000001A",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "tPImu",
+                                      "name": "Command glyph",
+                                      "fill": "#5D5F6B",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "lkWOb",
+                                      "name": "Digit",
+                                      "fill": "#5D5F6B",
+                                      "content": "3",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "MZuTC",
+                                  "name": "codex",
+                                  "fill": "#5D5F6B",
+                                  "content": "codex",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Q9cpI",
+                  "name": "Dark, hovered",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "kmMoA",
+                      "name": "Dark, hovered",
+                      "fill": "#6F7180",
+                      "content": "Dark, hovered",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "e0ttmX",
+                      "name": "Pane",
+                      "clip": true,
+                      "width": 590,
+                      "height": 210,
+                      "fill": "#1B1C24",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "NqAIy",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "layout": "vertical",
+                          "padding": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "N0iqU",
+                              "name": "Prompt row",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "bjh9j",
+                                  "name": "~/src/acme $",
+                                  "fill": "#C9CBD6",
+                                  "content": "~/src/acme $",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "reEnY",
+                                  "name": "Cursor",
+                                  "fill": "#C9CBD6",
+                                  "width": 8,
+                                  "height": 16
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "jBiaJ",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "height": 28,
+                          "fill": "#FFFFFF0A",
+                          "gap": 20,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "O2FUQ",
+                              "name": "rt cd",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "jMsrC",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF0D",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF14",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "A6Y5rl",
+                                      "name": "Command glyph",
+                                      "fill": "#9598AB",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "eKacw",
+                                      "name": "Digit",
+                                      "fill": "#9598AB",
+                                      "content": "1",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "g73GB8",
+                                  "name": "rt cd",
+                                  "fill": "#9598AB",
+                                  "content": "rt cd",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "rNjXy",
+                              "name": "claude",
+                              "fill": "#00000000",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "L6LaB",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF21",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF38",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "kJ6Nm",
+                                      "name": "Command glyph",
+                                      "fill": "#F2F3F7",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "INctI",
+                                      "name": "Digit",
+                                      "fill": "#F2F3F7",
+                                      "content": "2",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "vGq2I",
+                                  "name": "claude",
+                                  "fill": "#F2F3F7",
+                                  "content": "claude",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "H85ce4",
+                              "name": "codex",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "OdXiW",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF0D",
+                                  "cornerRadius": 4,
+                                  "stroke": "#FFFFFF14",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "Z8kiwA",
+                                      "name": "Command glyph",
+                                      "fill": "#9598AB",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "sjLaP",
+                                      "name": "Digit",
+                                      "fill": "#9598AB",
+                                      "content": "3",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "oK1IN",
+                                  "name": "codex",
+                                  "fill": "#9598AB",
+                                  "content": "codex",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "aoY5x",
+                  "name": "Light, hovered",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Iyf1D",
+                      "name": "Light, hovered",
+                      "fill": "#6F7180",
+                      "content": "Light, hovered",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Nv7jQ",
+                      "name": "Pane",
+                      "clip": true,
+                      "width": 590,
+                      "height": 210,
+                      "fill": "#DFE0E3",
+                      "cornerRadius": 6,
+                      "layout": "vertical",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "A1V0WE",
+                          "name": "Body",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "layout": "vertical",
+                          "padding": 12,
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "lN4Mn",
+                              "name": "Prompt row",
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "ma6qS",
+                                  "name": "~/src/acme $",
+                                  "fill": "#2C2D36",
+                                  "content": "~/src/acme $",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 13,
+                                  "fontWeight": "normal"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "id": "B20DS",
+                                  "name": "Cursor",
+                                  "fill": "#2C2D36",
+                                  "width": 8,
+                                  "height": 16
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "w9ed70",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "height": 28,
+                          "fill": "#0000000A",
+                          "gap": 20,
+                          "padding": [
+                            0,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "BmyHC",
+                              "name": "rt cd",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "CEWHp",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF66",
+                                  "cornerRadius": 4,
+                                  "stroke": "#0000001A",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "kFGHJ",
+                                      "name": "Command glyph",
+                                      "fill": "#5D5F6B",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "bDIZ8",
+                                      "name": "Digit",
+                                      "fill": "#5D5F6B",
+                                      "content": "1",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "yc8Iz",
+                                  "name": "rt cd",
+                                  "fill": "#5D5F6B",
+                                  "content": "rt cd",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "LSZeM",
+                              "name": "claude",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "MzGVo",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFFBF",
+                                  "cornerRadius": 4,
+                                  "stroke": "#00000038",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "u6au0",
+                                      "name": "Command glyph",
+                                      "fill": "#2C2D36",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "wHilw",
+                                      "name": "Digit",
+                                      "fill": "#2C2D36",
+                                      "content": "2",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "hggy7",
+                                  "name": "claude",
+                                  "fill": "#2C2D36",
+                                  "content": "claude",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "yQzYQ",
+                              "name": "codex",
+                              "cornerRadius": 4,
+                              "gap": 6,
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "frame",
+                                  "id": "HhmiV",
+                                  "name": "Keycap",
+                                  "width": 26,
+                                  "height": 18,
+                                  "fill": "#FFFFFF66",
+                                  "cornerRadius": 4,
+                                  "stroke": "#0000001A",
+                                  "strokeWidth": 1,
+                                  "strokeAlignment": "inner",
+                                  "gap": 1,
+                                  "justifyContent": "center",
+                                  "alignItems": "center",
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "R4IEG7",
+                                      "name": "Command glyph",
+                                      "fill": "#5D5F6B",
+                                      "content": "⌘",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 10,
+                                      "fontWeight": "500"
+                                    },
+                                    {
+                                      "type": "text",
+                                      "id": "vX0HE",
+                                      "name": "Digit",
+                                      "fill": "#5D5F6B",
+                                      "content": "3",
+                                      "fontFamily": "JetBrains Mono",
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "k2N9im",
+                                  "name": "codex",
+                                  "fill": "#5D5F6B",
+                                  "content": "codex",
+                                  "fontFamily": "JetBrains Mono",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
