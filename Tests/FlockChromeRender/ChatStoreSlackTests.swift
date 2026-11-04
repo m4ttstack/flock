@@ -3,8 +3,11 @@ import Foundation
 import XCTest
 
 /// Answers each `.status` with the next scripted `slackChat`, the last
-/// repeating; nil is `"slackChat":null`. Records every verb it is handed.
+/// repeating; nil is `"slackChat":null`, and `SlackScript.lookupFailed` leaves
+/// the key out. Records every verb it is handed.
 private actor SlackScript: ChatRunning {
+    static let lookupFailed = "<lookup failed>"
+
     private var chats: [String?]
     private let closeError: String?
     private let people: String?
@@ -24,7 +27,8 @@ private actor SlackScript: ChatRunning {
         case .status:
             let chat = chats.count > 1 ? chats.removeFirst() : chats[0]
             let slack = chat.map { #"{"name":"\#($0)","openedAt":1700}"# } ?? "null"
-            let json = #"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":\#(slack)}"#
+            let key = chat == Self.lookupFailed ? "" : #","slackChat":\#(slack)"#
+            let json = #"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]\#(key)}"#
             return (Data(json.utf8), 0)
         case .slackClose:
             if let closeError { return (Data(#"{"error":"\#(closeError)"}"#.utf8), 1) }
@@ -165,6 +169,21 @@ final class ChatStoreSlackTests: XCTestCase {
 
         XCTAssertEqual(store.status(for: pane)?.slack, .noChat)
         XCTAssertNil(store.slackTransition(for: pane))
+    }
+
+    /// `status` leaves `slackChat` out when rt can't answer, which says nothing
+    /// about the chat, so only a real null ends the wait.
+    func testAFailedLookupMidCloseKeepsWaiting() async {
+        let script = SlackScript(chats: ["alex", SlackScript.lookupFailed, "alex", nil])
+        let (store, _) = await makeStore(script)
+        await store.refreshStatus(for: pane)
+
+        await store.endSlackChat(pane)
+        await store.slackWatch(for: pane)?.value
+
+        let verbs = await script.verbs
+        XCTAssertEqual(verbs.filter { $0 == .status(pane: "w1:p1") }.count, 4, "the watch read past the failed lookup")
+        XCTAssertEqual(store.status(for: pane)?.slack, .noChat)
     }
 
     func testAFailedOffKeepsTheChatAndSaysWhy() async {

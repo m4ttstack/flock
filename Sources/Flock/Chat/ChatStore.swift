@@ -259,8 +259,12 @@ final class ChatStore {
     }
 
     private func slackWatchIsDone(_ pane: PaneID, transition: ChatSlackTransition) -> Bool {
-        guard case .open = statuses[pane]?.slack else { return transition == .closing }
-        return transition == .opening
+        switch statuses[pane]?.slack {
+        case .open: transition == .opening
+        case .noChat: transition == .closing
+        // No key is a lookup that failed, which says nothing about the chat.
+        case .unsupported, nil: false
+        }
     }
 
     /// Asks quietly: a session still starting answers with failures the user
