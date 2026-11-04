@@ -99,6 +99,27 @@ final class ChatSlackSupportTests: XCTestCase {
         ChatStatus(handle: "kay", state: "live", pane: "w1:p1", signedIn: signedIn, rooms: [], slack: slack)
     }
 
+    /// No key is a lookup that failed, so a known chat outlives it.
+    func testAMissingKeyKeepsAKnownChat() {
+        let merged = status(slack: .unsupported).keepingSlackChat(from: status(slack: .open(name: "alex")))
+        XCTAssertEqual(merged.slack, .open(name: "alex"))
+    }
+
+    func testANullReplacesAKnownChat() {
+        let merged = status(slack: .noChat).keepingSlackChat(from: status(slack: .open(name: "alex")))
+        XCTAssertEqual(merged.slack, .noChat)
+    }
+
+    func testAMissingKeyStaysUnsupportedWithNoKnownChat() {
+        XCTAssertEqual(status(slack: .unsupported).keepingSlackChat(from: nil).slack, .unsupported)
+        XCTAssertEqual(status(slack: .unsupported).keepingSlackChat(from: status(slack: .noChat)).slack, .unsupported)
+    }
+
+    func testASignedOutPaneDropsAKnownChat() {
+        let merged = status(signedIn: false, slack: .unsupported).keepingSlackChat(from: status(slack: .open(name: "alex")))
+        XCTAssertEqual(merged.slack, .unsupported)
+    }
+
     func testAnOldHerdrChatHidesTheRow() {
         XCTAssertNil(ChatSlackRow.resolve(status: status(slack: .unsupported), transition: nil))
     }

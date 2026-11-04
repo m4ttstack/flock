@@ -210,6 +210,19 @@ final class ChatStoreSlackTests: XCTestCase {
         XCTAssertEqual(toasts.current?.message, "End the Slack chat first")
     }
 
+    func testAFailedLookupDoesNotLiftTheSignOutBlock() async {
+        let script = SlackScript(chats: ["alex", SlackScript.lookupFailed])
+        let (store, toasts) = await makeStore(script)
+        await store.refreshStatus(for: pane)
+
+        await store.signOut(pane)
+
+        let verbs = await script.verbs
+        XCTAssertFalse(verbs.contains(.signOut(pane: "w1:p1")))
+        XCTAssertEqual(store.status(for: pane)?.slack, .open(name: "alex"))
+        XCTAssertEqual(toasts.current?.message, "End the Slack chat first")
+    }
+
     func testSignOutGoesThroughWithNoChatOpen() async {
         let script = SlackScript(chats: [nil])
         let (store, toasts) = await makeStore(script)

@@ -348,7 +348,7 @@ final class ChatStore {
         guard requestGenerations[pane] == generation else { return }
         switch outcome {
         case let .success(status):
-            statuses[pane] = status
+            statuses[pane] = status.keepingSlackChat(from: statuses[pane])
             statusErrors[pane] = nil
         case let .failure(message):
             guard !quietly else { return }

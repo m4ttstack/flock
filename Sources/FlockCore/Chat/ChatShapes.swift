@@ -16,6 +16,18 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
 }
 
 extension ChatStatus {
+    /// herdr-chat leaves `slackChat` out when rt can't answer, which says
+    /// nothing about a chat already known to be open. Only a null ends it, so
+    /// a failed lookup can't lift the Sign out block.
+    public func keepingSlackChat(from previous: ChatStatus?) -> ChatStatus {
+        guard signedIn, slack == .unsupported, let previous, previous.signedIn,
+              case .open = previous.slack
+        else { return self }
+        var kept = self
+        kept.slack = previous.slack
+        return kept
+    }
+
     private enum CodingKeys: String, CodingKey {
         case handle, name, state, pane, signedIn, rooms, slackChat
     }
