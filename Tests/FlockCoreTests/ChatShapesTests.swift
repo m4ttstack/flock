@@ -129,6 +129,18 @@ final class ChatShapesTests: XCTestCase {
         XCTAssertEqual(status.slack, .open(name: "Alex Example"))
         XCTAssertEqual(status.rooms, ["#rt"])
 
+        let noChat = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":null}"##
+        )
+        XCTAssertEqual(noChat.slack, .noChat)
+
+        let lookupFailed = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+        )
+        XCTAssertEqual(lookupFailed.slack, .unsupported)
+
         let people = try decode(
             ChatSlackPeople.self,
             #"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Other","person":"U0SAM"}]}"#
