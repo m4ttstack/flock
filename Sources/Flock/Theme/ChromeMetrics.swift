@@ -455,6 +455,22 @@ enum ChromeMetrics {
         }
     }
 
+    enum ChatSidebar {
+        static let width: CGFloat = 320
+        static let railWidth: CGFloat = 36
+        static let railGap: CGFloat = 10
+        static let railTopPadding: CGFloat = 12
+        static let headerHeight: CGFloat = 51
+        static let headerHorizontalPadding: CGFloat = 12
+        static let headerGap: CGFloat = 8
+        static let nameGap: CGFloat = 1
+        static let dotSize: CGFloat = 7
+        static let iconSize: CGFloat = 13
+        static let endHorizontalPadding: CGFloat = 10
+        static let endVerticalPadding: CGFloat = 4
+        static let unreachableGap: CGFloat = 6
+    }
+
     /// The back-chevron/title/close header every chat sub-view (Peek, Quick
     /// send, Broadcast) opens with. One shared height and icon size; each
     /// view supplies its own width, since Broadcast is wider than the other

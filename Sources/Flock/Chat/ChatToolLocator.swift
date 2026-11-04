@@ -53,6 +53,27 @@ enum ChatToolLocator {
         return ChatAutoSignIn.isOn(stdout: stdout, exitCode: exitCode)
     }
 
+    /// Asks rt rather than herdr-chat, whose status carries no room id.
+    @Sendable
+    static func slackChats() async -> [ChatSidebarChat]? {
+        guard let (stdout, exitCode) = await runTool("rt", arguments: ["chat", "slack-status", "--json"]) else { return nil }
+        return ChatSidebarChats.decode(stdout: stdout, exitCode: exitCode)
+    }
+
+    @Sendable
+    static func chatAppPort() async -> Int? {
+        guard let (stdout, exitCode) = await runTool("deck", arguments: ["list"]), exitCode == 0 else { return nil }
+        return ChatEmbedAddress.port(deckList: String(decoding: stdout, as: UTF8.self))
+    }
+
+    private static func runTool(_ tool: String, arguments: [String]) async -> (stdout: Data, exitCode: Int32)? {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            ToolPath.resolve(tool).map { ($0, ToolPath.childEnvironment()) }
+        }.value
+        guard let (binary, environment) = resolved else { return nil }
+        return try? await ToolRunner(binaryPath: binary, environment: environment, deadline: ChatRunner.deadline).run(arguments)
+    }
+
     /// Why `line` was not typed, or nil when it may have been.
     @Sendable
     static func typeIntoPane(_ pane: String, line: String) async -> String? {

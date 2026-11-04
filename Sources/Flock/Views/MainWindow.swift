@@ -16,6 +16,7 @@ struct MainWindow: View {
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(OverviewInclusionStore.self) private var overviewInclusion: OverviewInclusionStore?
     @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
+    @Environment(ChatSidebarStore.self) private var chatSidebar: ChatSidebarStore?
     let viewModel: SessionViewModel
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
@@ -99,9 +100,13 @@ struct MainWindow: View {
                     .anchorPreference(key: TabAreaAnchor.self, value: .bounds) { $0 }
                     .overlay { CommandPaletteView(theme: theme, viewModel: viewModel) }
                     .overlay { SwitcherOverlay(theme: theme, viewModel: viewModel) }
+                    if let chatSidebar {
+                        ChatSidebar(theme: theme, store: chatSidebar)
+                    }
                 }
             }
         }
+        .modifier(ChatSidebarFollower(focusedPane: viewModel.resolvedFocusedPaneID))
         .background(theme.chrome)
         // Below the title bar and over everything else, rail included, so it
         // opens from any view and its icon can close it again.

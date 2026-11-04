@@ -43,6 +43,7 @@ final class FlockSession: ProfileSession {
 
     let toastCenter: ToastCenter
     let chatStore: ChatStore
+    let chatSidebarStore = ChatSidebarStore()
     let herdrStore: HerdrStore
     let undoJournal: UndoJournal
     let ghosttyFactory: GhosttyControlSurfaceFactory?
