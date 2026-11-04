@@ -186,6 +186,28 @@ final class ChatStoreSlackTests: XCTestCase {
         XCTAssertEqual(store.status(for: pane)?.slack, .noChat)
     }
 
+    func testAFailedLookupWithNoKnownChatStillKeepsTheCloseWaiting() async {
+        let script = SlackScript(chats: [SlackScript.lookupFailed, SlackScript.lookupFailed, nil])
+        let (store, _) = await makeStore(script)
+
+        await store.endSlackChat(pane)
+        await store.slackWatch(for: pane)?.value
+
+        let verbs = await script.verbs
+        XCTAssertEqual(verbs.filter { $0 == .status(pane: "w1:p1") }.count, 3)
+        XCTAssertEqual(store.status(for: pane)?.slack, .noChat)
+    }
+
+    func testAFailedLookupMidOpenKeepsWaiting() async {
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil, SlackScript.lookupFailed, "alex"]))
+
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi")
+        await store.slackWatch(for: pane)?.value
+
+        XCTAssertEqual(store.status(for: pane)?.slack, .open(name: "alex"))
+        XCTAssertNil(toasts.current)
+    }
+
     func testAFailedOffKeepsTheChatAndSaysWhy() async {
         let (store, toasts) = await makeStore(SlackScript(chats: ["alex"], closeError: "No Slack chat is open in w1:p1"))
         await store.refreshStatus(for: pane)
@@ -261,7 +283,7 @@ final class ChatStoreSlackTests: XCTestCase {
     }
 
     func testAChatThatOutlivesTheCloseWindowOffersOffAgain() async {
-        let (store, _) = await makeStore(SlackScript(chats: ["alex"]))
+        let (store, toasts) = await makeStore(SlackScript(chats: ["alex"]))
         await store.refreshStatus(for: pane)
 
         await store.endSlackChat(pane)
@@ -270,5 +292,6 @@ final class ChatStoreSlackTests: XCTestCase {
         XCTAssertEqual(
             ChatSlackRow.resolve(status: store.status(for: pane), transition: store.slackTransition(for: pane)), .open(name: "alex")
         )
+        XCTAssertEqual(toasts.current?.message, "Slack chat still open. Check the pane")
     }
 }

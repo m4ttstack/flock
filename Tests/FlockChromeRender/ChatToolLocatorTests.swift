@@ -12,6 +12,23 @@ final class ChatToolLocatorTests: XCTestCase {
         XCTAssertEqual(refusal?.hasPrefix("rt could not start"), true)
     }
 
+    /// A run that timed out may still have typed the line, and a retry would
+    /// type a second one.
+    func testAnRtThatTimesOutIsNotARefusal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let slow = directory.appendingPathComponent("slow-rt")
+        try "#!/bin/sh\nexec sleep 30\n".write(to: slow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
+
+        let refusal = await ChatToolLocator.send(
+            rt: slow.path, environment: [:], pane: "w1:p1", line: "/slack-support alex hi", deadline: .milliseconds(100)
+        )
+
+        XCTAssertNil(refusal)
+    }
+
     /// A failed run may still have typed the line, so only `slackChat` can say.
     func testAnRtThatFailsIsNotARefusal() async {
         let refusal = await ChatToolLocator.send(

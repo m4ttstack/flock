@@ -255,7 +255,9 @@ final class ChatStore {
             do { try await pause(interval) } catch { return }
         }
         slackTransitions[pane] = nil
-        if transition == .opening { toasts.show("No Slack chat yet. Check the pane", kind: .info) }
+        toasts.show(
+            transition == .opening ? "No Slack chat yet. Check the pane" : "Slack chat still open. Check the pane", kind: .info
+        )
     }
 
     private func slackWatchIsDone(_ pane: PaneID, transition: ChatSlackTransition) -> Bool {

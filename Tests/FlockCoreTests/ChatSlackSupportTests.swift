@@ -115,6 +115,13 @@ final class ChatSlackSupportTests: XCTestCase {
         XCTAssertEqual(status(slack: .unsupported).keepingSlackChat(from: status(slack: .noChat)).slack, .unsupported)
     }
 
+    /// rt ties a chat to the agent holding it, so a new agent in the same pane
+    /// must not inherit one.
+    func testAMissingKeyDropsAChatHeldByAnotherAgent() {
+        let incoming = ChatStatus(handle: "remy", state: "live", pane: "w1:p1", signedIn: true, rooms: [], slack: .unsupported)
+        XCTAssertEqual(incoming.keepingSlackChat(from: status(slack: .open(name: "alex"))).slack, .unsupported)
+    }
+
     func testASignedOutPaneDropsAKnownChat() {
         let merged = status(signedIn: false, slack: .unsupported).keepingSlackChat(from: status(slack: .open(name: "alex")))
         XCTAssertEqual(merged.slack, .unsupported)

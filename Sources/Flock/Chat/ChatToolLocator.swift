@@ -65,8 +65,10 @@ enum ChatToolLocator {
 
     /// An rt that never started typed nothing. One that timed out or failed
     /// may still have, so only its own refusal counts.
-    static func send(rt: String, environment: [String: String], pane: String, line: String) async -> String? {
-        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatSlackCommand.sendDeadline)
+    static func send(
+        rt: String, environment: [String: String], pane: String, line: String, deadline: Duration = ChatSlackCommand.sendDeadline
+    ) async -> String? {
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: deadline)
         do {
             let (stdout, exitCode) = try await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line))
             return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode)

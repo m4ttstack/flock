@@ -18,9 +18,10 @@ public struct ChatStatus: Decodable, Equatable, Sendable {
 extension ChatStatus {
     /// herdr-chat leaves `slackChat` out when rt can't answer, which says
     /// nothing about a chat already known to be open. Only a null ends it, so
-    /// a failed lookup can't lift the Sign out block.
+    /// a failed lookup can't lift the Sign out block. rt ties a chat to the
+    /// agent holding it, so another agent in the same pane does not inherit it.
     public func keepingSlackChat(from previous: ChatStatus?) -> ChatStatus {
-        guard signedIn, slack == .unsupported, let previous, previous.signedIn,
+        guard signedIn, slack == .unsupported, let previous, previous.handle == handle,
               case .open = previous.slack
         else { return self }
         var kept = self
