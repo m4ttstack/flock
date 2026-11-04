@@ -74,7 +74,7 @@ public enum PaneLoaderPolicy {
     /// its registry answer may already say the launcher shows.
     ///
     /// They no longer collide on screen -- the badge is in a corner and the
-    /// launcher holds the middle -- but a pane that has not painted has no
+    /// launcher runs along the bottom edge -- but a pane that has not painted has no
     /// shell ready to receive anything either, and the launcher's buttons
     /// work by sending the harness name as input. Offering a button that
     /// would type into nothing is the reason this still waits.

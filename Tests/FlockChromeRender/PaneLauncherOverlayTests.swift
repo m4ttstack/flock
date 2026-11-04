@@ -139,7 +139,31 @@ final class PaneLauncherOverlayTests: XCTestCase {
         let probe = try await hostProbe(entries: [], navigator: NavigatorRoster.rtCd)
         defer { probe.window.close() }
 
-        XCTAssertEqual(probe.runs(in: probe.pointsClaimedByTheOverlay()).count, 1)
+        let runs = probe.runs(in: probe.pointsClaimedByTheOverlay())
+        XCTAssertEqual(runs.count, 1)
+        let run = try XCTUnwrap(runs.first)
+        XCTAssertLessThan(run.upperBound - run.lowerBound, 120, "the hint beside it took clicks")
+    }
+
+    /// A pane too narrow for the names keeps every item in reach as a keycap,
+    /// and the gaps between them still reach the terminal.
+    func testAPaneTooNarrowForTheNamesKeepsEveryKeycap() async throws {
+        let width: CGFloat = 170
+        let probe = try await hostProbe(
+            entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, size: CGSize(width: width, height: 300)
+        )
+        defer { probe.window.close() }
+
+        let y = Probe.size.height - ChromeMetrics.LauncherStrip.height / 2
+        var runs = 0
+        var claiming = false
+        for x in stride(from: CGFloat(0), to: width, by: 0.5) {
+            let claims = probe.hitTest(CGPoint(x: x, y: y)) !== probe.terminal
+            if claims, !claiming { runs += 1 }
+            claiming = claims
+        }
+        XCTAssertEqual(runs, 3, "one clickable run per item, with gaps between")
+        XCTAssertFalse(claiming, "the last item ran off the pane's edge")
     }
 
     /// rt's own pink on its plum ground on the frosted bar, in a dark and a
@@ -171,13 +195,14 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
-    /// A pane wide enough for the strip carries each item's keycap; a narrow
-    /// one drops them before it cuts off a name. Writes both PNGs when
+    /// A pane wide enough for the items carries each one's keycap, with no
+    /// title to confuse the measure; a narrower one drops them before it cuts
+    /// off a name. Writes both PNGs when
     /// `FLOCK_CHROME_RENDER_DIR` names a directory.
     func testAWidePaneShowsEachItemsKeycapInDarkAndLightThemes() async throws {
         for theme in [Theme(.tokyoNight), Theme(.tokyoNightDay)] {
             let wide = try await hostProbe(
-                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, size: CGSize(width: 720, height: 300)
+                entries: HarnessRoster.known, navigator: NavigatorRoster.rtCd, theme: theme, size: CGSize(width: 420, height: 300)
             )
             defer { wide.window.close() }
             let narrow = try await hostProbe(
@@ -371,6 +396,20 @@ final class PaneLauncherOverlayTests: XCTestCase {
         }
     }
 
+    /// The strip stands aside once the screen reaches it, rather than hiding
+    /// the prompt and the cursor on the last rows.
+    func testTheStripOnlyShowsWhenThePromptStaysClearOfIt() {
+        XCTAssertTrue(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: 2, gridRows: 40, surfaceHeight: 720))
+
+        let rowHeight: CGFloat = 18
+        let clearRows = Int((720 - PaneLauncherOverlay.coveredHeight) / rowHeight) - 1
+        XCTAssertTrue(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: clearRows, gridRows: 40, surfaceHeight: 720), "the last row that clears it")
+        XCTAssertFalse(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: clearRows + 1, gridRows: 40, surfaceHeight: 720), "one row more")
+        XCTAssertFalse(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: 22, gridRows: 22, surfaceHeight: 396), "a banner filling the pane")
+        XCTAssertFalse(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: 1, gridRows: 2, surfaceHeight: 36), "a two-row pane")
+        XCTAssertFalse(PaneLauncherOverlay.leavesPromptVisible(occupiedRows: 0, gridRows: 0, surfaceHeight: 0), "no grid yet")
+    }
+
     /// A banner reaching the bottom of the pane must not run through the
     /// items: the band reads the same with text behind it as with none.
     func testTheBandHidesABannerBehindIt() async throws {
@@ -537,6 +576,9 @@ final class LauncherStripStyleTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(
                 contrast(style.inkTone, style.bandTone), 4.5, "\(theme.id): resting text is too faint on the band"
             )
+            typealias M = ChromeMetrics.LauncherStrip
+            let key = style.bandTone.mixed(with: RGB(255, 255, 255), amount: (style.isDark ? M.darkKeyFill : M.lightKeyFill)[0])
+            XCTAssertGreaterThanOrEqual(contrast(style.inkTone, key), 4.5, "\(theme.id): resting text is too faint on a key")
         }
     }
 }

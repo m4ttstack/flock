@@ -196,6 +196,9 @@ enum LauncherSlots {
 ///
 /// A strip, not a centered bar: an object floating in the middle of a terminal
 /// reads as something to dismiss before typing, and typing here just works.
+/// It stands aside when the screen reaches it (`leavesPromptVisible`): a shell
+/// with a tall banner has its prompt on the last rows, where the strip would
+/// hide the prompt and the cursor. The ⌘ digits still work without it.
 ///
 /// The items are the only thing here that answers the pointer: the band, its
 /// padding and the gaps between items opt out, as does the hint, which leaves
@@ -211,21 +214,31 @@ struct PaneLauncherOverlay: View {
     var flashedSlot: String? = nil
     let onLaunch: (HarnessEntry) -> Void
 
+    /// What the strip covers of a surface: its height, less the padding it
+    /// lies over below the surface.
+    static let coveredHeight = M.height - PaneChrome.verticalPadding
+
+    /// Whether the rows the screen holds, and one more for a prompt to grow
+    /// into, stay above the strip.
+    static func leavesPromptVisible(occupiedRows: Int, gridRows: Int, surfaceHeight: CGFloat) -> Bool {
+        guard gridRows > 0 else { return false }
+        let rowHeight = surfaceHeight / CGFloat(gridRows)
+        return CGFloat(occupiedRows + 1) * rowHeight <= surfaceHeight - coveredHeight
+    }
+
     var body: some View {
         let style = LauncherStripStyle(theme: theme)
         let slots = LauncherSlots.ordered(navigator: navigator, entries: entries)
-        // A narrow pane drops the title, then the keycaps, and scrolls only
-        // when the names alone still do not fit: every item stays reachable.
+        // A narrow pane drops the title, then the keycaps, then the names:
+        // the keycaps alone are the narrowest way to keep every item in reach.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: M.titleSpacing) {
                 title(style: style)
-                row(style: style, slots: slots, showsKeys: true)
+                row(style: style, slots: slots, showsKeys: true, showsNames: true)
             }
-            row(style: style, slots: slots, showsKeys: true)
-            row(style: style, slots: slots, showsKeys: false)
-            ScrollView(.horizontal, showsIndicators: false) {
-                row(style: style, slots: slots, showsKeys: false)
-            }
+            row(style: style, slots: slots, showsKeys: true, showsNames: true)
+            row(style: style, slots: slots, showsKeys: false, showsNames: true)
+            row(style: style, slots: slots, showsKeys: true, showsNames: false)
         }
         // The same inset the terminal's text has, so the strip lines up with
         // the prompt.
@@ -255,12 +268,12 @@ struct PaneLauncherOverlay: View {
         .allowsHitTesting(false)
     }
 
-    private func row(style: LauncherStripStyle, slots: [HarnessEntry], showsKeys: Bool) -> some View {
+    private func row(style: LauncherStripStyle, slots: [HarnessEntry], showsKeys: Bool, showsNames: Bool) -> some View {
         HStack(spacing: M.itemSpacing) {
             ForEach(Array(slots.enumerated()), id: \.element.id) { index, entry in
                 LauncherStripItem(
                     style: style, entry: entry, digit: showsKeys ? LauncherSlots.digit(at: index) : nil,
-                    isFlashed: flashedSlot == entry.id
+                    showsName: showsNames, isFlashed: flashedSlot == entry.id
                 ) {
                     onLaunch(entry)
                 }
@@ -270,6 +283,9 @@ struct PaneLauncherOverlay: View {
                     .font(ChromeType.launcherStripText)
                     .foregroundStyle(style.ink)
                     .lineLimit(1)
+                    // No ideal width, so a long hint truncates in the space
+                    // left rather than pushing the strip to a narrower row.
+                    .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
                     // Hit testing is off per drawn element, never on the stack
                     // around them: a disabled ancestor takes its whole subtree
                     // out of hit testing, and a descendant cannot opt back in.
@@ -328,6 +344,7 @@ private struct LauncherStripItem: View {
     let style: LauncherStripStyle
     let entry: HarnessEntry
     let digit: String?
+    let showsName: Bool
     let isFlashed: Bool
     let onLaunch: () -> Void
 
@@ -335,13 +352,16 @@ private struct LauncherStripItem: View {
 
     var body: some View {
         Button(action: onLaunch) {
-            Text(LauncherSlots.stripLabel(for: entry))
-                .font(ChromeType.launcherStripText)
-                .lineLimit(1)
-                .fixedSize()
+            if showsName {
+                Text(LauncherSlots.stripLabel(for: entry))
+                    .font(ChromeType.launcherStripText)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
         .buttonStyle(LauncherStripItemStyle(style: style, digit: digit, isHovering: isHovering, isFlashed: isFlashed))
         .onHover { isHovering = $0 }
+        .accessibilityLabel(LauncherSlots.stripLabel(for: entry))
         .accessibilityIdentifier("flock.pane.launcher.\(entry.binary)")
     }
 }
@@ -428,7 +448,7 @@ struct LauncherBarStyle: Equatable {
     }
 }
 
-/// The frosted bar alone, shared by a pane's launcher and an empty pin's.
+/// The frosted bar alone, shared by the start screen and an empty pin.
 /// `leading` is an item ahead of the numbered slots with its own key hint.
 struct LauncherBar: View {
     let style: LauncherBarStyle
@@ -496,7 +516,7 @@ private struct LauncherBarGround: View {
 }
 
 /// A behind-window blur would show the desktop; within-window blends what the
-/// window itself draws behind the bar, which is the pane's terminal surface.
+/// window itself draws behind the bar.
 private struct LauncherBlur: NSViewRepresentable {
     let isDark: Bool
     let cornerRadius: CGFloat
@@ -520,7 +540,7 @@ private struct LauncherBlur: NSViewRepresentable {
 
 /// An `NSView` answers hit tests over its whole frame, which SwiftUI's
 /// `allowsHitTesting` does not reach; this one never does, so the bar's
-/// padding and the gaps between its items reach the terminal.
+/// padding and the gaps between its items reach what lies beneath them.
 private final class PassThroughEffectView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

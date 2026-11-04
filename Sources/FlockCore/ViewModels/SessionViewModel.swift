@@ -1520,6 +1520,14 @@ public final class SessionViewModel {
         return paneLauncherRegistry.isShowing(pane)
     }
 
+    /// The rows the pane's screen holds. Rows changing ends a showing, and
+    /// that flip is what bumps the seam, so a reader of `isLauncherShowing`
+    /// never holds a stale count.
+    public func launcherOccupiedRows(_ pane: PaneID) -> Int {
+        _ = launcherRegistryVersion
+        return paneLauncherRegistry.occupiedRows(pane)
+    }
+
     /// Whether ⌘1 and on launch rather than switch views: the canvas's
     /// focused pane, with no detected agent, is showing the launcher.
     public var focusedPaneShowsLauncher: Bool {

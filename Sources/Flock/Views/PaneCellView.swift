@@ -355,6 +355,23 @@ struct PaneCellView: View {
             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(Self.contentInsets)
+            // While the launcher shows, the surface claims no point at all
+            // (`GhosttySurfaceView.hitTest`), which also removes ITS own
+            // click-to-focus -- this is that route's SwiftUI equivalent,
+            // launcher-only so an ordinary live pane keeps going through the
+            // AppKit path exactly as before. On the box, not the surface, so
+            // it answers across the strip, which runs past the surface's
+            // edges. Checked fresh per tap, not cached: the launcher can hide
+            // (a keystroke, real output) between this view updating and the
+            // next click landing. Guarded the same way `title`'s own tap is,
+            // so a right-click still opens the pane menu rather than also
+            // firing a focus jump.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
+                focusInHerdr()
+            }
             .background(theme.pane)
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
@@ -813,6 +830,8 @@ struct PaneCellView: View {
             // stays on screen until its flash ends.
             isLauncherShowing: viewModel.isLauncherShowing(pane.paneID) || viewModel.flashedLauncherSlot(on: .pane(pane.paneID)) != nil,
             hasFirstFrame: ghosttySurface.hasFirstFrame, badgeVisible: showsAttachLoader
+        ) && PaneLauncherOverlay.leavesPromptVisible(
+            occupiedRows: viewModel.launcherOccupiedRows(pane.paneID), gridRows: grid.rows, surfaceHeight: surfaceSize.height
         )
     }
 
@@ -870,22 +889,6 @@ struct PaneCellView: View {
                     ) ? 1 : 0
                 )
             }
-            // While the launcher shows, the surface below claims no point at
-            // all (`GhosttySurfaceView.hitTest`), which also removes ITS own
-            // click-to-focus for the body OUTSIDE the button row -- this is
-            // that route's SwiftUI equivalent, launcher-only so an ordinary
-            // live pane keeps going through the AppKit path exactly as
-            // before. Checked fresh per tap, not cached: the launcher can
-            // hide (a keystroke, real output) between this view updating and
-            // the next click landing. Guarded the same way `title`'s own
-            // tap is, so a right-click still opens the pane menu rather than
-            // also firing a focus jump.
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
-                focusInHerdr()
-            }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
             .onChange(of: holdsTerminalSize) { _, held in
                 guard held else {
@@ -900,6 +903,9 @@ struct PaneCellView: View {
                     PaneCopiedToastPill(theme: theme, toast: ownToast)
                         .id(ownToast.id)
                         .padding(ChromeMetrics.Pane.toastInset)
+                        // The strip draws above the body, so the pill rises
+                        // clear of it.
+                        .padding(.bottom, showsLauncherStrip ? PaneLauncherOverlay.coveredHeight : 0)
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
