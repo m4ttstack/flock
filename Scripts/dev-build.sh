@@ -92,6 +92,8 @@ DIRTY=""
 [ -n "$(git status --porcelain --untracked-files=no)" ] && DIRTY="+dirty"
 STAMP="$(date '+%Y-%m-%d %H:%M:%S') $(git rev-parse --short HEAD)$DIRTY"
 
+# Flock Dev only ever runs on the Mac that built it, so it skips the second
+# architecture a release compiles.
 xcodebuild -scheme Flock-dev -configuration Release \
   -destination 'platform=macOS' \
   -derivedDataPath "$DERIVED_DIR" \
@@ -100,6 +102,7 @@ xcodebuild -scheme Flock-dev -configuration Release \
   OTHER_CODE_SIGN_FLAGS="--options runtime" \
   FLOCK_BUILD_STAMP="$STAMP" \
   FLOCK_HERDR_CHAT_PATH="$HERDR_CHAT_PATH" \
+  ONLY_ACTIVE_ARCH=YES \
   build
 
 BUILT_APP="$DERIVED_DIR/Build/Products/Release/Flock-dev.app"

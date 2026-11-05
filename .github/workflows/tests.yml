@@ -45,7 +45,7 @@ jobs:
             Vendor/GhosttyKit.xcframework
             Vendor/libghostty.version
             Vendor/zig
-          key: libghostty-${{ runner.os }}-${{ steps.pin.outputs.sha }}
+          key: libghostty-universal-${{ runner.os }}-${{ steps.pin.outputs.sha }}
 
       - name: Build libghostty if the cache missed
         run: Scripts/libghostty.sh

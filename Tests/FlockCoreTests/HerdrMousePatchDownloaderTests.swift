@@ -28,7 +28,7 @@ final class HerdrMousePatchDownloaderTests: XCTestCase {
     }
 
     private func entry(for data: Data) -> HerdrMousePatchEntry {
-        HerdrMousePatchEntry(version: "0.9.5", sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+        HerdrMousePatchEntry(version: "0.9.5", sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), arch: .arm64)
     }
 
     func testAMatchingDownloadLandsInTheCacheAndIsReturned() async throws {

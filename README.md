@@ -33,7 +33,7 @@ Known issues:
 
 ## Requirements
 
-- macOS 15 or later on Apple silicon
+- macOS 15 or later, on Apple silicon or Intel
 - [herdr](https://github.com/herdrdev/herdr) 0.9 or later, on your `PATH`
 
 ## Installation

@@ -26,8 +26,10 @@ committed here, commit messages included, is public.
   (`Scripts/build-herdr-chat.sh`, from the mattstack checkout).
 - `patches/herdr/<version>.patch`: the mouse patch per herdr version.
   `Scripts/build-herdr-patch.sh` and `Scripts/publish-herdr-patch.sh` build and
-  publish it as a `herdr-patch-X` pre-release; `HerdrMousePatchCatalog` pins
-  each one's SHA-256.
+  publish it as a `herdr-patch-X` pre-release, one run per architecture;
+  `HerdrMousePatchCatalog` pins each architecture's SHA-256.
+- Releases are universal. `docs/packaging.md` lists what that needs (Metal
+  toolchain, both Rust targets).
 - Chat runs herdr-chat from the app bundle in a release, and from the
   mattstack checkout's own build in Flock Dev (`dev-build.sh` builds it and
   writes the path in). Nothing installed inside herdr counts.

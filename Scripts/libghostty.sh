@@ -42,10 +42,11 @@ fi
 
 PINNED="$(git -C "$SUBMODULE" rev-parse HEAD)"
 BUILT="$(sed -n 's/^ghostty_commit=//p' "$VERSION_FILE" 2>/dev/null || true)"
+UNIVERSAL_SLICE="$ARTIFACT/macos-arm64_x86_64"
 
-# Both halves matter: the artifact can be missing on a fresh clone, and it can
-# be stale after the pin moves.
-if [ -d "$ARTIFACT" ] && [ "$BUILT" = "$PINNED" ]; then
+# All three matter: the artifact can be missing on a fresh clone, stale after
+# the pin moves, or a native-only build from before releases shipped Intel.
+if [ -d "$UNIVERSAL_SLICE" ] && [ "$BUILT" = "$PINNED" ]; then
   if [ "$CHECK" = 1 ]; then
     echo "libghostty: $ARTIFACT is built from ${PINNED:0:9}"
     exit 0
@@ -57,6 +58,9 @@ if [ -d "$ARTIFACT" ] && [ "$BUILT" = "$PINNED" ]; then
 elif [ "$CHECK" = 1 ]; then
   if [ ! -d "$ARTIFACT" ]; then
     echo "libghostty: $ARTIFACT is missing. Run: Scripts/libghostty.sh" >&2
+  elif [ ! -d "$UNIVERSAL_SLICE" ]; then
+    echo "libghostty: $ARTIFACT has no arm64_x86_64 slice, so an Intel Mac cannot run it." >&2
+    echo "            Run: Scripts/libghostty.sh --force" >&2
   else
     if [ -z "$BUILT" ]; then
       echo "libghostty: $ARTIFACT has no $VERSION_FILE, so what it holds is unknown." >&2
@@ -147,7 +151,7 @@ git -C "$WORK/ghostty" checkout --quiet --detach "$PINNED"
     -Doptimize=ReleaseFast \
     -Demit-xcframework=true \
     -Demit-macos-app=false \
-    -Dxcframework-target=native
+    -Dxcframework-target=universal
 )
 
 BUILT_ARTIFACT="$WORK/ghostty/macos/GhosttyKit.xcframework"
@@ -159,8 +163,8 @@ BUILT_ARTIFACT="$WORK/ghostty/macos/GhosttyKit.xcframework"
 rm -rf "$ARTIFACT"
 mkdir -p "$(dirname "$ARTIFACT")"
 cp -R "$BUILT_ARTIFACT" "$ARTIFACT"
-# Debug info stays in the .dSYM the xcframework already carries; keeping it in
-# the archive as well doubles what every link has to read.
+# ghostty's universal build writes no .dSYM, so this drops ghostty's debug
+# info entirely; keeping it doubles what every link has to read.
 find "$ARTIFACT" -name '*.a' -type f -exec strip -S {} +
 
 cat > "$VERSION_FILE" <<EOF
