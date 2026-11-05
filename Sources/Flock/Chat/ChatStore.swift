@@ -54,7 +54,7 @@ final class ChatStore {
 
     @ObservationIgnored private var runner: ChatRunning?
     private var faces: [String: ChatFaceImage] = [:]
-    @ObservationIgnored private var followedFaces: Set<String> = []
+    @ObservationIgnored private var faceLoads: [String: Task<ChatFaceImage?, Never>] = [:]
     @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
@@ -178,26 +178,41 @@ final class ChatStore {
         statusErrors[pane]
     }
 
-    /// A global chat command's request to open this pane's popover, read
-    /// once by that pane's own view via `onChange`. `feature` nil opens the
-    /// status root (Chat Panel, which IS that root); set, it opens straight
-    /// to that feature's own sub-view.
     func face(for handle: String) -> ChatFaceImage? {
         faces[handle]
     }
 
     /// Keeps asking until the face is final: a failure may be an rt that has
-    /// not got faces yet, and a Slack handle's photo can arrive late.
+    /// not got faces yet, and a Slack handle's photo can arrive late. Every
+    /// chip showing the handle follows it for itself, so one going away never
+    /// strands another; chips asking at once share one rt call.
     func followFace(_ handle: String) async {
-        guard let loadFace, faces[handle]?.isFinal != true, followedFaces.insert(handle).inserted else { return }
-        defer { followedFaces.remove(handle) }
-        while !Task.isCancelled {
-            if let face = await loadFace(handle) { faces[handle] = face }
+        guard let loadFace else { return }
+        var attempt = 0
+        while !Task.isCancelled, faces[handle]?.isFinal != true {
+            if let face = await sharedFaceLoad(handle, loadFace) { faces[handle] = face }
             if faces[handle]?.isFinal == true { return }
-            guard (try? await pause(Self.faceRecheck)) != nil else { return }
+            let wait = Self.faceRechecks[min(attempt, Self.faceRechecks.count - 1)]
+            attempt += 1
+            guard (try? await pause(wait)) != nil else { return }
         }
     }
 
+    private func sharedFaceLoad(
+        _ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceImage?
+    ) async -> ChatFaceImage? {
+        if let running = faceLoads[handle] { return await running.value }
+        let load = Task { await loadFace(handle) }
+        faceLoads[handle] = load
+        let face = await load.value
+        faceLoads[handle] = nil
+        return face
+    }
+
+    /// A global chat command's request to open this pane's popover, read
+    /// once by that pane's own view via `onChange`. `feature` nil opens the
+    /// status root (Chat Panel, which IS that root); set, it opens straight
+    /// to that feature's own sub-view.
     func requestPopover(for pane: PaneID, feature: ChatPopoverFeature? = nil) {
         requestedPopover = ChatPopoverRequest(pane: pane, feature: feature)
     }
@@ -322,7 +337,7 @@ final class ChatStore {
         exitAgent(agent.pane, after: delay)
     }
 
-    private static let faceRecheck: Duration = .seconds(300)
+    private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {

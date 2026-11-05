@@ -75,6 +75,29 @@ final class ChatFaceTests: XCTestCase {
         XCTAssertEqual(store?.face(for: "slack.u1")?.isFinal, true)
     }
 
+    func testAChipLeftBehindKeepsFollowingWhenTheOtherGoes() async throws {
+        let face = ChatFaceImage(image: try Self.solid(1, 0, 0), zoom: 1, isFinal: true)
+        let script = FaceScript([nil, nil, nil, nil, face])
+        let store = store(script) { _ in try await Task.sleep(for: .milliseconds(20)) }
+        let leaving = Task { await store.followFace("ivy.a1b2") }
+        let staying = Task { await store.followFace("ivy.a1b2") }
+        try await Task.sleep(for: .milliseconds(5))
+        leaving.cancel()
+        await staying.value
+        XCTAssertEqual(store.face(for: "ivy.a1b2")?.isFinal, true)
+    }
+
+    func testRetriesBackOffToFiveMinutes() async throws {
+        let script = FaceScript([])
+        var waits: [Duration] = []
+        let store = store(script) { wait in
+            waits.append(wait)
+            if waits.count == 6 { throw CancellationError() }
+        }
+        await store.followFace("ivy.a1b2")
+        XCTAssertEqual(waits, [.seconds(10), .seconds(30), .seconds(120), .seconds(300), .seconds(300), .seconds(300)])
+    }
+
     func testAStopWhileWaitingEndsTheFollow() async throws {
         let script = FaceScript([])
         let store = store(script) { _ in throw CancellationError() }
