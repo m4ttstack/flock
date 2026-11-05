@@ -428,6 +428,7 @@ struct ChatPopover: View {
                     HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.ChatPopover.Features.rowCornerRadius)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
