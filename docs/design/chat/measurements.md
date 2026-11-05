@@ -233,8 +233,8 @@ are bare until hovered. Fills, edges and text come from `LauncherStripStyle`, so
 the bar and the launcher strip cannot drift apart. Board **Pane Top Bar - Final**
 in `flock-chat.pen` holds the design.
 
-**The bar:** 44 from the box's top to the first terminal row. The title row is
-22 tall at y 11, and the 32 chip overhangs it by 5 each way, which leaves 6
+**The bar:** 46 from the box's top to the first terminal row. The title row is
+22 tall at y 13, and the 32 chip overhangs it by 5 each way, which leaves 8
 above the chip and 6 below it.
 
 **Signed in:** height 32, WIDTH SIZED TO CONTENT, r9. In order:
