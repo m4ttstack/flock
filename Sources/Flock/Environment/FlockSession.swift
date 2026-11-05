@@ -114,7 +114,7 @@ final class FlockSession: ProfileSession {
         self.toastCenter = toastCenter
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
         // main actor via its `probeTask`; nothing here reads it synchronously.
-        let chatStore = ChatStore(toasts: toastCenter)
+        let chatStore = ChatStore(toasts: toastCenter, loadFace: ChatFaceImage.load(handle:))
         self.chatStore = chatStore
         chatSidebarStore.onChats = { await chatStore.noteSlackChats($0) }
         chatSidebarStore.owner = { chatStore.slackOwner(ofAgent: $0)?.rawValue }

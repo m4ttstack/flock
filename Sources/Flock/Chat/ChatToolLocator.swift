@@ -60,6 +60,13 @@ enum ChatToolLocator {
         return ChatSidebarChats.decode(stdout: stdout, exitCode: exitCode)
     }
 
+    /// `rt chat avatar` gives up on its own after 15s.
+    static func avatar(handle: String, size: Int) async -> ChatAvatar? {
+        let arguments = ChatAvatar.arguments(handle: handle, size: size)
+        guard let (stdout, exitCode) = await runTool("rt", arguments: arguments, deadline: .seconds(20)) else { return nil }
+        return ChatAvatar.decode(stdout: stdout, exitCode: exitCode)
+    }
+
     @Sendable
     static func chatAppPort() async -> Int? {
         guard let (stdout, exitCode) = await runTool("deck", arguments: ["list"]), exitCode == 0 else { return nil }

@@ -568,7 +568,10 @@ struct PaneCellView: View {
             ChatSignedOutButton(theme: theme, paneID: pane.paneID) { openChatPopover() }
         case let .signedIn(name, unread):
             Button(action: { openChatPopover() }) {
-                ChatHandlePill(theme: theme, name: name, unread: unread, isHovered: isChatChipHovered)
+                ChatHandlePill(
+                    theme: theme, name: name, handle: chatStore.status(for: pane.paneID)?.handle, unread: unread,
+                    isHovered: isChatChipHovered
+                )
             }
             .buttonStyle(.plain)
             .onHover { isChatChipHovered = $0 }

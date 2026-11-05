@@ -53,6 +53,9 @@ final class ChatStore {
     private(set) var requestedPopover: ChatPopoverRequest?
 
     @ObservationIgnored private var runner: ChatRunning?
+    private var faces: [String: ChatFaceImage] = [:]
+    @ObservationIgnored private var followedFaces: Set<String> = []
+    @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
     /// Populated by `peek()`, keyed by each buddy's own pane.
@@ -117,6 +120,7 @@ final class ChatStore {
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
+        loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)? = nil,
         defaults: UserDefaults = .standard
     ) {
         self.toasts = toasts
@@ -126,6 +130,7 @@ final class ChatStore {
         self.startAgent = startAgent
         self.typeIntoAgent = typeIntoAgent
         self.readAgentRefusal = readAgentRefusal
+        self.loadFace = loadFace
         self.defaults = defaults
         slackAgents = Self.savedSlackAgents(in: defaults)
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
@@ -177,6 +182,22 @@ final class ChatStore {
     /// once by that pane's own view via `onChange`. `feature` nil opens the
     /// status root (Chat Panel, which IS that root); set, it opens straight
     /// to that feature's own sub-view.
+    func face(for handle: String) -> ChatFaceImage? {
+        faces[handle]
+    }
+
+    /// Keeps asking until the face is final: a failure may be an rt that has
+    /// not got faces yet, and a Slack handle's photo can arrive late.
+    func followFace(_ handle: String) async {
+        guard let loadFace, faces[handle]?.isFinal != true, followedFaces.insert(handle).inserted else { return }
+        defer { followedFaces.remove(handle) }
+        while !Task.isCancelled {
+            if let face = await loadFace(handle) { faces[handle] = face }
+            if faces[handle]?.isFinal == true { return }
+            guard (try? await pause(Self.faceRecheck)) != nil else { return }
+        }
+    }
+
     func requestPopover(for pane: PaneID, feature: ChatPopoverFeature? = nil) {
         requestedPopover = ChatPopoverRequest(pane: pane, feature: feature)
     }
@@ -301,6 +322,7 @@ final class ChatStore {
         exitAgent(agent.pane, after: delay)
     }
 
+    private static let faceRecheck: Duration = .seconds(300)
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {
