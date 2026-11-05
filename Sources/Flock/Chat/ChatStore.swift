@@ -57,6 +57,9 @@ final class ChatStore {
     @ObservationIgnored private var faceLoads: [String: Task<ChatFaceLoad, Never>] = [:]
     /// Set while rt has no avatar verb, so one ask covers every handle.
     @ObservationIgnored private var faceVerbMissingSince: ContinuousClock.Instant?
+    /// Until rt has answered with its verb, one handle at a time asks.
+    @ObservationIgnored private var faceVerbWorks = false
+    @ObservationIgnored private var faceVerbProbe: Task<ChatFaceLoad, Never>?
     @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
@@ -192,21 +195,46 @@ final class ChatStore {
         guard let loadFace else { return }
         var attempt = 0
         while !Task.isCancelled, faces[handle]?.isFinal != true {
+            if !faceVerbWorks, let probe = faceVerbProbe { _ = await probe.value }
             if faceVerbMissingSince.map({ .now - $0 >= Self.faceVerbRecheck }) ?? true {
-                switch await sharedFaceLoad(handle, loadFace) {
-                case let .face(face):
-                    faceVerbMissingSince = nil
-                    faces[handle] = face
-                case .noFace:
-                    faceVerbMissingSince = nil
-                case .noVerb:
-                    faceVerbMissingSince = .now
-                }
+                await askFace(handle, loadFace)
             }
             if faces[handle]?.isFinal == true { return }
             let wait = Self.faceRechecks[min(attempt, Self.faceRechecks.count - 1)]
             attempt += 1
             guard (try? await pause(wait)) != nil else { return }
+        }
+    }
+
+    /// The answer is recorded inside the probe, so a follow waiting on it
+    /// wakes to the verb's state already settled.
+    private func askFace(_ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceLoad) async {
+        guard !faceVerbWorks else {
+            record(await sharedFaceLoad(handle, loadFace), for: handle)
+            return
+        }
+        let probe = Task {
+            let answer = await sharedFaceLoad(handle, loadFace)
+            record(answer, for: handle)
+            return answer
+        }
+        faceVerbProbe = probe
+        _ = await probe.value
+        if faceVerbProbe == probe { faceVerbProbe = nil }
+    }
+
+    private func record(_ answer: ChatFaceLoad, for handle: String) {
+        switch answer {
+        case let .face(face):
+            faceVerbWorks = true
+            faceVerbMissingSince = nil
+            faces[handle] = face
+        case .noFace:
+            faceVerbWorks = true
+            faceVerbMissingSince = nil
+        case .noVerb:
+            faceVerbWorks = false
+            faceVerbMissingSince = .now
         }
     }
 

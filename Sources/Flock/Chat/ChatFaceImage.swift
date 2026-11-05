@@ -21,8 +21,8 @@ struct ChatFaceImage: @unchecked Sendable {
     @Sendable
     static func load(handle: String) async -> ChatFaceLoad {
         switch await ChatToolLocator.avatar(handle: handle, size: pixelSize) {
-        case .noVerb: return .noVerb
-        case .noFace, nil: return .noFace
+        case .noVerb, nil: return .noVerb
+        case .noFace: return .noFace
         case let .face(avatar):
             let face = await Task.detached(priority: .utility) { decode(avatar, handle: handle) }.value
             return face.map(ChatFaceLoad.face) ?? .noFace

@@ -109,6 +109,24 @@ final class ChatFaceTests: XCTestCase {
         XCTAssertNil(store.face(for: "oak.c3d4"))
     }
 
+    func testHandlesAppearingTogetherSendOneAskToAnRtWithoutTheVerb() async {
+        let script = FaceScript(loads: [.noVerb, .noVerb, .noVerb])
+        let store = ChatStore(
+            toasts: ToastCenter(), probe: { nil }, pause: { _ in throw CancellationError() },
+            loadFace: { _ in
+                try? await Task.sleep(for: .milliseconds(30))
+                return await script.next()
+            },
+            defaults: UserDefaults(suiteName: UUID().uuidString)!
+        )
+        let first = Task { await store.followFace("ivy.a1b2") }
+        let second = Task { await store.followFace("oak.c3d4") }
+        let third = Task { await store.followFace("elm.e5f6") }
+        _ = await (first.value, second.value, third.value)
+        let calls = await script.calls
+        XCTAssertEqual(calls, 1)
+    }
+
     func testAStopWhileWaitingEndsTheFollow() async throws {
         let script = FaceScript([])
         let store = store(script) { _ in throw CancellationError() }
