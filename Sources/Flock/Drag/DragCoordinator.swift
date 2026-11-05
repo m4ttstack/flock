@@ -26,13 +26,18 @@ final class DragOutcomeRelay {
 final class StripOrderRelay {
     var strip: [TabID] = []
     var model: [TabID] = []
+    var complete: Set<TabID> = []
     var isGridShown = false
 
-    func modelTarget(for target: DropTarget) -> DropTarget {
-        guard !isGridShown, case let .tabStrip(workspace, insertIndex) = target else { return target }
+    func modelTarget(for target: DropTarget, moving subject: DragSubject) -> DropTarget {
+        guard !isGridShown, case let .tabStrip(workspace, insertIndex) = target, case let .tab(tab) = subject else {
+            return target
+        }
         return .tabStrip(
             workspace: workspace,
-            insertIndex: StripTabOrder.modelInsertIndex(forStripIndex: insertIndex, strip: strip, model: model)
+            insertIndex: StripTabOrder.modelInsertIndex(
+                forStripIndex: insertIndex, moving: tab, strip: strip, model: model, complete: complete
+            )
         )
     }
 }
@@ -209,7 +214,9 @@ final class DragCoordinator {
             before: firstComplete?.frame.minX ?? stripFrame.maxX
         )
     }
-    var stripCompleteTabs: Set<TabID> = []
+    var stripCompleteTabs: Set<TabID> = [] {
+        didSet { stripOrder.complete = stripCompleteTabs }
+    }
 
     var newWorkspaceZone: CGRect? {
         guard let railFrame else { return nil }
@@ -384,7 +391,7 @@ final class DragCoordinator {
                 // already bumped the counter, and reading it on the way out
                 // would tag the reply with that later drag's number.
                 let issuedBy = outcomes.generation
-                let outcome = await commit(subject, stripOrder.modelTarget(for: target))
+                let outcome = await commit(subject, stripOrder.modelTarget(for: target, moving: subject))
                 outcomes.last = DragOutcomeRelay.Record(generation: issuedBy, outcome: outcome)
                 return outcome
             },
@@ -599,6 +606,7 @@ final class DragCoordinator {
             canvas: canvas,
             stripWorkspace: stripWorkspace,
             tabFrames: tabFrames,
+            completeTabs: stripCompleteTabs,
             workspaceFrames: workspaceFrames,
             stripFrame: stripFrame,
             railFrame: railFrame,
@@ -1440,8 +1448,10 @@ final class DragCoordinator {
         switch target {
         case .tabStrip(_, let insertIndex):
             guard let container = stripViewport ?? stripFrame else { return nil }
+            let run = stripDragRun
             let bar = InsertionBarGeometry.bar(
-                atInsertIndex: insertIndex, items: tabFrames.map(\.frame), container: container, axis: .vertical
+                atInsertIndex: insertIndex - run.lowerBound, items: tabFrames[run].map(\.frame),
+                container: container, axis: .vertical
             )
             return InsertionMark(bar: bar, dot: InsertionBarGeometry.endDot(for: bar, axis: .vertical))
         case .workspaceRail(let insertIndex):
@@ -1528,13 +1538,23 @@ final class DragCoordinator {
 
     func tabDisplacement(at index: Int) -> CGFloat {
         guard case .tabStrip(_, let insertIndex)? = target else { return 0 }
-        let items = tabFrames.map(\.frame)
-        let draggingIndex = draggingTabIndex
-        return ReshuffleOffset.displacement(
-            forItemAt: index, draggingIndex: draggingIndex, insertIndex: insertIndex,
-            extent: draggingIndex.map { ReshuffleOffset.advance(ofItemAt: $0, items: items, axis: .vertical) }
-                ?? ReshuffleOffset.defaultExtent
+        guard let draggingIndex = draggingTabIndex else {
+            return ReshuffleOffset.displacement(
+                forItemAt: index, draggingIndex: nil, insertIndex: insertIndex, extent: ReshuffleOffset.defaultExtent
+            )
+        }
+        return StripTabOrder.displacement(
+            forItemAt: index, dragging: draggingIndex, insertIndex: insertIndex,
+            run: stripDragRun, items: tabFrames.map(\.frame)
         )
+    }
+
+    /// The strip run the drag reorders within; the whole strip for a drag
+    /// that is not a tab of it.
+    private var stripDragRun: Range<Int> {
+        let frames = tabFrames
+        guard case .tab(let id)? = activeSubject, frames.contains(where: { $0.id == id }) else { return frames.indices }
+        return StripTabOrder.run(of: id, strip: frames.map(\.id), complete: stripCompleteTabs)
     }
 
     func workspaceDisplacement(at index: Int) -> CGFloat {

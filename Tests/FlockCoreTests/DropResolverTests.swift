@@ -70,6 +70,7 @@ final class DropResolverTests: XCTestCase {
     private func surfaces(
         canvas: CanvasGeometry,
         tabFrames: [TabItemFrame] = DropResolverTests.strip,
+        completeTabs: Set<TabID> = [],
         workspaceFrames: [WorkspaceItemFrame] = DropResolverTests.rail,
         stripFrame: CGRect? = nil,
         railFrame: CGRect? = nil,
@@ -80,6 +81,7 @@ final class DropResolverTests: XCTestCase {
             canvas: canvas,
             stripWorkspace: WorkspaceID(rawValue: "w1"),
             tabFrames: tabFrames,
+            completeTabs: completeTabs,
             workspaceFrames: workspaceFrames,
             stripFrame: stripFrame,
             railFrame: railFrame,
@@ -218,6 +220,22 @@ final class DropResolverTests: XCTestCase {
         XCTAssertEqual(
             resolveDropTarget(at: point, dragging: .tab(TabID(rawValue: "t9")), surfaces: surfaces),
             .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 3)
+        )
+    }
+
+    func testAnOpenTabCarriedOverTheCompleteGroupStopsAtTheEndOfTheOpenRun() throws {
+        let surfaces = surfaces(canvas: try canvas(), completeTabs: [TabID(rawValue: "t2")])
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: 290, y: 320), dragging: .tab(TabID(rawValue: "t0")), surfaces: surfaces),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 2)
+        )
+    }
+
+    func testACompleteTabCarriedOverTheOpenRunStopsAtTheHeadOfItsGroup() throws {
+        let surfaces = surfaces(canvas: try canvas(), completeTabs: [TabID(rawValue: "t2")])
+        XCTAssertEqual(
+            resolveDropTarget(at: CGPoint(x: 10, y: 320), dragging: .tab(TabID(rawValue: "t2")), surfaces: surfaces),
+            .tabStrip(workspace: WorkspaceID(rawValue: "w1"), insertIndex: 2)
         )
     }
 
