@@ -414,14 +414,14 @@ final class ChatStore {
         }
     }
 
-    func targets() async -> ChatTargets? {
-        await run(.targets)
+    func targets(pane: String) async -> ChatTargets? {
+        await run(.targets(pane: pane))
     }
 
     /// `ChatSent` carries no `ok` field: a decoded reply means the send
     /// happened, and a thrown `ChatFailure` is the only failure shape.
-    func quickSend(to: String, body: String) async -> Bool {
-        let sent: ChatSent? = await run(.quickSend(to: to, body: body))
+    func quickSend(pane: String, to: String, body: String) async -> Bool {
+        let sent: ChatSent? = await run(.quickSend(pane: pane, to: to, body: body))
         return sent != nil
     }
 

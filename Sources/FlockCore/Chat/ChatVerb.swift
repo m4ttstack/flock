@@ -8,13 +8,23 @@ public enum ChatVerb: Equatable, Sendable {
     case signIn(pane: String)
     case signOut(pane: String)
     case peek
-    case targets
-    case quickSend(to: String, body: String)
+    case targets(pane: String)
+    case quickSend(pane: String, to: String, body: String)
     case broadcast(panes: [String], body: String)
     case jump(handle: String)
     case openViewer(room: String?)
     case slackClose(pane: String)
     case slackPeople
+
+    /// The pane rt acts for. These verbs take no pane argument, and rt names
+    /// a caller with no pane after its folder, so an app started from `/`
+    /// would read and post as an identity nobody signed in.
+    public var callerPane: String? {
+        switch self {
+        case let .targets(pane), let .quickSend(pane, _, _): pane
+        default: nil
+        }
+    }
 
     public var arguments: [String] {
         switch self {
@@ -23,7 +33,7 @@ public enum ChatVerb: Equatable, Sendable {
         case let .signOut(pane): ["sign-out", "--json", "--pane", pane]
         case .peek: ["peek", "--json"]
         case .targets: ["targets", "--json"]
-        case let .quickSend(to, body): ["quick-send", "--json", "--to", to, "--body", body]
+        case let .quickSend(_, to, body): ["quick-send", "--json", "--to", to, "--body", body]
         case let .broadcast(panes, body):
             ["broadcast", "--json", "--panes", panes.joined(separator: ","), "--body", body]
         case let .jump(handle): ["jump", "--json", "--handle", handle]

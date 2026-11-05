@@ -16,6 +16,18 @@ final class ChatRunnerTests: XCTestCase {
         XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self), "/flock/test/bin\n")
     }
 
+    func testACallerPaneReachesTheChild() async throws {
+        let runner = ChatRunner(binaryPath: "/usr/bin/printenv", deadline: .seconds(5), environment: { [:] })
+        let result = try await runner.runRaw(["HERDR_PANE_ID"], callerPane: "w1:p2")
+        XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self), "w1:p2\n")
+    }
+
+    func testNoCallerPaneLeavesTheChildWithoutOne() async throws {
+        let runner = ChatRunner(binaryPath: "/usr/bin/printenv", deadline: .seconds(5), environment: { [:] })
+        let result = try await runner.runRaw(["HERDR_PANE_ID"])
+        XCTAssertEqual(result.stdout, Data())
+    }
+
     func testTheDefaultEnvironmentFindsToolsTheWayALoginShellDoes() async {
         let environment = await Task.detached { ToolPath.childEnvironment() }.value
         XCTAssertEqual(environment["PATH"], ToolPath.resolved)

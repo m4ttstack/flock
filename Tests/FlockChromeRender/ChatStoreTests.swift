@@ -253,18 +253,18 @@ final class ChatStoreTests: XCTestCase {
     func testQuickSendSucceedsOnAnyDecodableReply() async {
         let (store, runner, toasts) = await makeStore(results: [ok(#"{"to":"@matt"}"#)])
 
-        let sent = await store.quickSend(to: "@matt", body: "hey")
+        let sent = await store.quickSend(pane: "w1:p2", to: "@matt", body: "hey")
 
         XCTAssertTrue(sent)
         XCTAssertNil(toasts.current)
         let calls = await runner.recordedCalls()
-        XCTAssertEqual(calls, [.quickSend(to: "@matt", body: "hey")])
+        XCTAssertEqual(calls, [.quickSend(pane: "w1:p2", to: "@matt", body: "hey")])
     }
 
     func testQuickSendFailsAndToastsOnAThrownFailure() async {
         let (store, _, toasts) = await makeStore(results: [failed(#"{"error":"not signed in"}"#)])
 
-        let sent = await store.quickSend(to: "@matt", body: "hey")
+        let sent = await store.quickSend(pane: "w1:p2", to: "@matt", body: "hey")
 
         XCTAssertFalse(sent)
         XCTAssertEqual(toasts.current?.message, "not signed in")

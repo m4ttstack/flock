@@ -35,7 +35,7 @@ struct ChatQuickSendView: View {
     }
 
     private var canSend: Bool {
-        ChatPresence.canSend(status) && selectedTarget != nil
+        ChatPresence.canSend(status) && selectedTarget != nil && status?.pane != nil
     }
 
     var body: some View {
@@ -51,7 +51,7 @@ struct ChatQuickSendView: View {
         // have.
         .task {
             guard targets.isEmpty else { return }
-            guard let fetched = await chatStore.targets() else { return }
+            guard let pane = status?.pane, let fetched = await chatStore.targets(pane: pane) else { return }
             targets = fetched.rooms + fetched.people
             labels = fetched.labels ?? [:]
             selectedTarget = targets.first
@@ -167,10 +167,10 @@ struct ChatQuickSendView: View {
     }
 
     private func send() {
-        guard let target = selectedTarget else { return }
+        guard let target = selectedTarget, let pane = status?.pane else { return }
         let body = message
         Task {
-            guard await chatStore.quickSend(to: target, body: body) else { return }
+            guard await chatStore.quickSend(pane: pane, to: target, body: body) else { return }
             message = ""
         }
     }
