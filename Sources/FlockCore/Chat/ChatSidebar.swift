@@ -72,4 +72,11 @@ public enum ChatEmbedAddress {
         guard let encoded = room.addingPercentEncoding(withAllowedCharacters: segment) else { return nil }
         return URL(string: "http://localhost:\(port)/embed/r/\(encoded)")
     }
+
+    /// The page reads this once at load, so a theme change has to reload it.
+    public static func themed(_ url: URL, isDark: Bool) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.queryItems = [URLQueryItem(name: "theme", value: isDark ? "dark" : "light")]
+        return components.url ?? url
+    }
 }

@@ -27,7 +27,10 @@ struct ChatSidebar: View {
             ChatSidebarHeader(theme: theme, store: store, selection: selection)
             Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
             if let url = store.embedURL {
-                ChatEmbedWebView(url: url, onFailure: store.embedFailed)
+                ChatEmbedWebView(
+                    url: ChatEmbedAddress.themed(url, isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)),
+                    onFailure: store.embedFailed
+                )
             } else if store.chatAppIsDown {
                 unreachable
             } else {
@@ -187,19 +190,22 @@ private struct ChatEmbedWebView: NSViewRepresentable {
         view.uiDelegate = context.coordinator
         // Otherwise white until the page's first paint, on a dark window.
         view.setValue(false, forKey: "drawsBackground")
+        context.coordinator.requested = url
         view.load(URLRequest(url: url))
         return view
     }
 
+    /// Compared with what was asked for: `view.url` is stale until a load commits.
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.onFailure = onFailure
-        if view.url?.path != url.path {
-            view.load(URLRequest(url: url))
-        }
+        guard context.coordinator.requested != url else { return }
+        context.coordinator.requested = url
+        view.load(URLRequest(url: url))
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var onFailure: () -> Void
+        var requested: URL?
 
         init(onFailure: @escaping () -> Void) {
             self.onFailure = onFailure
