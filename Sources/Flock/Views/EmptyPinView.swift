@@ -60,9 +60,6 @@ struct EmptyPinView: View {
                 launcher(showsShortcuts: true)
                 launcher(showsShortcuts: false)
             }
-            Text("Pinned \u{00B7} no tabs open")
-                .font(ChromeType.emptyPinCaption)
-                .foregroundStyle(theme.textLabel)
         }
         .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
         .padding(.bottom, ChromeMetrics.EmptyPin.lift * 2)
