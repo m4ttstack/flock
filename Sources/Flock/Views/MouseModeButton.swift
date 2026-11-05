@@ -21,7 +21,7 @@ struct MouseModeButton: View {
         }
         .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme)))
         .disabled(onToggle == nil)
-        .delayedTip(tip, shortcut: "⌥⌘M")
+        .delayedTip(tip, shortcut: "⌥⌘M", theme: theme)
         .accessibilityLabel("Right-clicks")
         .accessibilityValue(mode == .menu ? "flock's menu" : "the program")
         .accessibilityIdentifier("flock.pane.mouseBadge.\(paneID.rawValue)")

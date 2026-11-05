@@ -521,6 +521,7 @@ struct PaneCellView: View {
     private var statusDot: some View {
         let appearance = statusChipAppearance
         return PaneStatusDot(
+            theme: theme,
             color: appearance.color,
             label: appearance.label.prefix(1).uppercased() + appearance.label.dropFirst()
         )

@@ -38,6 +38,7 @@ private struct PaneBarKeyGround: View {
 /// What the agent is doing, as one dot of one width, so a title never moves
 /// with its state. Hovering names it.
 struct PaneStatusDot: View {
+    let theme: Theme
     let color: Color
     let label: String
 
@@ -49,7 +50,7 @@ struct PaneStatusDot: View {
             .frame(width: M.dotSize, height: M.dotSize)
             .padding(.vertical, (M.keySize.height - M.dotSize) / 2)
             .contentShape(Rectangle())
-            .delayedTip(label)
+            .delayedTip(label, theme: theme, edge: .leading)
             .accessibilityElement()
             .accessibilityLabel(label)
     }
@@ -74,7 +75,8 @@ struct PaneWindowButton: View {
         .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme)))
         .delayedTip(
             isZoomed ? "Restore" : "Maximize",
-            shortcut: ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.zoom.key), modifiers: FocusedPaneCommand.zoom.modifiers)
+            shortcut: ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.zoom.key), modifiers: FocusedPaneCommand.zoom.modifiers),
+            theme: theme, edge: .leading
         )
         .accessibilityLabel(isZoomed ? "Restore" : "Maximize")
         .accessibilityIdentifier("flock.pane.maximize.\(paneID.rawValue)")

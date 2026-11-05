@@ -673,7 +673,6 @@ enum ChromeMetrics {
         static let cornerRadius: CGFloat = ChromeRadius.surface
         static let shortcutGap: CGFloat = 8
         static let shortcutOpacity: Double = 0.55
-        static let groundWhite: Double = 0.07
     }
 
     /// Every hover in the chrome: the theme's text colour at this opacity
