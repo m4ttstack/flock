@@ -204,7 +204,8 @@ ditto "$BUILT_APP" "$APP_OUT"
 
 # A slice missing from any of these leaves Flock, or its chat, dead on the
 # Macs that need it, and nothing else in the build notices.
-for binary in "$APP_OUT/Contents/MacOS/Flock" "$APP_OUT/Contents/Resources/herdr-chat"; do
+for binary in "$APP_OUT/Contents/MacOS/Flock" "$APP_OUT/Contents/Frameworks/FlockCore.framework/FlockCore" \
+  "$APP_OUT/Contents/Resources/herdr-chat"; do
   archs="$(lipo -archs "$binary")"
   case " $archs " in
     *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ;;

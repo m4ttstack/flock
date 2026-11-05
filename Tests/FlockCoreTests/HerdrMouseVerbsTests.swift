@@ -28,4 +28,29 @@ final class HerdrMouseVerbsTests: XCTestCase {
     func testEmptyDataIsAbsent() {
         XCTAssertFalse(HerdrMouseVerbs.present(in: Data()))
     }
+
+    private func machO(cpuType: UInt32, body: String) -> Data {
+        var header: [UInt8] = [0xCF, 0xFA, 0xED, 0xFE]
+        header += withUnsafeBytes(of: cpuType.littleEndian, Array.init)
+        return Data(header) + Data(body.utf8)
+    }
+
+    func testAnIntelBuildCarriesTheVerbAsImmediateChunks() {
+        let patched = machO(cpuType: 0x0100_0007, body: "\u{48}\u{B8}terminal\u{48}\u{B8}.mouse_c\u{48}\u{B8}apture")
+
+        XCTAssertTrue(HerdrMouseVerbs.present(in: patched))
+    }
+
+    func testAStockIntelBuildIsAbsent() {
+        let stock = machO(cpuType: 0x0100_0007, body: "terminal.mouseterminal.resizemouse_capture = true")
+
+        XCTAssertFalse(HerdrMouseVerbs.present(in: stock))
+    }
+
+    /// The chunk counts only in an Intel binary, where the whole string
+    /// cannot appear.
+    func testAnAppleSiliconBuildNeedsTheWholeVerb() {
+        XCTAssertFalse(HerdrMouseVerbs.present(in: machO(cpuType: 0x0100_000C, body: "x.mouse_cy")))
+        XCTAssertTrue(HerdrMouseVerbs.present(in: machO(cpuType: 0x0100_000C, body: "terminal.mouse_capture")))
+    }
 }

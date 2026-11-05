@@ -38,7 +38,7 @@ fi
 # must too.
 TARGETS="aarch64-apple-darwin x86_64-apple-darwin"
 for target in $TARGETS; do
-  if ! rustup target list --installed 2>/dev/null | grep -qx "$target"; then
+  if ! rustup target list --installed 2>/dev/null | grep -x "$target" >/dev/null; then
     echo "build-herdr-chat: the Rust $target target is missing. Run: rustup target add $target" >&2
     exit 1
   fi

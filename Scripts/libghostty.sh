@@ -163,8 +163,8 @@ BUILT_ARTIFACT="$WORK/ghostty/macos/GhosttyKit.xcframework"
 rm -rf "$ARTIFACT"
 mkdir -p "$(dirname "$ARTIFACT")"
 cp -R "$BUILT_ARTIFACT" "$ARTIFACT"
-# Debug info stays in the .dSYM the xcframework already carries; keeping it in
-# the archive as well doubles what every link has to read.
+# ghostty's universal build writes no .dSYM, so this drops ghostty's debug
+# info entirely; keeping it doubles what every link has to read.
 find "$ARTIFACT" -name '*.a' -type f -exec strip -S {} +
 
 cat > "$VERSION_FILE" <<EOF

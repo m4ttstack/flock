@@ -36,7 +36,7 @@ case "$(uname -s)" in
   *) echo "build-herdr-patch: this builds on macOS only ($(uname -s))" >&2; exit 1 ;;
 esac
 command -v cargo >/dev/null 2>&1 || { echo "build-herdr-patch: cargo is not on PATH (https://rustup.rs)" >&2; exit 1; }
-rustup target list --installed 2>/dev/null | grep -qx "$RUST_TARGET" || {
+rustup target list --installed 2>/dev/null | grep -x "$RUST_TARGET" >/dev/null || {
   echo "build-herdr-patch: the Rust $RUST_TARGET target is missing. Run: rustup target add $RUST_TARGET" >&2; exit 1; }
 command -v zig >/dev/null 2>&1 || {
   echo "build-herdr-patch: zig $ZIG_VERSION is not on PATH; herdr's build.rs needs it" >&2; exit 1; }
