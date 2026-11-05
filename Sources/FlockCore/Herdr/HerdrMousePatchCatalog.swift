@@ -61,7 +61,10 @@ public enum HerdrMousePatchCatalog {
         HerdrMousePatchRelease(version: "0.9.2", arm64: "4d24edb6e6ad17b257a1ff22e72c51997c47934da24f2645ea9ede89b2bd1c31"),
         HerdrMousePatchRelease(version: "0.9.3", arm64: "c9660a5510697ffefff67669cfdb9991bb53eedac91ff11f2040289ac36700ff"),
         HerdrMousePatchRelease(version: "0.9.4", arm64: "b7191225e2b4fd7c699e081ff3d37d5ff2886213d03aea54e94ea44289e66c89"),
-        HerdrMousePatchRelease(version: "0.9.5", arm64: "630d0d0f462b0094bb1383273220288584fca71e7127d70e6308e799160b33eb"),
+        HerdrMousePatchRelease(
+            version: "0.9.5", arm64: "630d0d0f462b0094bb1383273220288584fca71e7127d70e6308e799160b33eb",
+            x86_64: "80c2c47fe595bcdee342abb063e6e969ddbcf0c1008eef1c3e168e1701041b72"
+        ),
     ]
 
     /// The patches that can run on this Mac.
