@@ -167,5 +167,6 @@ struct FlockSettingsView: View {
         Form(content: content)
             .formStyle(.grouped)
             .frame(width: Self.size.width, height: Self.size.height)
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     }
 }
