@@ -100,20 +100,25 @@ struct ChatSlackSupportView: View {
 
     private var personField: some View {
         HStack(spacing: ChromeMetrics.ChatSlack.PersonBand.fieldGap) {
-            TextField(
-                "", text: Binding(get: { entry.query }, set: { entry.type($0) }),
-                prompt: Text(personPrompt).foregroundStyle(theme.overlay0)
-            )
-                .textFieldStyle(.plain)
-                .font(ChromeType.chatComposeFieldText)
-                .foregroundStyle(theme.text)
-                .focused($focus, equals: .person)
-                .onSubmit(pickHighlighted)
-                .onKeyPress(.downArrow) { moveHighlight(by: 1) }
-                .onKeyPress(.upArrow) { moveHighlight(by: -1) }
-            personFieldStatus
+            if let picked = entry.picked {
+                pickedChip(picked)
+                Spacer(minLength: 0)
+            } else {
+                TextField(
+                    "", text: Binding(get: { entry.query }, set: { entry.type($0) }),
+                    prompt: Text(personPrompt).foregroundStyle(theme.overlay0)
+                )
+                    .textFieldStyle(.plain)
+                    .font(ChromeType.chatComposeFieldText)
+                    .foregroundStyle(theme.text)
+                    .focused($focus, equals: .person)
+                    .onSubmit(pickHighlighted)
+                    .onKeyPress(.downArrow) { moveHighlight(by: 1) }
+                    .onKeyPress(.upArrow) { moveHighlight(by: -1) }
+                personFieldStatus
+            }
         }
-        .padding(.horizontal, ChromeMetrics.ChatSlack.PersonBand.fieldHorizontalPadding)
+        .padding(.horizontal, ChromeMetrics.ChatSlack.PersonBand.fieldHorizontalPadding(hasChip: entry.picked != nil))
         .frame(width: ChromeMetrics.ChatSlack.fieldWidth, height: ChromeMetrics.ChatSlack.PersonBand.fieldHeight)
         .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius).fill(Color(theme.palette.surface0)))
         .overlay(
@@ -126,13 +131,30 @@ struct ChatSlackSupportView: View {
         peopleState == .unavailable ? "Full name" : "Search Slack"
     }
 
+    private func pickedChip(_ person: ChatSlackPerson) -> some View {
+        HStack(spacing: ChromeMetrics.ChatSlack.PersonBand.chipGap) {
+            Text(person.name)
+                .font(ChromeType.chatComposeFieldText)
+                .foregroundStyle(theme.text)
+                .lineLimit(1)
+            Button(action: clearPerson) {
+                Image(systemName: "xmark")
+                    .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.chipIconSize, weight: .semibold))
+                    .foregroundStyle(theme.overlay0)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Choose someone else")
+            .accessibilityIdentifier("flock.chat.slackPersonClear")
+        }
+        .padding(.horizontal, ChromeMetrics.ChatSlack.PersonBand.chipHorizontalPadding)
+        .frame(height: ChromeMetrics.ChatSlack.PersonBand.chipHeight)
+        .background(RoundedRectangle(cornerRadius: ChromeRadius.tiny).fill(Color(theme.palette.surface1)))
+    }
+
     @ViewBuilder
     private var personFieldStatus: some View {
-        if entry.picked != nil {
-            Image(systemName: "checkmark")
-                .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.statusIconSize, weight: .semibold))
-                .foregroundStyle(theme.green)
-        } else if peopleState == .loading {
+        if peopleState == .loading {
             ChatSpinner(color: theme.overlay0, size: ChromeMetrics.ChatSlack.PersonBand.statusIconSize)
         } else if peopleState != .unavailable {
             Image(systemName: "magnifyingglass")
@@ -254,6 +276,11 @@ struct ChatSlackSupportView: View {
     private func pick(_ person: ChatSlackPerson) {
         entry.pick(person)
         focus = .problem
+    }
+
+    private func clearPerson() {
+        entry = ChatSlackPersonEntry(query: "", picked: nil)
+        focus = .person
     }
 
     private func pickHighlighted() {
