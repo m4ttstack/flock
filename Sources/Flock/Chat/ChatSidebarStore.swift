@@ -17,6 +17,11 @@ final class ChatSidebarStore {
     private(set) var isCollapsed = false
     private(set) var tabPanes: Set<String> = []
 
+    /// Each read of rt, before the links below are applied.
+    @ObservationIgnored var onChats: (([ChatSidebarChat]) -> Void)?
+    /// The pane a background agent was started from.
+    @ObservationIgnored var owner: ((String) -> String?)?
+
     @ObservationIgnored private var focusedPane: String?
     @ObservationIgnored private var port: Int?
     @ObservationIgnored private let readChats: @Sendable () async -> [ChatSidebarChat]?
@@ -52,8 +57,14 @@ final class ChatSidebarStore {
 
     func refresh() async {
         guard let open = await readChats(), !Task.isCancelled else { return }
+        onChats?(open)
+        let linked = open.map { chat in
+            var chat = chat
+            chat.linkedPane = chat.pane.flatMap { owner?($0) }
+            return chat
+        }
         await select(
-            ChatSidebarSelection.next(current: selection, open: open, focusedPane: focusedPane, tabPanes: tabPanes)
+            ChatSidebarSelection.next(current: selection, open: linked, focusedPane: focusedPane, tabPanes: tabPanes)
         )
     }
 

@@ -7,9 +7,18 @@ public struct ChatSidebarChat: Decodable, Equatable, Sendable {
     public var pane: String? = nil
     public let name: String
     public var displayName: String? = nil
+    /// The pane a background agent's chat was started from. Only Flock knows it.
+    public var linkedPane: String? = nil
+
+    private enum CodingKeys: String, CodingKey { case room, pane, name, displayName }
 
     public var shownName: String {
         displayName.flatMap { $0.isEmpty ? nil : $0 } ?? name
+    }
+
+    /// The pane this chat belongs to on screen.
+    public var homePane: String? {
+        linkedPane ?? pane
     }
 }
 
@@ -36,9 +45,9 @@ public struct ChatSidebarSelection: Equatable, Sendable {
     }
 
     /// A chat belongs to its pane, so it shows only on that pane's tab. A
-    /// background pane is on no tab and has no pane left to follow.
+    /// background agent started outside Flock has no pane on any tab.
     public func isLinked(toTab panes: Set<String>) -> Bool {
-        guard let pane = chat.pane, !pane.hasPrefix("bg:") else { return true }
+        guard let pane = chat.homePane, !pane.hasPrefix("bg:") else { return true }
         return panes.contains(pane)
     }
 
@@ -48,11 +57,11 @@ public struct ChatSidebarSelection: Equatable, Sendable {
     public static func next(
         current: ChatSidebarSelection?, open: [ChatSidebarChat], focusedPane: String?, tabPanes: Set<String>
     ) -> ChatSidebarSelection? {
-        if let focusedPane, let chat = open.first(where: { $0.pane == focusedPane }) {
+        if let focusedPane, let chat = open.first(where: { $0.homePane == focusedPane }) {
             return ChatSidebarSelection(chat: chat, isEnded: false)
         }
         if current?.isLinked(toTab: tabPanes) != true,
-           let chat = open.first(where: { $0.pane.map(tabPanes.contains) == true }) {
+           let chat = open.first(where: { $0.homePane.map(tabPanes.contains) == true }) {
             return ChatSidebarSelection(chat: chat, isEnded: false)
         }
         if let current {
@@ -62,6 +71,58 @@ public struct ChatSidebarSelection: Equatable, Sendable {
             return ChatSidebarSelection(chat: current.chat, isEnded: true)
         }
         return open.first.map { ChatSidebarSelection(chat: $0, isEnded: false) }
+    }
+}
+
+/// The background agent a Slack chat runs on, so the chat stays out of the
+/// pane it was started from.
+public enum ChatSlackAgent {
+    public static let exitLine = "/exit"
+    /// An agent has to launch and settle before `rt agent start` answers.
+    public static let startDeadline: Duration = .seconds(60)
+    /// Past this with no chat, the agent turned the command away. Its reason
+    /// is on a screen nobody can see.
+    public static let openDeadline: Duration = .seconds(60)
+    /// The agent's outcome DM to the operator goes out after the chat closes.
+    public static let exitDelay: Duration = .seconds(30)
+    public static let sendAttempts = 10
+    public static let sendRetryDelay: Duration = .seconds(2)
+
+    public static func startArguments(repo: String) -> [String] {
+        ["agent", "start", "--bg", "--repo", repo, "--label", "slack-support", "--json"]
+    }
+
+    public static func pane(stdout: Data, exitCode: Int32) -> String? {
+        guard exitCode == 0 else { return nil }
+        return (try? JSONDecoder().decode(Started.self, from: stdout))?.agent.paneId
+    }
+
+    private struct Started: Decodable {
+        let agent: Agent
+
+        struct Agent: Decodable {
+            let paneId: String
+        }
+    }
+}
+
+/// A repo the agent can read, always its main checkout: a worktree can vanish
+/// mid-chat, and it holds someone's unfinished work.
+public struct ChatSlackRepo: Identifiable, Equatable, Sendable {
+    public let path: String
+
+    public var id: String { path }
+    public var name: String { URL(fileURLWithPath: path).lastPathComponent }
+
+    public init(path: String) {
+        self.path = path
+    }
+
+    /// `current` first, as the form's default. Touches the disk.
+    public static func list(current: String, others: [String]) -> [ChatSlackRepo] {
+        let first = MainCheckout.resolve(from: current) ?? current
+        let rest = Set(others.compactMap(MainCheckout.resolve(from:))).subtracting([first])
+        return [ChatSlackRepo(path: first)] + rest.map(ChatSlackRepo.init(path:)).sorted { $0.name < $1.name }
     }
 }
 

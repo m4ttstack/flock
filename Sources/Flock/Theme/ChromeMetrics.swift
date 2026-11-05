@@ -427,6 +427,7 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 14
         static let fieldWidth: CGFloat = 332
         static let fieldCornerRadius: CGFloat = ChromeRadius.control
+        static let repoChipGap: CGFloat = 4
 
         enum PersonBand {
             static let topPadding: CGFloat = 13

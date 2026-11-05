@@ -591,7 +591,13 @@ struct PaneCellView: View {
             initialFeature: pendingPopoverFeature,
             onJump: role == .canvas ? { paneID in Task { await viewModel.focusFromChat(pane: paneID) } } : nil,
             slackRow: chatStore.slackRow(for: pane.paneID),
-            onStartSlackChat: { person, problem in await chatStore.startSlackChat(pane.paneID, person: person, problem: problem) },
+            slackRepos: ChatSlackRepo.list(
+                current: pane.foregroundCwd ?? pane.cwd,
+                others: viewModel.model?.panes.values.map { $0.foregroundCwd ?? $0.cwd } ?? []
+            ),
+            onStartSlackChat: { person, problem, repo in
+                await chatStore.startSlackChat(pane.paneID, person: person, problem: problem, repo: repo)
+            },
             onEndSlackChat: { Task { await chatStore.endSlackChat(pane.paneID) } }
         )
         // A fresh fetch on every open, on top of the launch/availability

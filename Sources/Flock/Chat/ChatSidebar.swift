@@ -93,8 +93,9 @@ private struct ChatSidebarHeader: View {
 
     private var subtitle: String? {
         if selection.isEnded { return "Chat ended" }
-        guard let pane, let repo = chatStore.buddies[pane]?.repo else { return nil }
-        return "Reads \(repo)"
+        guard let pane else { return nil }
+        let repo = chatStore.slackRepoName(ofAgent: pane.rawValue) ?? chatStore.buddies[pane]?.repo
+        return repo.map { "Reads \($0)" }
     }
 
     var body: some View {

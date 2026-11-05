@@ -66,12 +66,42 @@ enum ChatToolLocator {
         return ChatEmbedAddress.port(deckList: String(decoding: stdout, as: UTF8.self))
     }
 
-    private static func runTool(_ tool: String, arguments: [String]) async -> (stdout: Data, exitCode: Int32)? {
+    private static func runTool(
+        _ tool: String, arguments: [String], deadline: Duration = ChatRunner.deadline
+    ) async -> (stdout: Data, exitCode: Int32)? {
         let resolved = await Task.detached(priority: .userInitiated) {
             ToolPath.resolve(tool).map { ($0, ToolPath.childEnvironment()) }
         }.value
         guard let (binary, environment) = resolved else { return nil }
-        return try? await ToolRunner(binaryPath: binary, environment: environment, deadline: ChatRunner.deadline).run(arguments)
+        return try? await ToolRunner(binaryPath: binary, environment: environment, deadline: deadline).run(arguments)
+    }
+
+    /// The new agent's pane, or nil when none started.
+    @Sendable
+    static func startSlackAgent(repo: String) async -> String? {
+        guard let (stdout, exitCode) = await runTool(
+            "rt", arguments: ChatSlackAgent.startArguments(repo: repo), deadline: ChatSlackAgent.startDeadline
+        ) else { return nil }
+        return ChatSlackAgent.pane(stdout: stdout, exitCode: exitCode)
+    }
+
+    /// A new agent can answer that it isn't running yet, so a failed send is
+    /// tried again here, where `typeIntoPane` takes it as maybe typed.
+    @Sendable
+    static func typeIntoAgent(_ pane: String, line: String) async -> String? {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            ToolPath.resolve("rt").map { ($0, ChatSlackCommand.sendEnvironment(ToolPath.childEnvironment())) }
+        }.value
+        guard let (rt, environment) = resolved else { return "rt not found" }
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatSlackCommand.sendDeadline)
+        for _ in 0..<ChatSlackAgent.sendAttempts {
+            if let (stdout, exitCode) = try? await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line)),
+               exitCode == 0 {
+                return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode)
+            }
+            try? await Task.sleep(for: ChatSlackAgent.sendRetryDelay)
+        }
+        return "the agent didn't start"
     }
 
     /// Why `line` was not typed, or nil when it may have been.

@@ -2,16 +2,17 @@ import FlockCore
 import SwiftUI
 
 /// The form behind FEATURES' Slack support row. It opens no chat itself:
-/// Start types `/slack-support` into the pane, the only way a chat opens.
+/// Start types `/slack-support` into a new background agent, the only way a
+/// chat opens.
 ///
 /// The list is fetched once per form and filtered here, because Slack limits
-/// how often it can be read. With no list the box takes a typed name, and the
-/// pane says if that name does not match.
+/// how often it can be read. With no list the box takes a typed name.
 struct ChatSlackSupportView: View {
     let theme: Theme
+    let repos: [ChatSlackRepo]
     let onBack: () -> Void
     let onClose: () -> Void
-    let onStart: (_ person: String, _ problem: String) async -> Bool
+    let onStart: (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool
 
     private enum PeopleState: Equatable {
         case loading
@@ -26,17 +27,20 @@ struct ChatSlackSupportView: View {
     @State private var entry: ChatSlackPersonEntry
     @State private var problem: String
     @State private var isStarting = false
+    @State private var repo: ChatSlackRepo?
     @FocusState private var focus: Field?
 
     /// The `preview` values exist only so a render test can draw each state
     /// without a live store; `.task` leaves a seeded list alone.
     init(
-        theme: Theme, onBack: @escaping () -> Void, onClose: @escaping () -> Void,
-        onStart: @escaping (_ person: String, _ problem: String) async -> Bool,
+        theme: Theme, repos: [ChatSlackRepo], onBack: @escaping () -> Void, onClose: @escaping () -> Void,
+        onStart: @escaping (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool,
         previewPeople: [ChatSlackPerson]? = nil, previewUnavailable: Bool = false,
         previewQuery: String = "", previewPicked: ChatSlackPerson? = nil, previewProblem: String = ""
     ) {
         self.theme = theme
+        self.repos = repos
+        self._repo = State(initialValue: repos.first)
         self.onBack = onBack
         self.onClose = onClose
         self.onStart = onStart
@@ -57,7 +61,7 @@ struct ChatSlackSupportView: View {
     }
 
     private var canStart: Bool {
-        guard !isStarting, let chosenPerson else { return false }
+        guard !isStarting, repo != nil, let chosenPerson else { return false }
         return ChatSlackCommand.line(person: chosenPerson, problem: problem) != nil
     }
 
@@ -197,9 +201,7 @@ struct ChatSlackSupportView: View {
             )
             .focused($focus, equals: .problem)
             HStack(spacing: 0) {
-                Text("This pane talks to them on Slack")
-                    .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
+                repoChip
                 Spacer(minLength: 0)
                 ChatComposeSendButton(
                     theme: theme, title: "Start", fill: canStart ? theme.accent : Color(theme.palette.surface0),
@@ -218,6 +220,31 @@ struct ChatSlackSupportView: View {
         .padding(.horizontal, ChromeMetrics.ChatSlack.horizontalPadding)
         .padding(.bottom, ChromeMetrics.ChatSlack.ProblemBand.bottomPadding)
         .frame(width: ChromeMetrics.ChatSlack.width, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var repoChip: some View {
+        if let repo {
+            HStack(spacing: ChromeMetrics.ChatSlack.repoChipGap) {
+                Text("Reads")
+                    .font(ChromeType.chatComposeFooterHint)
+                    .foregroundStyle(theme.overlay0)
+                Menu {
+                    ForEach(repos) { choice in
+                        Button(choice.name) { self.repo = choice }
+                    }
+                } label: {
+                    Text(repo.name)
+                        .font(ChromeType.chatComposeFooterHint)
+                }
+                .menuStyle(.borderlessButton)
+                .tint(theme.text)
+                .fixedSize()
+                .disabled(repos.count < 2)
+                .help(repo.path)
+                .accessibilityIdentifier("flock.chat.slackRepo")
+            }
+        }
     }
 
     private func label(_ text: String) -> some View {
@@ -241,10 +268,10 @@ struct ChatSlackSupportView: View {
     }
 
     private func start() {
-        guard let chosenPerson else { return }
+        guard let chosenPerson, let repo else { return }
         isStarting = true
         Task {
-            let started = await onStart(chosenPerson, problem)
+            let started = await onStart(chosenPerson, problem, repo)
             isStarting = false
             if started { onBack() }
         }
