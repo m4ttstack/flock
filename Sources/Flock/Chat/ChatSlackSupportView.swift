@@ -139,8 +139,8 @@ struct ChatSlackSupportView: View {
                 .lineLimit(1)
             Button(action: clearPerson) {
                 Image(systemName: "xmark")
-                    .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.chipIconSize, weight: .semibold))
-                    .foregroundStyle(theme.overlay0)
+                    .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.chipIconSize, weight: .bold))
+                    .foregroundStyle(theme.text)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

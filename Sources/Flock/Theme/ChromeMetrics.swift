@@ -439,7 +439,7 @@ enum ChromeMetrics {
             static let chipHeight: CGFloat = 23
             static let chipHorizontalPadding: CGFloat = 8
             static let chipGap: CGFloat = 6
-            static let chipIconSize: CGFloat = 9
+            static let chipIconSize: CGFloat = 10
 
             static func fieldHorizontalPadding(hasChip: Bool) -> CGFloat {
                 hasChip ? 5 : 11
