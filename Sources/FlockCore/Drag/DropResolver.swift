@@ -151,6 +151,9 @@ public struct DropSurfaces: Equatable, Sendable {
     public let canvas: CanvasGeometry
     public let stripWorkspace: WorkspaceID
     public let tabFrames: [TabItemFrame]
+    /// The tabs of `tabFrames` drawn in the complete group, which a tab can
+    /// neither be dragged into nor out of (`StripTabOrder.run`).
+    public let completeTabs: Set<TabID>
     public let workspaceFrames: [WorkspaceItemFrame]
     public let stripFrame: CGRect?
     public let railFrame: CGRect?
@@ -170,6 +173,7 @@ public struct DropSurfaces: Equatable, Sendable {
         canvas: CanvasGeometry,
         stripWorkspace: WorkspaceID,
         tabFrames: [TabItemFrame],
+        completeTabs: Set<TabID> = [],
         workspaceFrames: [WorkspaceItemFrame],
         stripFrame: CGRect? = nil,
         railFrame: CGRect? = nil,
@@ -191,6 +195,7 @@ public struct DropSurfaces: Equatable, Sendable {
         self.canvas = canvas
         self.stripWorkspace = stripWorkspace
         self.tabFrames = tabFrames
+        self.completeTabs = completeTabs
         self.workspaceFrames = workspaceFrames
         self.stripFrame = stripFrame
         self.railFrame = railFrame
@@ -417,10 +422,12 @@ private func resolveStrip(at point: CGPoint, dragging: DragSubject, surfaces: Dr
               let hit = surfaces.tabFrames.first(where: { $0.frame.contains(point) })
         else { return nil }
         return .tabThumbnail(hit.id)
-    case .tab:
+    case .tab(let dragged):
         let centers = surfaces.tabFrames.map(\.frame.midX)
         let x = clamp(point.x, to: surfaces.stripViewport.map { ($0.minX, $0.maxX) })
-        return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: insertIndex(of: x, centers: centers))
+        let run = StripTabOrder.run(of: dragged, strip: surfaces.tabFrames.map(\.id), complete: surfaces.completeTabs)
+        let slot = min(max(insertIndex(of: x, centers: centers), run.lowerBound), run.upperBound)
+        return .tabStrip(workspace: surfaces.stripWorkspace, insertIndex: slot)
     case .workspace, .workspaces, .pin:
         return nil
     }
