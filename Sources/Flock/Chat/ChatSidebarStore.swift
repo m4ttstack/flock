@@ -18,7 +18,7 @@ final class ChatSidebarStore {
     private(set) var tabPanes: Set<String> = []
 
     /// Each read of rt, before the links below are applied.
-    @ObservationIgnored var onChats: (([ChatSidebarChat]) -> Void)?
+    @ObservationIgnored var onChats: (([ChatSidebarChat]) async -> Void)?
     /// The pane a background agent was started from.
     @ObservationIgnored var owner: ((String) -> String?)?
 
@@ -57,7 +57,7 @@ final class ChatSidebarStore {
 
     func refresh() async {
         guard let open = await readChats(), !Task.isCancelled else { return }
-        onChats?(open)
+        await onChats?(open)
         let linked = open.map { chat in
             var chat = chat
             chat.linkedPane = chat.pane.flatMap { owner?($0) }

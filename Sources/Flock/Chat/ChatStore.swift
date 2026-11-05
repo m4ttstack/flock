@@ -12,12 +12,14 @@ struct ChatPopoverRequest: Equatable {
 }
 
 /// A background agent this Flock started for a Slack chat. `name` stays nil
-/// until rt lists the chat.
-struct ChatSlackAgentChat: Equatable {
+/// until rt lists the chat. A relaunch restarts the wait for it to open.
+struct ChatSlackAgentChat: Equatable, Codable {
     let pane: String
     let repoName: String
     var name: String?
-    let startedAt: ContinuousClock.Instant
+    var startedAt: ContinuousClock.Instant = .now
+
+    private enum CodingKeys: String, CodingKey { case pane, repoName, name }
 }
 
 /// The one thing every chat view reads and drives: whether chat exists on
@@ -62,9 +64,11 @@ final class ChatStore {
     /// reason stays on screen after a transient toast has faded.
     private var statusErrors: [PaneID: String] = [:]
     private var slackTransitions: [PaneID: ChatSlackTransition] = [:]
-    /// Keyed by the pane each was started from. Held only in memory, so a
-    /// relaunch leaves a running chat unlinked and its agent up.
-    private var slackAgents: [PaneID: ChatSlackAgentChat] = [:]
+    /// Keyed by the pane each was started from. Saved, because a chat outlives
+    /// the app and only Flock knows which pane it belongs to.
+    private var slackAgents: [PaneID: ChatSlackAgentChat] = [:] {
+        didSet { saveSlackAgents() }
+    }
     @ObservationIgnored private var slackWatches: [PaneID: Task<Void, Never>] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
     @ObservationIgnored private let autoSignInIsOn: (String) async -> Bool
@@ -72,6 +76,8 @@ final class ChatStore {
     @ObservationIgnored private let typeIntoPane: @Sendable (_ pane: String, _ line: String) async -> String?
     @ObservationIgnored private let startAgent: @Sendable (_ repo: String) async -> String?
     @ObservationIgnored private let typeIntoAgent: @Sendable (_ pane: String, _ line: String) async -> String?
+    @ObservationIgnored private let readAgentRefusal: @Sendable (_ pane: String) async -> String?
+    @ObservationIgnored private let defaults: UserDefaults
     /// A pane drawn in more than one place asks once, not once per view.
     @ObservationIgnored private var followingAutoSignIn: Set<PaneID> = []
 
@@ -109,7 +115,9 @@ final class ChatStore {
         pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         typeIntoPane: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoPane,
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
-        typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent
+        typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
+        readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
+        defaults: UserDefaults = .standard
     ) {
         self.toasts = toasts
         self.autoSignInIsOn = autoSignInIsOn
@@ -117,6 +125,9 @@ final class ChatStore {
         self.typeIntoPane = typeIntoPane
         self.startAgent = startAgent
         self.typeIntoAgent = typeIntoAgent
+        self.readAgentRefusal = readAgentRefusal
+        self.defaults = defaults
+        slackAgents = Self.savedSlackAgents(in: defaults)
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
 
@@ -259,29 +270,48 @@ final class ChatStore {
             exitAgent(agent, after: .zero)
             return false
         }
-        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil, startedAt: .now)
+        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil)
         return true
     }
 
-    /// rt's list is the only word on a background agent's chat.
-    func noteSlackChats(_ open: [ChatSidebarChat]) {
+    /// rt's list is the only word on a background agent's chat, and the
+    /// agent's screen the only word on why one never opened.
+    func noteSlackChats(_ open: [ChatSidebarChat]) async {
         for (owner, agent) in slackAgents {
             if let chat = open.first(where: { $0.pane == agent.pane }) {
-                slackAgents[owner]?.name = chat.shownName
+                if agent.name != chat.shownName { slackAgents[owner]?.name = chat.shownName }
                 if slackTransitions[owner] == .opening { slackTransitions[owner] = nil }
             } else if agent.name != nil {
-                retire(owner, agent)
+                retire(owner, agent, after: ChatSlackAgent.exitDelay)
+            } else if let refusal = await readAgentRefusal(agent.pane) {
+                guard slackAgents[owner] == agent else { continue }
+                retire(owner, agent, after: .zero)
+                toasts.show("Slack chat not started: \(refusal)", kind: .info)
             } else if ContinuousClock.now - agent.startedAt > ChatSlackAgent.openDeadline {
-                retire(owner, agent)
+                retire(owner, agent, after: .zero)
                 toasts.show("Slack chat didn't open", kind: .info)
             }
         }
     }
 
-    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat) {
+    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration) {
         slackAgents[owner] = nil
         slackTransitions[owner] = nil
-        exitAgent(agent.pane, after: ChatSlackAgent.exitDelay)
+        exitAgent(agent.pane, after: delay)
+    }
+
+    private static let slackAgentsKey = "chat.slackAgents"
+
+    private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {
+        guard let data = defaults.data(forKey: slackAgentsKey),
+              let saved = try? JSONDecoder().decode([String: ChatSlackAgentChat].self, from: data)
+        else { return [:] }
+        return Dictionary(uniqueKeysWithValues: saved.map { (PaneID(rawValue: $0.key), $0.value) })
+    }
+
+    private func saveSlackAgents() {
+        let saved = Dictionary(uniqueKeysWithValues: slackAgents.map { ($0.key.rawValue, $0.value) })
+        defaults.set(try? JSONEncoder().encode(saved), forKey: Self.slackAgentsKey)
     }
 
     private func exitAgent(_ pane: String, after delay: Duration) {

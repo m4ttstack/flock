@@ -116,7 +116,7 @@ final class FlockSession: ProfileSession {
         // main actor via its `probeTask`; nothing here reads it synchronously.
         let chatStore = ChatStore(toasts: toastCenter)
         self.chatStore = chatStore
-        chatSidebarStore.onChats = { chatStore.noteSlackChats($0) }
+        chatSidebarStore.onChats = { await chatStore.noteSlackChats($0) }
         chatSidebarStore.owner = { chatStore.slackOwner(ofAgent: $0)?.rawValue }
         let herdrStore = resnapshotInterval.map { HerdrStore(socketPath: socketPath, resnapshotInterval: $0) }
             ?? HerdrStore(socketPath: socketPath)

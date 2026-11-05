@@ -97,6 +97,31 @@ public enum ChatSlackAgent {
         return (try? JSONDecoder().decode(Started.self, from: stdout))?.agent.paneId
     }
 
+    public static func peekArguments(pane: String) -> [String] {
+        ["pane", "peek", pane, "--lines", "40", "--json"]
+    }
+
+    /// Why the agent's screen says the chat did not open, or nil. A long
+    /// reason wraps, and a blank line ends it.
+    public static func refusal(stdout: Data, exitCode: Int32) -> String? {
+        let marker = "The Slack chat did not open: "
+        guard exitCode == 0, let lines = (try? JSONDecoder().decode(Peek.self, from: stdout))?.lines,
+              let start = lines.lastIndex(where: { $0.contains(marker) }),
+              let found = lines[start].range(of: marker)
+        else { return nil }
+        var parts = [String(lines[start][found.upperBound...])]
+        for line in lines[(start + 1)...] {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if text.isEmpty { break }
+            parts.append(text)
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private struct Peek: Decodable {
+        let lines: [String]
+    }
+
     private struct Started: Decodable {
         let agent: Agent
 

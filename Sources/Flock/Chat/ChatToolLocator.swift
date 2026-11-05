@@ -85,6 +85,12 @@ enum ChatToolLocator {
         return ChatSlackAgent.pane(stdout: stdout, exitCode: exitCode)
     }
 
+    @Sendable
+    static func slackAgentRefusal(pane: String) async -> String? {
+        guard let (stdout, exitCode) = await runTool("rt", arguments: ChatSlackAgent.peekArguments(pane: pane)) else { return nil }
+        return ChatSlackAgent.refusal(stdout: stdout, exitCode: exitCode)
+    }
+
     /// A new agent can answer that it isn't running yet, so a failed send is
     /// tried again here, where `typeIntoPane` takes it as maybe typed.
     @Sendable
