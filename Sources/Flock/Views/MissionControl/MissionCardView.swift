@@ -163,7 +163,7 @@ struct StatusTimeline: View {
                 }
             }
         }
-        .background(theme.tabRest)
+        .background(theme.textStrong.opacity(ChromeMetrics.MissionControl.timelineTrackOpacity))
         .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.tiny))
         .accessibilityHidden(true)
     }

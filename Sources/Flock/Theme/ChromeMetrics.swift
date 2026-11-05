@@ -991,6 +991,8 @@ enum ChromeMetrics {
         static let timelineMinimumWidth: CGFloat = 60
         static let timelineHeight: CGFloat = 5
         static let timelineIdleHeight: CGFloat = 2
+        /// Over the text colour, so the track reads on a card at rest and hovered.
+        static let timelineTrackOpacity: Double = 0.14
         /// A lane's group: its cards for one workspace on the neutral wash,
         /// at Arrange's island strength.
         static let groupCornerRadius: CGFloat = ChromeRadius.container
