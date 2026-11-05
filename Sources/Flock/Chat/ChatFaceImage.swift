@@ -3,6 +3,12 @@ import FlockCore
 import Foundation
 import ImageIO
 
+enum ChatFaceLoad: Sendable {
+    case face(ChatFaceImage)
+    case noFace
+    case noVerb
+}
+
 /// A handle's face, decoded and ready to draw. `CGImage` is immutable.
 struct ChatFaceImage: @unchecked Sendable {
     let image: CGImage
@@ -13,11 +19,14 @@ struct ChatFaceImage: @unchecked Sendable {
     static let pixelSize = Int(ChromeMetrics.PaneBar.faceSize) * 2
 
     @Sendable
-    static func load(handle: String) async -> ChatFaceImage? {
-        guard let avatar = await ChatToolLocator.avatar(handle: handle, size: pixelSize) else { return nil }
-        return await Task.detached(priority: .utility) {
-            decode(avatar, handle: handle)
-        }.value
+    static func load(handle: String) async -> ChatFaceLoad {
+        switch await ChatToolLocator.avatar(handle: handle, size: pixelSize) {
+        case .noVerb, nil: return .noVerb
+        case .noFace: return .noFace
+        case let .face(avatar):
+            let face = await Task.detached(priority: .utility) { decode(avatar, handle: handle) }.value
+            return face.map(ChatFaceLoad.face) ?? .noFace
+        }
     }
 
     static func decode(_ avatar: ChatAvatar, handle: String) -> ChatFaceImage? {
@@ -29,7 +38,12 @@ struct ChatFaceImage: @unchecked Sendable {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: pixelSize,
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        // Cropped to the square the chip shows, so side bars are measured
+        // against what is drawn.
+        let side = min(thumbnail.width, thumbnail.height)
+        let square = CGRect(x: (thumbnail.width - side) / 2, y: (thumbnail.height - side) / 2, width: side, height: side)
+        let image = thumbnail.cropping(to: square) ?? thumbnail
         let zoom = avatar.kind == .slack ? sidebarZoom(image) : 1
         return ChatFaceImage(image: image, zoom: zoom, isFinal: avatar.isFinal(for: handle))
     }
@@ -46,6 +60,15 @@ struct ChatFaceImage: @unchecked Sendable {
             context.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
             return true
         }
-        return drawn ? CGFloat(ChatFaceZoom.zoom(rgba: rgba)) : 1
+        guard drawn else { return 1 }
+        // CoreGraphics only draws premultiplied; the chat app judges straight colour.
+        for pixel in stride(from: 0, to: rgba.count, by: 4) {
+            let alpha = Int(rgba[pixel + 3])
+            guard alpha > 0, alpha < 255 else { continue }
+            for channel in pixel..<(pixel + 3) {
+                rgba[channel] = UInt8(min(255, Int(rgba[channel]) * 255 / alpha))
+            }
+        }
+        return CGFloat(ChatFaceZoom.zoom(rgba: rgba))
     }
 }

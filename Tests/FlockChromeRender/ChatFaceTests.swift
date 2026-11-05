@@ -6,14 +6,15 @@ import UniformTypeIdentifiers
 import XCTest
 
 private actor FaceScript {
-    private var answers: [ChatFaceImage?]
+    private var answers: [ChatFaceLoad]
     private(set) var calls = 0
 
-    init(_ answers: [ChatFaceImage?]) { self.answers = answers }
+    init(_ answers: [ChatFaceImage?]) { self.answers = answers.map { $0.map(ChatFaceLoad.face) ?? .noFace } }
+    init(loads: [ChatFaceLoad]) { answers = loads }
 
-    func next() -> ChatFaceImage? {
+    func next() -> ChatFaceLoad {
         calls += 1
-        return answers.isEmpty ? nil : answers.removeFirst()
+        return answers.isEmpty ? .noFace : answers.removeFirst()
     }
 }
 
@@ -98,6 +99,34 @@ final class ChatFaceTests: XCTestCase {
         XCTAssertEqual(waits, [.seconds(10), .seconds(30), .seconds(120), .seconds(300), .seconds(300), .seconds(300)])
     }
 
+    func testAnRtWithoutTheVerbIsAskedOnceForEveryHandle() async {
+        let script = FaceScript(loads: [.noVerb, .noVerb])
+        let store = store(script) { _ in throw CancellationError() }
+        await store.followFace("ivy.a1b2")
+        await store.followFace("oak.c3d4")
+        let calls = await script.calls
+        XCTAssertEqual(calls, 1)
+        XCTAssertNil(store.face(for: "oak.c3d4"))
+    }
+
+    func testHandlesAppearingTogetherSendOneAskToAnRtWithoutTheVerb() async {
+        let script = FaceScript(loads: [.noVerb, .noVerb, .noVerb])
+        let store = ChatStore(
+            toasts: ToastCenter(), probe: { nil }, pause: { _ in throw CancellationError() },
+            loadFace: { _ in
+                try? await Task.sleep(for: .milliseconds(30))
+                return await script.next()
+            },
+            defaults: UserDefaults(suiteName: UUID().uuidString)!
+        )
+        let first = Task { await store.followFace("ivy.a1b2") }
+        let second = Task { await store.followFace("oak.c3d4") }
+        let third = Task { await store.followFace("elm.e5f6") }
+        _ = await (first.value, second.value, third.value)
+        let calls = await script.calls
+        XCTAssertEqual(calls, 1)
+    }
+
     func testAStopWhileWaitingEndsTheFollow() async throws {
         let script = FaceScript([])
         let store = store(script) { _ in throw CancellationError() }
@@ -142,6 +171,46 @@ final class ChatFaceTests: XCTestCase {
         XCTAssertFalse(generated.isFinal)
     }
 
+    private func writePNG(width: Int, height: Int, draw: (CGContext) -> Void) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("face.png")
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        draw(context)
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return file
+    }
+
+    func testAWidePhotoIsJudgedOnTheSquareTheChipShows() throws {
+        let file = try writePNG(width: 640, height: 480) { context in
+            context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: 640, height: 480))
+            context.setFillColor(red: 0.2, green: 0.3, blue: 0.5, alpha: 1)
+            context.fill(CGRect(x: 80, y: 0, width: 480, height: 480))
+        }
+        let photo = try XCTUnwrap(ChatFaceImage.decode(ChatAvatar(kind: .slack, path: file.path), handle: "slack.u1"))
+        XCTAssertEqual(photo.zoom, 1)
+        XCTAssertEqual(photo.image.width, photo.image.height)
+    }
+
+    func testHalfClearPaleBarsCountAsBars() throws {
+        let file = try writePNG(width: 480, height: 480) { context in
+            context.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.5)
+            context.fill(CGRect(x: 0, y: 0, width: 480, height: 480))
+            context.setFillColor(red: 0.2, green: 0.3, blue: 0.5, alpha: 1)
+            context.fill(CGRect(x: 60, y: 0, width: 360, height: 480))
+        }
+        let photo = try XCTUnwrap(ChatFaceImage.decode(ChatAvatar(kind: .slack, path: file.path), handle: "slack.u1"))
+        XCTAssertEqual(photo.zoom, 1.3, accuracy: 0.08)
+    }
+
     func testAFileThatIsGoneDecodesToNil() {
         XCTAssertNil(ChatFaceImage.decode(ChatAvatar(kind: .slack, path: "/nonexistent/face.jpg"), handle: "slack.u1"))
     }
@@ -151,7 +220,7 @@ final class ChatFaceTests: XCTestCase {
         let face = ChatFaceImage(image: try Self.solid(1, 0, 1), zoom: 1, isFinal: true)
         for (scheme, theme) in Self.themes {
             let store = ChatStore(
-                toasts: ToastCenter(), probe: { nil }, loadFace: { _ in face },
+                toasts: ToastCenter(), probe: { nil }, loadFace: { _ in .face(face) },
                 defaults: UserDefaults(suiteName: UUID().uuidString)!
             )
             let withFace = try await render(theme: theme, store: store, handle: "ivy.a1b2", name: "\(scheme)-face")

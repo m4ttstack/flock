@@ -1,7 +1,14 @@
 import Foundation
 
-/// What `rt chat avatar --json` prints for a handle with a face. An rt without
-/// the verb, and a face that could not be drawn, both decode to nil.
+/// What `rt chat avatar --json` answered: a face, no face for this handle, or
+/// no such verb in this rt.
+public enum ChatAvatarAnswer: Equatable, Sendable {
+    case face(ChatAvatar)
+    case noFace
+    case noVerb
+}
+
+/// What `rt chat avatar --json` prints for a handle with a face.
 public struct ChatAvatar: Decodable, Equatable, Sendable {
     public enum Kind: String, Decodable, Sendable {
         case slack
@@ -21,8 +28,21 @@ public struct ChatAvatar: Decodable, Equatable, Sendable {
     }
 
     public static func decode(stdout: Data, exitCode: Int32) -> ChatAvatar? {
-        guard exitCode == 0 else { return nil }
-        return try? JSONDecoder().decode(ChatAvatar.self, from: stdout)
+        guard case let .face(avatar) = answer(stdout: stdout, exitCode: exitCode) else { return nil }
+        return avatar
+    }
+
+    /// Anything that is not the verb's JSON is an rt without the verb, which
+    /// prints its usage instead.
+    public static func answer(stdout: Data, exitCode: Int32) -> ChatAvatarAnswer {
+        if exitCode == 0, let avatar = try? JSONDecoder().decode(ChatAvatar.self, from: stdout) {
+            return .face(avatar)
+        }
+        return (try? JSONDecoder().decode(Reply.self, from: stdout)) == nil ? .noVerb : .noFace
+    }
+
+    private struct Reply: Decodable {
+        let ok: Bool
     }
 
     /// A Slack handle's generated face stands in until rt has the photo.

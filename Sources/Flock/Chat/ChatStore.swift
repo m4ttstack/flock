@@ -54,8 +54,13 @@ final class ChatStore {
 
     @ObservationIgnored private var runner: ChatRunning?
     private var faces: [String: ChatFaceImage] = [:]
-    @ObservationIgnored private var faceLoads: [String: Task<ChatFaceImage?, Never>] = [:]
-    @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)?
+    @ObservationIgnored private var faceLoads: [String: Task<ChatFaceLoad, Never>] = [:]
+    /// Set while rt has no avatar verb, so one ask covers every handle.
+    @ObservationIgnored private var faceVerbMissingSince: ContinuousClock.Instant?
+    /// Until rt has answered with its verb, one handle at a time asks.
+    @ObservationIgnored private var faceVerbWorks = false
+    @ObservationIgnored private var faceVerbProbe: Task<ChatFaceLoad, Never>?
+    @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
     /// Populated by `peek()`, keyed by each buddy's own pane.
@@ -120,7 +125,7 @@ final class ChatStore {
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
-        loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)? = nil,
+        loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
         defaults: UserDefaults = .standard
     ) {
         self.toasts = toasts
@@ -190,7 +195,10 @@ final class ChatStore {
         guard let loadFace else { return }
         var attempt = 0
         while !Task.isCancelled, faces[handle]?.isFinal != true {
-            if let face = await sharedFaceLoad(handle, loadFace) { faces[handle] = face }
+            if !faceVerbWorks, let probe = faceVerbProbe { _ = await probe.value }
+            if faceVerbMissingSince.map({ .now - $0 >= Self.faceVerbRecheck }) ?? true {
+                await askFace(handle, loadFace)
+            }
             if faces[handle]?.isFinal == true { return }
             let wait = Self.faceRechecks[min(attempt, Self.faceRechecks.count - 1)]
             attempt += 1
@@ -198,9 +206,41 @@ final class ChatStore {
         }
     }
 
+    /// The answer is recorded inside the probe, so a follow waiting on it
+    /// wakes to the verb's state already settled.
+    private func askFace(_ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceLoad) async {
+        guard !faceVerbWorks else {
+            record(await sharedFaceLoad(handle, loadFace), for: handle)
+            return
+        }
+        let probe = Task {
+            let answer = await sharedFaceLoad(handle, loadFace)
+            record(answer, for: handle)
+            return answer
+        }
+        faceVerbProbe = probe
+        _ = await probe.value
+        if faceVerbProbe == probe { faceVerbProbe = nil }
+    }
+
+    private func record(_ answer: ChatFaceLoad, for handle: String) {
+        switch answer {
+        case let .face(face):
+            faceVerbWorks = true
+            faceVerbMissingSince = nil
+            faces[handle] = face
+        case .noFace:
+            faceVerbWorks = true
+            faceVerbMissingSince = nil
+        case .noVerb:
+            faceVerbWorks = false
+            faceVerbMissingSince = .now
+        }
+    }
+
     private func sharedFaceLoad(
-        _ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceImage?
-    ) async -> ChatFaceImage? {
+        _ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceLoad
+    ) async -> ChatFaceLoad {
         if let running = faceLoads[handle] { return await running.value }
         let load = Task { await loadFace(handle) }
         faceLoads[handle] = load
@@ -338,6 +378,8 @@ final class ChatStore {
     }
 
     private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
+    /// Just under the last recheck, so whichever follow wakes first asks again.
+    private static let faceVerbRecheck: Duration = .seconds(290)
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {

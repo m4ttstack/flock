@@ -61,10 +61,11 @@ enum ChatToolLocator {
     }
 
     /// `rt chat avatar` gives up on its own after 15s.
-    static func avatar(handle: String, size: Int) async -> ChatAvatar? {
+    /// Nil when rt did not run or did not answer in time.
+    static func avatar(handle: String, size: Int) async -> ChatAvatarAnswer? {
         let arguments = ChatAvatar.arguments(handle: handle, size: size)
         guard let (stdout, exitCode) = await runTool("rt", arguments: arguments, deadline: .seconds(20)) else { return nil }
-        return ChatAvatar.decode(stdout: stdout, exitCode: exitCode)
+        return ChatAvatar.answer(stdout: stdout, exitCode: exitCode)
     }
 
     @Sendable
