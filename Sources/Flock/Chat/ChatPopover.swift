@@ -10,8 +10,8 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
     case broadcast
     case peek
     case quickSend
-    case slackSupport
     case openViewer
+    case slackSupport
 
     var id: Self { self }
 

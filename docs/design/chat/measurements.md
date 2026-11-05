@@ -173,7 +173,7 @@ form in `B6` were not chosen. None of this draws unless `status` prints a
 `slackChat` key and the pane is signed in, so a popover without it keeps every
 number above.
 
-- **Features.** One 31 tall row between Quick send and Open viewer, with a 12pt
+- **Features.** One 31 tall row last, under Open viewer, with a 12pt
   chevron where the others have a shortcut. It dims, with the tooltip "One Slack
   chat per pane", while a chat is opening, open or closing.
 - **Status.** A 26 tall line under the room chips, 7 below them, while a chat is
