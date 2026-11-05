@@ -35,12 +35,24 @@ public struct ChatSidebarSelection: Equatable, Sendable {
         self.isEnded = isEnded
     }
 
-    /// The focused pane's chat wins, then the one already shown, so moving to
-    /// a pane with no chat does not swap the conversation being read.
+    /// A chat belongs to its pane, so it shows only on that pane's tab. A
+    /// background pane is on no tab and has no pane left to follow.
+    public func isLinked(toTab panes: Set<String>) -> Bool {
+        guard let pane = chat.pane, !pane.hasPrefix("bg:") else { return true }
+        return panes.contains(pane)
+    }
+
+    /// The focused pane's chat wins, then a chat on this tab over one that
+    /// isn't, then the one already shown, so moving to a pane with no chat
+    /// does not swap the conversation being read.
     public static func next(
-        current: ChatSidebarSelection?, open: [ChatSidebarChat], focusedPane: String?
+        current: ChatSidebarSelection?, open: [ChatSidebarChat], focusedPane: String?, tabPanes: Set<String>
     ) -> ChatSidebarSelection? {
         if let focusedPane, let chat = open.first(where: { $0.pane == focusedPane }) {
+            return ChatSidebarSelection(chat: chat, isEnded: false)
+        }
+        if current?.isLinked(toTab: tabPanes) != true,
+           let chat = open.first(where: { $0.pane.map(tabPanes.contains) == true }) {
             return ChatSidebarSelection(chat: chat, isEnded: false)
         }
         if let current {

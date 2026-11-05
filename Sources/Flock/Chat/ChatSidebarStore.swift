@@ -15,6 +15,7 @@ final class ChatSidebarStore {
     private(set) var embedURL: URL?
     private(set) var chatAppIsDown = false
     private(set) var isCollapsed = false
+    private(set) var tabPanes: Set<String> = []
 
     @ObservationIgnored private var focusedPane: String?
     @ObservationIgnored private var port: Int?
@@ -44,9 +45,16 @@ final class ChatSidebarStore {
         await refresh()
     }
 
+    func tabChanged(to panes: Set<String>) async {
+        tabPanes = panes
+        await refresh()
+    }
+
     func refresh() async {
         guard let open = await readChats(), !Task.isCancelled else { return }
-        await select(ChatSidebarSelection.next(current: selection, open: open, focusedPane: focusedPane))
+        await select(
+            ChatSidebarSelection.next(current: selection, open: open, focusedPane: focusedPane, tabPanes: tabPanes)
+        )
     }
 
     func toggleCollapsed() {

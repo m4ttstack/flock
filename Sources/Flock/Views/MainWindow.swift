@@ -28,6 +28,10 @@ struct MainWindow: View {
         herdrMousePatchStore.pendingConfirmation.flatMap { $0.source == .banner ? $0 : nil }
     }
 
+    private var tabPanes: Set<String> {
+        Set(viewModel.selectedLayout?.panes.map(\.paneID.rawValue) ?? [])
+    }
+
     private var paletteSurface: PaletteSurface {
         JumpNavigator(viewModel: viewModel, drag: dragCoordinator, mode: allWorkspacesMode).paletteSurface
     }
@@ -106,7 +110,7 @@ struct MainWindow: View {
                 }
             }
         }
-        .modifier(ChatSidebarFollower(focusedPane: viewModel.resolvedFocusedPaneID))
+        .modifier(ChatSidebarFollower(focusedPane: viewModel.resolvedFocusedPaneID, tabPanes: tabPanes))
         .background(theme.chrome)
         // Below the title bar and over everything else, rail included, so it
         // opens from any view and its icon can close it again.

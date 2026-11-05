@@ -9,7 +9,7 @@ struct ChatSidebar: View {
     let store: ChatSidebarStore
 
     var body: some View {
-        if let selection = store.selection {
+        if let selection = store.selection, selection.isLinked(toTab: store.tabPanes) {
             HStack(spacing: 0) {
                 Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
                 if store.isCollapsed {
@@ -158,6 +158,7 @@ private struct ChatSidebarHeader: View {
 /// whichever view it is drawing.
 struct ChatSidebarFollower: ViewModifier {
     let focusedPane: PaneID?
+    let tabPanes: Set<String>
 
     @Environment(ChatStore.self) private var chatStore: ChatStore?
     @Environment(ChatSidebarStore.self) private var store: ChatSidebarStore?
@@ -170,6 +171,9 @@ struct ChatSidebarFollower: ViewModifier {
             }
             .onChange(of: focusedPane) { _, pane in
                 Task { await store?.focusChanged(to: pane?.rawValue) }
+            }
+            .onChange(of: tabPanes, initial: true) { _, panes in
+                Task { await store?.tabChanged(to: panes) }
             }
     }
 }
