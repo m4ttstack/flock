@@ -96,10 +96,9 @@ struct MissionCardView: View {
                 StatusTimeline(theme: theme, segments: segments)
                     .frame(minWidth: M.timelineMinimumWidth, maxWidth: M.timelineWidth)
                     .frame(height: M.timelineHeight)
-            }
-            if let chat {
-                ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                if let chat {
+                    ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                }
             }
         }
         .padding(.vertical, M.cardVerticalPadding)

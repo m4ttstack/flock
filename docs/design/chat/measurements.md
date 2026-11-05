@@ -255,7 +255,7 @@ wider one: "nell" fits where "olga" does not.
 The face is the name's first letter on a tile until rt can hand over the persona
 the chat app draws.
 
-On an Overview card the chip takes its own last row, at the trailing edge.
+On an Overview card the chip ends the timeline's row.
 
 **Signed out:** the key at the launcher strip's size, with a 13x13
 `bubble.left.fill`.
