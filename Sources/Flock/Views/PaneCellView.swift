@@ -589,7 +589,10 @@ struct PaneCellView: View {
             viewerDisabledReason: chatStore.viewerDisabledReason,
             onRetry: { Task { await chatStore.refreshStatus(for: pane.paneID) } },
             initialFeature: pendingPopoverFeature,
-            onJump: role == .canvas ? { paneID in Task { await viewModel.focusFromChat(pane: paneID) } } : nil
+            onJump: role == .canvas ? { paneID in Task { await viewModel.focusFromChat(pane: paneID) } } : nil,
+            slackRow: chatStore.slackRow(for: pane.paneID),
+            onStartSlackChat: { person, problem in await chatStore.startSlackChat(pane.paneID, person: person, problem: problem) },
+            onEndSlackChat: { Task { await chatStore.endSlackChat(pane.paneID) } }
         )
         // A fresh fetch on every open, on top of the launch/availability
         // fetch above: a popover left closed for a while must not show a

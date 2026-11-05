@@ -53,6 +53,32 @@ enum ChatToolLocator {
         return ChatAutoSignIn.isOn(stdout: stdout, exitCode: exitCode)
     }
 
+    /// Why `line` was not typed, or nil when it may have been.
+    @Sendable
+    static func typeIntoPane(_ pane: String, line: String) async -> String? {
+        let resolved = await Task.detached(priority: .userInitiated) {
+            ToolPath.resolve("rt").map { ($0, ChatSlackCommand.sendEnvironment(ToolPath.childEnvironment())) }
+        }.value
+        guard let (rt, environment) = resolved else { return "rt not found" }
+        return await send(rt: rt, environment: environment, pane: pane, line: line)
+    }
+
+    /// An rt that never started typed nothing. One that timed out or failed
+    /// may still have, so only its own refusal counts.
+    static func send(
+        rt: String, environment: [String: String], pane: String, line: String, deadline: Duration = ChatSlackCommand.sendDeadline
+    ) async -> String? {
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: deadline)
+        do {
+            let (stdout, exitCode) = try await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line))
+            return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode)
+        } catch ToolRunner.Failure.didNotStart(let reason) {
+            return "rt could not start: \(reason)"
+        } catch {
+            return nil
+        }
+    }
+
     static func resolve(environmentOverride: String?, devPath: String?, bundledPath: String?) -> String? {
         let resolved = ChatAvailability.resolve(
             [environmentOverride, devPath, bundledPath], isRunnable: isExecutableFile

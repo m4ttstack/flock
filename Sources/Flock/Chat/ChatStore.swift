@@ -52,9 +52,12 @@ final class ChatStore {
     /// the popover's Retry banner reads, kept separate from the toast so the
     /// reason stays on screen after a transient toast has faded.
     private var statusErrors: [PaneID: String] = [:]
+    private var slackTransitions: [PaneID: ChatSlackTransition] = [:]
+    @ObservationIgnored private var slackWatches: [PaneID: Task<Void, Never>] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
     @ObservationIgnored private let autoSignInIsOn: (String) async -> Bool
     @ObservationIgnored private let pause: (Duration) async throws -> Void
+    @ObservationIgnored private let typeIntoPane: @Sendable (_ pane: String, _ line: String) async -> String?
     /// A pane drawn in more than one place asks once, not once per view.
     @ObservationIgnored private var followingAutoSignIn: Set<PaneID> = []
 
@@ -89,11 +92,13 @@ final class ChatStore {
         deckProbe: @escaping () async -> Bool = ChatToolLocator.probeDeckBinaryFound,
         makeRunner: @escaping (String) -> ChatRunning = { ChatRunner(binaryPath: $0) },
         autoSignInIsOn: @escaping (String) async -> Bool = ChatToolLocator.autoSignInIsOn(folder:),
-        pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+        pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        typeIntoPane: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoPane
     ) {
         self.toasts = toasts
         self.autoSignInIsOn = autoSignInIsOn
         self.pause = pause
+        self.typeIntoPane = typeIntoPane
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
 
@@ -126,6 +131,7 @@ final class ChatStore {
     func stop() {
         probeTask.cancel()
         peekTask?.cancel()
+        slackWatches.values.forEach { $0.cancel() }
     }
 
     func status(for pane: PaneID) -> ChatStatus? {
@@ -169,8 +175,98 @@ final class ChatStore {
         await applyStatus(from: .signIn(pane: pane.rawValue), pane: pane)
     }
 
+    /// The menu and palette read a cached status, and a chat started by hand
+    /// in the pane is not in it, so this asks again before acting.
     func signOut(_ pane: PaneID) async {
+        await applyStatus(from: .status(pane: pane.rawValue), pane: pane, quietly: true)
+        guard !signOutIsBlocked(for: pane) else {
+            toasts.show("End the Slack chat first", kind: .info)
+            return
+        }
         await applyStatus(from: .signOut(pane: pane.rawValue), pane: pane)
+    }
+
+    func signOutIsBlocked(for pane: PaneID) -> Bool {
+        slackRow(for: pane)?.blocksSignOut ?? false
+    }
+
+    func slackRow(for pane: PaneID) -> ChatSlackRow? {
+        ChatSlackRow.resolve(status: statuses[pane], transition: slackTransitions[pane])
+    }
+
+    func slackTransition(for pane: PaneID) -> ChatSlackTransition? {
+        slackTransitions[pane]
+    }
+
+    /// Only so a test can await a wait settling, the way `peekTask` exists.
+    func slackWatch(for pane: PaneID) -> Task<Void, Never>? {
+        slackWatches[pane]
+    }
+
+    /// Nil when Slack is not connected or the list could not be read: the
+    /// form then takes a typed name, so neither case is worth a toast.
+    func slackPeople() async -> [ChatSlackPerson]? {
+        guard case let .success(reply) = await attempt(.slackPeople) as RunOutcome<ChatSlackPeople> else { return nil }
+        return reply.people
+    }
+
+    /// True once the line is in the pane. That says nothing about the chat:
+    /// `slackChat` on a later status does, which is what the watch waits for.
+    func startSlackChat(_ pane: PaneID, person: String, problem: String) async -> Bool {
+        guard isAvailable, let line = ChatSlackCommand.line(person: person, problem: problem) else { return false }
+        if let refusal = await typeIntoPane(pane.rawValue, line) {
+            toasts.show("Slack chat not started: \(refusal)", kind: .info)
+            return false
+        }
+        watchSlack(
+            pane, transition: .opening, interval: ChatSlackWatch.openInterval, attempts: ChatSlackWatch.openAttempts
+        )
+        return true
+    }
+
+    func endSlackChat(_ pane: PaneID) async {
+        slackTransitions[pane] = .closing
+        let closed: ChatSlackClosed? = await run(.slackClose(pane: pane.rawValue))
+        guard closed != nil else {
+            slackTransitions[pane] = nil
+            return
+        }
+        watchSlack(
+            pane, transition: .closing, interval: ChatSlackWatch.closeInterval, attempts: ChatSlackWatch.closeAttempts
+        )
+    }
+
+    private func watchSlack(_ pane: PaneID, transition: ChatSlackTransition, interval: Duration, attempts: Int) {
+        slackWatches[pane]?.cancel()
+        slackTransitions[pane] = transition
+        slackWatches[pane] = Task { [weak self] in
+            await self?.followSlack(pane, transition: transition, interval: interval, attempts: attempts)
+        }
+    }
+
+    private func followSlack(_ pane: PaneID, transition: ChatSlackTransition, interval: Duration, attempts: Int) async {
+        for _ in 0..<attempts {
+            await applyStatus(from: .status(pane: pane.rawValue), pane: pane, quietly: true)
+            if Task.isCancelled { return }
+            if slackWatchIsDone(pane, transition: transition) {
+                slackTransitions[pane] = nil
+                return
+            }
+            do { try await pause(interval) } catch { return }
+        }
+        slackTransitions[pane] = nil
+        toasts.show(
+            transition == .opening ? "No Slack chat yet. Check the pane" : "Slack chat still open. Check the pane", kind: .info
+        )
+    }
+
+    private func slackWatchIsDone(_ pane: PaneID, transition: ChatSlackTransition) -> Bool {
+        switch statuses[pane]?.slack {
+        case .open: transition == .opening
+        case .noChat: transition == .closing
+        // No key is a lookup that failed, which says nothing about the chat.
+        case .unsupported, nil: false
+        }
     }
 
     /// Asks quietly: a session still starting answers with failures the user
@@ -254,7 +350,7 @@ final class ChatStore {
         guard requestGenerations[pane] == generation else { return }
         switch outcome {
         case let .success(status):
-            statuses[pane] = status
+            statuses[pane] = status.keepingSlackChat(from: statuses[pane])
             statusErrors[pane] = nil
         case let .failure(message):
             guard !quietly else { return }

@@ -383,6 +383,112 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         }
     }
 
+    // MARK: - Slack support
+
+    private static let slackPeople = [
+        ChatSlackPerson(name: "Alex Example", person: "U1", title: "Support lead"),
+        ChatSlackPerson(name: "Alex Example", person: "U2", title: "Sales"),
+        ChatSlackPerson(name: "Alexis Sample", person: "U3", title: nil),
+        ChatSlackPerson(name: "Sal Tester", person: "U4", title: nil)
+    ]
+
+    private func slackPopover(_ row: ChatSlackRow?, theme: Theme = ChatFeatureViewsRenderTests.theme) -> ChatPopover {
+        ChromeType.install()
+        return ChatPopover(
+            theme: theme,
+            status: ChatStatus(handle: "kay.k3f9", name: "kay", state: "live", pane: "w1:p3", signedIn: true, rooms: ["#rt", "#flock"]),
+            isPresented: .constant(true), onSignIn: {}, onSignOut: {}, onOpenViewer: {}, slackRow: row
+        )
+    }
+
+    private func slackForm(
+        theme: Theme = ChatFeatureViewsRenderTests.theme, people: [ChatSlackPerson]? = ChatFeatureViewsRenderTests.slackPeople,
+        unavailable: Bool = false, query: String = "", picked: ChatSlackPerson? = nil, problem: String = ""
+    ) -> ChatSlackSupportView {
+        ChromeType.install()
+        return ChatSlackSupportView(
+            theme: theme, onBack: {}, onClose: {}, onStart: { _, _ in false }, previewPeople: people,
+            previewUnavailable: unavailable, previewQuery: query, previewPicked: picked, previewProblem: problem
+        )
+    }
+
+    /// An old herdr-chat has no row at all, so its popover keeps every number
+    /// `measurements.md` gives.
+    func testNoSlackRowLeavesThePopoverAtItsMeasuredHeight() {
+        XCTAssertEqual(fittingHeight(slackPopover(nil).statusRoute), ChromeMetrics.ChatPopover.signedInHeight)
+    }
+
+    func testAnAvailableChatAddsOneFeatureRow() {
+        XCTAssertEqual(
+            fittingHeight(slackPopover(.available).statusRoute),
+            ChromeMetrics.ChatPopover.signedInHeight + ChromeMetrics.ChatPopover.Features.rowSize.height
+        )
+    }
+
+    func testAnOpeningChatAddsTheStatusLine() {
+        let status = ChromeMetrics.ChatPopover.Status.self
+        XCTAssertEqual(
+            fittingHeight(slackPopover(.opening).statusRoute),
+            ChromeMetrics.ChatPopover.signedInHeight + ChromeMetrics.ChatPopover.Features.rowSize.height
+                + status.slackLineHeight + status.slackLineGap
+        )
+    }
+
+    func testAnOpenChatAddsTheStatusLineAndTheSignOutHint() {
+        let status = ChromeMetrics.ChatPopover.Status.self
+        let band = ChromeMetrics.ChatPopover.SignButtons.self
+        for row in [ChatSlackRow.open(name: "Alex Example"), .closing(name: "Alex Example")] {
+            XCTAssertEqual(
+                fittingHeight(slackPopover(row).statusRoute),
+                ChromeMetrics.ChatPopover.signedInHeight + ChromeMetrics.ChatPopover.Features.rowSize.height
+                    + status.slackLineHeight + status.slackLineGap + band.hintGap + band.hintHeight,
+                "\(row)"
+            )
+        }
+    }
+
+    func testTheFormMatchesItsMeasuredHeight() {
+        XCTAssertEqual(fittingHeight(slackForm()), ChromeMetrics.ChatSlack.height)
+    }
+
+    /// The list floats over Problem, so searching never resizes the popover.
+    func testSearchingLeavesTheFormHeightAlone() {
+        XCTAssertEqual(fittingHeight(slackForm(query: "al")), ChromeMetrics.ChatSlack.height)
+    }
+
+    func testSlackSupportSymbolResolves() {
+        XCTAssertNotNil(NSImage(systemSymbolName: ChatPopoverFeature.slackSupport.symbolName, accessibilityDescription: nil))
+    }
+
+    func testSlackControlsRenderInBothSchemes() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let problem = "The deck will not load after the last update"
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let popovers: [(String, ChatSlackRow?)] = [
+                ("a-no-chat", .available), ("c-opening", .opening),
+                ("d-open", .open(name: "Alex Example")), ("e-closing", .closing(name: "Alex Example"))
+            ]
+            var surfaces: [(String, AnyView)] = popovers.map { ($0.0, AnyView(slackPopover($0.1, theme: theme).statusRoute)) }
+            surfaces += [
+                ("b-form-empty", AnyView(slackForm(theme: theme))),
+                ("b6-search", AnyView(slackForm(theme: theme, query: "al", problem: problem))),
+                ("b2-picked", AnyView(slackForm(theme: theme, query: "Alex Example", picked: Self.slackPeople[0], problem: problem))),
+                ("b5-unavailable", AnyView(slackForm(theme: theme, people: nil, unavailable: true, query: "alex", problem: problem)))
+            ]
+            for (name, view) in surfaces {
+                let size = CGSize(width: ChromeMetrics.ChatPopover.width, height: fittingHeight(view))
+                let window = hostWindow(view, chatStore: makeInertChatStore(), size: size, theme: theme)
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try writePNG(image, to: directory, name: "slack-\(name)-\(scheme).png")
+                }
+                XCTAssertEqual(hex(image, CGPoint(x: size.width * 0.6, y: 5)), theme.palette.panelBg.hex, "\(name), \(scheme): ground")
+                window.close()
+            }
+        }
+    }
+
     private static func decodeBuddy(_ json: String) -> ChatBuddy {
         try! JSONDecoder().decode(ChatBuddy.self, from: Data(json.utf8))
     }

@@ -1,4 +1,4 @@
-/// The nine headless verbs, each as the argument vector it becomes.
+/// The headless verbs, each as the argument vector it becomes.
 ///
 /// `Process` takes an argument vector rather than a command line, so nothing
 /// here is quoted or escaped: a body holding spaces or a leading dash is one
@@ -13,6 +13,8 @@ public enum ChatVerb: Equatable, Sendable {
     case broadcast(panes: [String], body: String)
     case jump(handle: String)
     case openViewer(room: String?)
+    case slackClose(pane: String)
+    case slackPeople
 
     public var arguments: [String] {
         switch self {
@@ -27,6 +29,8 @@ public enum ChatVerb: Equatable, Sendable {
         case let .jump(handle): ["jump", "--json", "--handle", handle]
         case let .openViewer(room):
             ["open-viewer", "--json"] + (room.map { ["--room", $0] } ?? [])
+        case let .slackClose(pane): ["slack-close", "--json", "--pane", pane]
+        case .slackPeople: ["slack-people", "--json"]
         }
     }
 }

@@ -21,6 +21,7 @@ extension PaletteContext {
             chatRows: ChatMenuModel.rows(
                 isAvailable: chatStore.isAvailable, hasFocusedPane: focused != nil,
                 isSignedIn: focused.flatMap { chatStore.status(for: $0) }?.signedIn ?? false,
+                signOutIsBlocked: focused.map { chatStore.signOutIsBlocked(for: $0) } ?? false,
                 viewerDisabledReason: chatStore.viewerDisabledReason
             ),
             focusedAgent: record?.agent,

@@ -9,6 +9,17 @@ final class ChatVerbTests: XCTestCase {
         )
     }
 
+    func testSlackCloseNamesThePane() {
+        XCTAssertEqual(
+            ChatVerb.slackClose(pane: "w1:p1").arguments,
+            ["slack-close", "--json", "--pane", "w1:p1"]
+        )
+    }
+
+    func testSlackPeopleTakesNoInput() {
+        XCTAssertEqual(ChatVerb.slackPeople.arguments, ["slack-people", "--json"])
+    }
+
     /// The panes are one comma-separated argument, which is what the verb's
     /// own value delimiter expects; one flag per pane is a different CLI.
     func testBroadcastJoinsItsPanesIntoOneArgument() {

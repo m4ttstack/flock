@@ -78,6 +78,104 @@ final class ChatShapesTests: XCTestCase {
         XCTAssertEqual(present.displayName, "kay")
     }
 
+    func testAStatusDecodesSlackChat() throws {
+        let status = try decode(
+            ChatStatus.self,
+            #"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex","openedAt":1700}}"#
+        )
+        XCTAssertEqual(status.slack, .open(name: "alex"))
+    }
+
+    func testSlackChatPrefersItsDisplayName() throws {
+        let status = try decode(
+            ChatStatus.self,
+            #"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"#
+        )
+        XCTAssertEqual(status.slack, .open(name: "Alex Example"))
+    }
+
+    func testSlackChatFallsBackToItsNameForAnEmptyDisplayName() throws {
+        let status = try decode(
+            ChatStatus.self,
+            #"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":{"name":"alex-slack","displayName":"","openedAt":1700}}"#
+        )
+        XCTAssertEqual(status.slack, .open(name: "alex-slack"))
+    }
+
+    func testPeopleDecodeWithAndWithoutATitle() throws {
+        let reply = try decode(
+            ChatSlackPeople.self,
+            #"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Sample","person":"U0OTHER"}]}"#
+        )
+        XCTAssertEqual(reply.people, [
+            ChatSlackPerson(name: "Alex Example", person: "U0TEST", title: "Support lead"),
+            ChatSlackPerson(name: "Sam Sample", person: "U0OTHER", title: nil)
+        ])
+    }
+
+    /// Slack not connected answers with no list, which the form reads as free text.
+    func testAnUnavailableAnswerHasNoPeople() throws {
+        let reply = try decode(ChatSlackPeople.self, #"{"ok":false,"reason":"unavailable","error":"no token"}"#)
+        XCTAssertNil(reply.people)
+    }
+
+    /// Bytes captured from a herdr-chat built with Slack support, so a wire
+    /// change fails here rather than in a pane.
+    func testHerdrChatsOwnOutputDecodes() throws {
+        let status = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":{"name":"alex-slack","displayName":"Alex Example","openedAt":1700}}"##
+        )
+        XCTAssertEqual(status.slack, .open(name: "Alex Example"))
+        XCTAssertEqual(status.rooms, ["#rt"])
+
+        let noChat = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"],"slackChat":null}"##
+        )
+        XCTAssertEqual(noChat.slack, .noChat)
+
+        let lookupFailed = try decode(
+            ChatStatus.self,
+            ##"{"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+        )
+        XCTAssertEqual(lookupFailed.slack, .unsupported)
+
+        let people = try decode(
+            ChatSlackPeople.self,
+            #"{"ok":true,"people":[{"name":"Alex Example","person":"U0TEST","title":"Support lead"},{"name":"Sam Other","person":"U0SAM"}]}"#
+        )
+        XCTAssertEqual(people.people?.map(\.person), ["U0TEST", "U0SAM"])
+        XCTAssertNil(people.people?.last?.title)
+
+        let closed = try decode(ChatSlackClosed.self, #"{"ok":true,"conversationId":4,"closed":false}"#)
+        XCTAssertFalse(closed.closed)
+    }
+
+    /// This one reply exits 0, so `ok` and the missing list are what say so.
+    func testAnRtWithNoPeopleVerbReadsAsUnavailable() throws {
+        let reply = try ChatOutcome.decode(
+            ChatSlackPeople.self,
+            stdout: Data(#"{"ok":false,"reason":"unavailable","error":"rt chat has no verb called slack-people"}"#.utf8),
+            exitCode: 0
+        )
+        XCTAssertNil(reply.people)
+    }
+
+    func testANullSlackChatMeansSupportedWithNoChatOpen() throws {
+        let status = try decode(
+            ChatStatus.self, #"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[],"slackChat":null}"#
+        )
+        XCTAssertEqual(status.slack, .noChat)
+    }
+
+    /// An older herdr-chat prints no key at all, and that must not read as
+    /// null: null offers On, and On would type a command nothing handles.
+    func testAnAbsentSlackChatMeansUnsupported() throws {
+        let status = try decode(ChatStatus.self, #"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#)
+        XCTAssertEqual(status.slack, .unsupported)
+    }
+
     func testASignedOutStatusHasNoDisplayName() throws {
         let status = try decode(
             ChatStatus.self, #"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
