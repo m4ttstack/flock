@@ -60,7 +60,8 @@ enum ChromeType {
     static let newTabSymbolName = "plus"
 
     static let paneTitle = inter(11.5, .medium)
-    static let statusChip = mono(11.5)
+    static let paneBarRt = Font.custom(TerminalFont.face, size: 11).weight(.semibold)
+    static let paneBarFaceInitial = inter(11, .semibold)
     /// Named apart from the `Font` so a test can measure the handle in the
     /// exact face that draws it. The button's width now follows the handle's
     /// own text, so an expectation about that width has to start from the
@@ -89,7 +90,6 @@ enum ChromeType {
     static let chatComposeSendLabel = inter(12, .semibold)
     static let chatComposeSendShortcut = inter(10)
     static let rtBadge = inter(10, .bold)
-    static let rtButtonCount = inter(11.5, .semibold)
     static let rtPopoverBadge = inter(10, .bold)
     static let rtPopoverFolder = inter(10)
     static let rtPopoverRow = inter(12)
@@ -195,8 +195,6 @@ enum ChromeType {
     /// Sized from the control's own metric: the glyph and the box it sits in
     /// are one control, and two numbers for it drift apart.
     static let closeSymbol = Font.system(size: ChromeMetrics.CloseButton.symbol, weight: .bold)
-    static let zoomBadge = Font.system(size: 11, weight: .semibold)
-    static let zoomBadgeLabel = inter(11.5, .medium)
     static let findField = inter(12.5)
     static let findCount = inter(11).monospacedDigit()
     static let findSymbol = Font.system(size: 11, weight: .semibold)

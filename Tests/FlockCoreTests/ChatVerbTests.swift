@@ -33,7 +33,7 @@ final class ChatVerbTests: XCTestCase {
     /// name rather than guessing between a room and a person.
     func testQuickSendPassesTheTargetPrefixThrough() {
         XCTAssertEqual(
-            ChatVerb.quickSend(to: "#rt", body: "hi").arguments,
+            ChatVerb.quickSend(pane: "w1:p2", to: "#rt", body: "hi").arguments,
             ["quick-send", "--json", "--to", "#rt", "--body", "hi"]
         )
     }
@@ -51,6 +51,17 @@ final class ChatVerbTests: XCTestCase {
     /// needs no escaping. Quoting it would send the quotes.
     func testABodyWithShellMetacharactersIsOneUnescapedArgument() {
         let body = "don't \"ship\"; --now"
-        XCTAssertEqual(ChatVerb.quickSend(to: "@scout", body: body).arguments.last, body)
+        XCTAssertEqual(ChatVerb.quickSend(pane: "w1:p2", to: "@scout", body: body).arguments.last, body)
+    }
+
+    func testQuickSendActsForItsPane() {
+        XCTAssertEqual(ChatVerb.targets(pane: "w1:p2").callerPane, "w1:p2")
+        XCTAssertEqual(ChatVerb.quickSend(pane: "w1:p2", to: "#rt", body: "hi").callerPane, "w1:p2")
+    }
+
+    /// `--pane` verbs are scrubbed of the variable, so they must never set it.
+    func testAVerbThatNamesItsPaneInItsArgumentsSetsNoCaller() {
+        XCTAssertNil(ChatVerb.status(pane: "w1:p2").callerPane)
+        XCTAssertNil(ChatVerb.peek.callerPane)
     }
 }

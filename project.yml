@@ -78,6 +78,9 @@ targetTemplates:
         # restoration attempt logged). This Info.plist key is read before
         # either of those.
         NSApplicationSupportsSecureRestorableState: NO
+        # The chat sidebar's page is served over plain http on localhost.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
 
 targets:
   FlockCore:

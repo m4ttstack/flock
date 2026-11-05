@@ -322,6 +322,7 @@ struct FlockApp: App {
                 .environment(toastCenter)
                 .environment(startingFolderStore)
                 .environment(chatStore)
+                .environment(session.chatSidebarStore)
                 .environment(undoJournal)
                 .environment(rearrangeMode)
                 .environment(dragCoordinator)

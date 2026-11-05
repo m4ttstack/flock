@@ -52,98 +52,236 @@ private actor SendLog {
     }
 }
 
+private actor StartLog {
+    private(set) var repos: [String] = []
+
+    func record(_ repo: String) {
+        repos.append(repo)
+    }
+}
+
 @MainActor
 final class ChatStoreSlackTests: XCTestCase {
     private let pane = PaneID(rawValue: "w1:p1")
 
-    private func makeStore(_ script: SlackScript, refusal: String? = nil, sends: SendLog = SendLog()) async -> (ChatStore, ToastCenter) {
+    private func makeStore(
+        _ script: SlackScript, agent: String? = "bg:w9:p1", refusal: String? = nil, screen: String? = nil,
+        sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil
+    ) async -> (ChatStore, ToastCenter) {
         let toasts = ToastCenter()
+        let suite = defaults ?? UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
         let store = ChatStore(
             toasts: toasts, probe: { "/bin/echo" }, rtProbe: { true }, deckProbe: { true },
             makeRunner: { _ in script }, pause: { _ in },
             typeIntoPane: { pane, line in
                 await sends.record(pane: pane, line: line)
+                return nil
+            },
+            startAgent: { repo in
+                await starts.record(repo)
+                return agent
+            },
+            typeIntoAgent: { pane, line in
+                await sends.record(pane: pane, line: line)
                 return refusal
-            }
+            },
+            readAgentRefusal: { _ in screen },
+            defaults: suite
         )
         await store.probeTask.value
         await store.peekTask?.value
         return (store, toasts)
     }
 
-    func testOnTypesTheCommandIntoThePane() async {
-        let sends = SendLog()
-        let (store, _) = await makeStore(SlackScript(chats: ["alex"]), sends: sends)
+    private let repo = ChatSlackRepo(path: "/src/acme")
 
-        let started = await store.startSlackChat(pane, person: "O'Brien", problem: "line one\nline two")
+    private func open(_ name: String = "alex") -> ChatSidebarChat {
+        ChatSidebarChat(room: "dm", pane: "bg:w9:p1", name: name)
+    }
+
+    /// The exit runs in a task of its own, with nothing to await.
+    private func exitLines(_ sends: SendLog) async -> [String] {
+        for _ in 0..<200 {
+            let lines = await sends.lines.map(\.line).filter { $0 == ChatSlackAgent.exitLine }
+            if !lines.isEmpty { return lines }
+            await Task.yield()
+        }
+        return []
+    }
+
+    func testStartTypesTheCommandIntoABackgroundAgentInTheRepo() async {
+        let sends = SendLog()
+        let starts = StartLog()
+        let (store, _) = await makeStore(SlackScript(chats: [nil]), sends: sends, starts: starts)
+
+        let started = await store.startSlackChat(pane, person: "O'Brien", problem: "line one\nline two", repo: repo)
 
         XCTAssertTrue(started)
+        let repos = await starts.repos
+        XCTAssertEqual(repos, ["/src/acme"])
         let lines = await sends.lines
-        XCTAssertEqual(lines.map(\.pane), ["w1:p1"])
+        XCTAssertEqual(lines.map(\.pane), ["bg:w9:p1"])
         XCTAssertEqual(lines.map(\.line), ["/slack-support O'Brien line one line two"])
     }
 
-    func testOnShowsItWorkedFromSlackChatNotTheSendResult() async {
-        let (store, toasts) = await makeStore(SlackScript(chats: [nil, nil, "alex"]))
+    func testAStartedChatReadsAsOpeningUntilRtListsIt() async {
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]))
 
-        _ = await store.startSlackChat(pane, person: "alex", problem: "hi")
-        XCTAssertEqual(store.slackTransition(for: pane), .opening, "a send that was taken proves nothing yet")
-        await store.slackWatch(for: pane)?.value
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        XCTAssertEqual(store.slackRow(for: pane), .opening, "a line that was taken proves nothing yet")
 
-        XCTAssertEqual(store.status(for: pane)?.slack, .open(name: "alex"))
+        await store.noteSlackChats([open()])
+        XCTAssertEqual(store.slackRow(for: pane), .open(name: "alex"))
         XCTAssertNil(store.slackTransition(for: pane))
         XCTAssertNil(toasts.current)
     }
 
-    func testASendThatWasTakenButOpenedNothingDoesNotReadAsOpen() async {
-        let (store, toasts) = await makeStore(SlackScript(chats: [nil]))
+    func testAnAgentThatWouldNotStartSaysSoAndTypesNothing() async {
+        let sends = SendLog()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), agent: nil, sends: sends)
 
-        _ = await store.startSlackChat(pane, person: "alex", problem: "hi")
-        await store.slackWatch(for: pane)?.value
-
-        XCTAssertEqual(ChatSlackRow.resolve(status: store.status(for: pane), transition: store.slackTransition(for: pane)), .available)
-        XCTAssertEqual(toasts.current?.message, "No Slack chat yet. Check the pane")
-    }
-
-    func testARefusalStopsThereAndSaysWhy() async {
-        let script = SlackScript(chats: [nil])
-        let (store, toasts) = await makeStore(script, refusal: "at a prompt")
-
-        let started = await store.startSlackChat(pane, person: "alex", problem: "hi")
+        let started = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
 
         XCTAssertFalse(started)
         XCTAssertNil(store.slackTransition(for: pane))
-        XCTAssertNil(store.slackWatch(for: pane))
-        XCTAssertEqual(toasts.current?.message, "Slack chat not started: at a prompt")
-    }
-
-    func testABlankFormTypesNothing() async {
-        let sends = SendLog()
-        let (store, _) = await makeStore(SlackScript(chats: [nil]), sends: sends)
-
-        let started = await store.startSlackChat(pane, person: " ", problem: "hi")
-
-        XCTAssertFalse(started)
         let lines = await sends.lines
         XCTAssertTrue(lines.isEmpty)
+        XCTAssertEqual(toasts.current?.message, "Slack chat not started: no agent")
     }
 
-    func testAStoreWithNoChatTypesNothing() async {
+    func testARefusedLineExitsTheAgentAndSaysWhy() async {
         let sends = SendLog()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), refusal: "at a prompt", sends: sends)
+
+        let started = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        XCTAssertFalse(started)
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        XCTAssertEqual(toasts.current?.message, "Slack chat not started: at a prompt")
+        let exits = await exitLines(sends)
+        XCTAssertEqual(exits, [ChatSlackAgent.exitLine])
+    }
+
+    func testABlankFormStartsNoAgent() async {
+        let starts = StartLog()
+        let (store, _) = await makeStore(SlackScript(chats: [nil]), starts: starts)
+
+        let started = await store.startSlackChat(pane, person: " ", problem: "hi", repo: repo)
+
+        XCTAssertFalse(started)
+        let repos = await starts.repos
+        XCTAssertTrue(repos.isEmpty)
+    }
+
+    func testAStoreWithNoChatStartsNoAgent() async {
+        let starts = StartLog()
         let store = ChatStore(
             toasts: ToastCenter(), probe: { nil }, rtProbe: { true }, deckProbe: { true },
-            typeIntoPane: { pane, line in
-                await sends.record(pane: pane, line: line)
+            startAgent: { repo in
+                await starts.record(repo)
                 return nil
-            }
+            },
+            defaults: UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
         )
         await store.probeTask.value
 
-        let started = await store.startSlackChat(pane, person: "alex", problem: "hi")
+        let started = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
 
         XCTAssertFalse(started)
-        let lines = await sends.lines
-        XCTAssertTrue(lines.isEmpty)
+        let repos = await starts.repos
+        XCTAssertTrue(repos.isEmpty)
+    }
+
+    func testARefusalOnTheAgentsScreenEndsTheStartAndSaysWhy() async {
+        let sends = SendLog()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), screen: "already in a chat", sends: sends)
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.noteSlackChats([])
+
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertEqual(toasts.current?.message, "Slack chat not started: already in a chat")
+        let exits = await exitLines(sends)
+        XCTAssertEqual(exits, [ChatSlackAgent.exitLine])
+    }
+
+    func testAnAgentStillStartingIsLeftAlone() async {
+        let sends = SendLog()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), sends: sends)
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.noteSlackChats([])
+
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertNil(toasts.current)
+    }
+
+    func testAChatThatClosedExitsItsAgent() async {
+        let sends = SendLog()
+        let (store, _) = await makeStore(SlackScript(chats: [nil]), sends: sends)
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        await store.noteSlackChats([open()])
+
+        await store.noteSlackChats([])
+
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        let exits = await exitLines(sends)
+        XCTAssertEqual(exits, [ChatSlackAgent.exitLine])
+    }
+
+    func testEndClosesTheAgentsChatFromThePaneThatStartedIt() async {
+        let script = SlackScript(chats: [nil])
+        let (store, _) = await makeStore(script)
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.endSlackChat(pane)
+
+        let verbs = await script.verbs
+        XCTAssertTrue(verbs.contains(.slackClose(pane: "bg:w9:p1")))
+    }
+
+    func testAnAgentsChatThatOutlivesTheCloseWindowOffersEndAgain() async {
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]))
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        await store.noteSlackChats([open()])
+
+        await store.endSlackChat(pane)
+        await store.slackWatch(for: pane)?.value
+
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertEqual(store.slackRow(for: pane), .open(name: "alex"))
+        XCTAssertEqual(toasts.current?.message, "Slack chat still open. Check the pane")
+    }
+
+    func testAFailedCloseOnAnAgentsChatLeavesNoWait() async {
+        let (store, _) = await makeStore(SlackScript(chats: [nil], closeError: "no chat"))
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.endSlackChat(pane)
+
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertNil(store.slackWatch(for: pane))
+    }
+
+    func testTheLinkToAnAgentSurvivesARelaunch() async {
+        let defaults = UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
+        let (first, _) = await makeStore(SlackScript(chats: [nil]), defaults: defaults)
+        _ = await first.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        let (second, _) = await makeStore(SlackScript(chats: [nil]), defaults: defaults)
+
+        XCTAssertEqual(second.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertEqual(second.slackRepoName(ofAgent: "bg:w9:p1"), "acme")
+    }
+
+    func testAnAgentsChatDoesNotBlockSignOut() async {
+        let (store, _) = await makeStore(SlackScript(chats: [nil]))
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        await store.noteSlackChats([open()])
+
+        XCTAssertFalse(store.signOutIsBlocked(for: pane))
     }
 
     func testOffRunsTheCloseVerbForThePane() async {
@@ -196,16 +334,6 @@ final class ChatStoreSlackTests: XCTestCase {
         let verbs = await script.verbs
         XCTAssertEqual(verbs.filter { $0 == .status(pane: "w1:p1") }.count, 3)
         XCTAssertEqual(store.status(for: pane)?.slack, .noChat)
-    }
-
-    func testAFailedLookupMidOpenKeepsWaiting() async {
-        let (store, toasts) = await makeStore(SlackScript(chats: [nil, SlackScript.lookupFailed, "alex"]))
-
-        _ = await store.startSlackChat(pane, person: "alex", problem: "hi")
-        await store.slackWatch(for: pane)?.value
-
-        XCTAssertEqual(store.status(for: pane)?.slack, .open(name: "alex"))
-        XCTAssertNil(toasts.current)
     }
 
     func testAFailedOffKeepsTheChatAndSaysWhy() async {

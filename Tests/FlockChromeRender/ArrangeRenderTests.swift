@@ -54,8 +54,9 @@ final class ArrangeRenderTests: XCTestCase {
             let image = try snapshot(window)
             try write(image, "arrange-chat-\(scheme).png")
             let tile = try XCTUnwrap(arrange.drag.surfaces?.grid?.miniPaneFrame(of: ArrangeFixture.apiClaude))
-            let corner = CGRect(x: tile.maxX - 70, y: tile.maxY - 30, width: 70, height: 30)
-            XCTAssertTrue(contains(theme.palette.green.hex, in: corner, of: image), "\(scheme): no handle in the tile's corner")
+            let corner = CGRect(x: tile.maxX - 90, y: tile.maxY - 40, width: 90, height: 40)
+            let ink = LauncherStripStyle(theme: theme).inkTone.hex
+            XCTAssertTrue(contains(ink, in: corner, of: image), "\(scheme): no handle in the tile's corner")
             window.close()
         }
     }

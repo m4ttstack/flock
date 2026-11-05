@@ -103,6 +103,7 @@ struct PaneCellView: View {
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
+    @State private var isChatChipHovered = false
     /// Read once by `chatPopover`'s own `initialFeature`: nil for an
     /// ordinary click (always the status root), set only by the Chat menu's
     /// `onChange` below, and cleared alongside every open so a later plain
@@ -289,7 +290,7 @@ struct PaneCellView: View {
     /// row. Rearrange mode drags from anywhere on the pane instead.
     private var grip: some View {
         PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
-            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.top, PaneChrome.titleRowTop)
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
             .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
@@ -448,13 +449,16 @@ struct PaneCellView: View {
                 onCancel: { viewModel.cancelRename() }
             )
             .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
-            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.top, PaneChrome.titleRowTop)
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
-            HStack(alignment: .top, spacing: ChromeMetrics.Pane.legendItemGap) {
-                statusChip
+            HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {
+                statusDot
+                if showsWindowButton { windowButton }
                 titleLabel
             }
+            .frame(height: ChromeMetrics.PaneBar.rowHeight)
+            .padding(.top, ChromeMetrics.PaneBar.rowTop)
             .padding(.leading, PaneChrome.horizontalPadding)
         }
     }
@@ -467,8 +471,7 @@ struct PaneCellView: View {
             .foregroundStyle(shown == nil ? Color.clear : isFocused ? theme.textStrong : theme.textDim)
             .accessibilityHidden(shown == nil)
             .lineLimit(1)
-            .frame(height: PaneChrome.titleRowHeight)
-            .padding(.top, PaneChrome.verticalPadding)
+            .frame(height: ChromeMetrics.PaneBar.rowHeight)
             .contentShape(Rectangle())
         // ONE tap gesture, which is what keeps a plain click instant: a
         // `count: 2` sibling for the rename would make this one wait out the
@@ -502,34 +505,39 @@ struct PaneCellView: View {
         Task { await viewModel.jumpToHerdr(pane: pane.paneID) }
     }
 
-    /// The legend's trailing end: the mouse badge, the chat button, the rt
-    /// button, then the zoom badge, last so the way out of a zoom sits in the
-    /// same corner whatever else the legend shows.
+    /// The bar's trailing end: the mouse button, rt, then the chat chip, last
+    /// so who is in the pane sits in the same corner whatever else it shows.
     private var legendControls: some View {
-        HStack(spacing: ChromeMetrics.Pane.legendItemGap) {
+        HStack(spacing: ChromeMetrics.PaneBar.trailingGap) {
             if ghosttySurface?.programHasMouse == true { mouseBadge }
-            if chatButtonAppearance != .absent { chatButton }
             rtButton
-            if isZoomed { zoomBadge }
+            if chatButtonAppearance != .absent { chatButton }
         }
-        .padding(.top, PaneChrome.verticalPadding)
+        .frame(height: ChromeMetrics.PaneBar.rowHeight)
+        .padding(.top, ChromeMetrics.PaneBar.rowTop)
         .padding(.trailing, PaneChrome.horizontalPadding)
     }
 
-    /// Leads the title, so the pane's name and what its agent is doing read
-    /// together. `fixedSize` so a long title truncates before the chip does.
-    private var statusChip: some View {
+    private var statusDot: some View {
         let appearance = statusChipAppearance
-        return Text(appearance.label)
-            .font(ChromeType.statusChip)
-            .foregroundStyle(appearance.color)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
-            .frame(height: PaneChrome.titleRowHeight)
-            .background(RoundedRectangle(cornerRadius: ChromeRadius.control).fill(appearance.color.opacity(0.14)))
-            .padding(.top, PaneChrome.verticalPadding)
-            .allowsHitTesting(false)
+        return PaneStatusDot(
+            theme: theme,
+            color: appearance.color,
+            label: appearance.label.prefix(1).uppercased() + appearance.label.dropFirst()
+        )
+    }
+
+    /// Maximizing the only pane in a tab would change nothing. A solo cell
+    /// shows one pane out of its tab, where herdr's zoom is not in play.
+    private var showsWindowButton: Bool {
+        guard role == .canvas, let model = viewModel.model else { return false }
+        return model.panes.values.filter { $0.tabID == pane.tabID }.count > 1
+    }
+
+    private var windowButton: some View {
+        PaneWindowButton(theme: theme, paneID: pane.paneID, isZoomed: isZoomed) {
+            Task { await viewModel.toggleZoom(pane.paneID) }
+        }
     }
 
     private var chatButtonAppearance: ChatButtonModel.Appearance {
@@ -557,22 +565,13 @@ struct PaneCellView: View {
         case .absent:
             EmptyView()
         case .signedOut:
-            Button(action: { openChatPopover() }) {
-                ChatGlyph(color: theme.overlay0)
-                    .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
-                    .frame(width: ChromeMetrics.ChatButton.signedOutSize.width, height: ChromeMetrics.ChatButton.signedOutSize.height)
-                    .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatButton.cornerRadius).fill(Color(theme.palette.surface0)))
-                    .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Chat")
-            .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
+            ChatSignedOutButton(theme: theme, paneID: pane.paneID) { openChatPopover() }
         case let .signedIn(name, unread):
             Button(action: { openChatPopover() }) {
-                ChatHandlePill(theme: theme, name: name, unread: unread)
-                    .hoverWash(theme, cornerRadius: ChromeMetrics.ChatButton.cornerRadius)
+                ChatHandlePill(theme: theme, name: name, unread: unread, isHovered: isChatChipHovered)
             }
             .buttonStyle(.plain)
+            .onHover { isChatChipHovered = $0 }
             .accessibilityLabel(unread > 0 ? "Chat: \(name), \(unread) unread" : "Chat: \(name)")
             .accessibilityIdentifier("flock.pane.chatButton.\(pane.paneID.rawValue)")
         }
@@ -591,7 +590,13 @@ struct PaneCellView: View {
             initialFeature: pendingPopoverFeature,
             onJump: role == .canvas ? { paneID in Task { await viewModel.focusFromChat(pane: paneID) } } : nil,
             slackRow: chatStore.slackRow(for: pane.paneID),
-            onStartSlackChat: { person, problem in await chatStore.startSlackChat(pane.paneID, person: person, problem: problem) },
+            slackRepos: ChatSlackRepo.list(
+                current: pane.foregroundCwd ?? pane.cwd,
+                others: viewModel.model?.panes.values.map { $0.foregroundCwd ?? $0.cwd } ?? []
+            ),
+            onStartSlackChat: { person, problem, repo in
+                await chatStore.startSlackChat(pane.paneID, person: person, problem: problem, repo: repo)
+            },
             onEndSlackChat: { Task { await chatStore.endSlackChat(pane.paneID) } }
         )
         // A fresh fetch on every open, on top of the launch/availability
@@ -661,38 +666,6 @@ struct PaneCellView: View {
     private func showRunner() {
         guard let terminal = pane.terminalID, let runner = viewModel.rt.runner(linkedTo: terminal) else { return }
         Task { await viewModel.rt.show(runner.id) }
-    }
-
-    /// Mauve, never a status color (the parity checklist's own rule), so a
-    /// zoomed pane is never read as an agent state.
-    ///
-    /// The label is what makes this an accessibility element at all: an
-    /// unlabelled `Image` is decorative, SwiftUI exposes nothing for it, and
-    /// the identifier below then names something no reader can reach. This
-    /// badge is the only place the window says a tab is zoomed, so it has to
-    /// be readable.
-    private var zoomBadge: some View {
-        Button(action: { Task { await viewModel.toggleZoom(pane.paneID) } }) {
-            HStack(spacing: ChromeMetrics.Pane.zoomBadgeGap) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(ChromeType.zoomBadge)
-                Text("Zoomed")
-                    .font(ChromeType.zoomBadgeLabel)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .foregroundStyle(theme.mauve)
-            .padding(.horizontal, ChromeMetrics.Pane.statusChipPadding)
-            .frame(height: PaneChrome.titleRowHeight)
-            .background(RoundedRectangle(cornerRadius: ChromeRadius.control).fill(theme.mauve.opacity(0.14)))
-            .contentShape(RoundedRectangle(cornerRadius: ChromeRadius.control))
-            .hoverWash(theme, cornerRadius: ChromeRadius.control)
-        }
-        .buttonStyle(.plain)
-        .help("Unzoom (\(ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.zoom.key), modifiers: FocusedPaneCommand.zoom.modifiers)))")
-        .accessibilityLabel("Zoomed")
-        .accessibilityHint("Unzooms the tab")
-        .accessibilityIdentifier("flock.pane.zoomBadge.\(pane.paneID.rawValue)")
     }
 
     /// Shown only while the program has the mouse: a plain shell's right-click

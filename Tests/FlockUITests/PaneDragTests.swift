@@ -828,7 +828,7 @@ final class PaneDragTests: XCTestCase {
     /// The one spelling of each identifier family the suite reads, so a
     /// prefix filter and a full identifier can never drift apart.
     private static let canvasPanePrefix = "flock.canvas.pane."
-    private static let zoomBadgePrefix = "flock.pane.zoomBadge."
+    private static let zoomBadgePrefix = "flock.pane.restore."
 
     private func canvasPane(_ paneID: String) -> String { Self.canvasPanePrefix + paneID }
 

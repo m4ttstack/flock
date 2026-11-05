@@ -96,9 +96,9 @@ struct MissionCardView: View {
                 StatusTimeline(theme: theme, segments: segments)
                     .frame(minWidth: M.timelineMinimumWidth, maxWidth: M.timelineWidth)
                     .frame(height: M.timelineHeight)
-            }
-            if let chat {
-                ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                if let chat {
+                    ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                }
             }
         }
         .padding(.vertical, M.cardVerticalPadding)
@@ -163,7 +163,7 @@ struct StatusTimeline: View {
                 }
             }
         }
-        .background(theme.tabRest)
+        .background(theme.textStrong.opacity(ChromeMetrics.MissionControl.timelineTrackOpacity))
         .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.tiny))
         .accessibilityHidden(true)
     }

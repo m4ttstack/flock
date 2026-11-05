@@ -7,12 +7,11 @@ import CoreGraphics
 public enum PaneChrome {
     public static let verticalPadding: CGFloat = 10
     public static let horizontalPadding: CGFloat = 13
-    /// At least as tall as the tallest thing the title row holds. The chat
-    /// button is a 21pt overlay pinned to this row rather than a child
-    /// constrained by it, so a shorter row lets the button overflow into
-    /// `titleGap` below and eat the breathing room that gap exists for.
-    public static let titleRowHeight: CGFloat = 21
-    public static let titleGap: CGFloat = 6
+    public static let titleRowTop: CGFloat = 13
+    public static let titleRowHeight: CGFloat = 22
+    /// The chat chip is taller than the title row and overhangs it into this
+    /// gap, so the gap has to hold the overhang and the room under the chip.
+    public static let titleGap: CGFloat = 11
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.
@@ -20,7 +19,7 @@ public enum PaneChrome {
 
     /// From the box's top edge down to the first terminal row. This band is
     /// also the pane's at-rest drag handle, so it costs no terminal rows.
-    public static var contentTop: CGFloat { verticalPadding + titleRowHeight + titleGap }
+    public static var contentTop: CGFloat { titleRowTop + titleRowHeight + titleGap }
 
     /// Everything a box holds besides its surface, per axis: what is taken off
     /// a box before deriving its whole-cell grid.

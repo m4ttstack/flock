@@ -173,7 +173,7 @@ form in `B6` were not chosen. None of this draws unless `status` prints a
 `slackChat` key and the pane is signed in, so a popover without it keeps every
 number above.
 
-- **Features.** One 31 tall row between Quick send and Open viewer, with a 12pt
+- **Features.** One 31 tall row last, under Open viewer, with a 12pt
   chevron where the others have a shortcut. It dims, with the tooltip "One Slack
   chat per pane", while a chat is opening, open or closing.
 - **Status.** A 26 tall line under the room chips, 7 below them, while a chat is
@@ -227,50 +227,37 @@ that does and say so in your report rather than shipping an empty glyph.
 
 ## The chat button in a pane's chrome
 
-The chrome row is 32 tall with pad 7/10 and gap 8; the button sits at y 7 and the
-status dot stays to its right.
+The last thing on the pane bar, so who is in the pane sits in the same corner
+whatever else the bar shows. It is a key at rest, where the bar's other buttons
+are bare until hovered. Fills, edges and text come from `LauncherStripStyle`, so
+the bar and the launcher strip cannot drift apart. Board **Pane Top Bar - Final**
+in `flock-chat.pen` holds the design.
 
-**Signed in:** height 18, WIDTH SIZED TO CONTENT, fill `selectionBg`, NO stroke,
-r4, pad 3/8, gap 6. Three children, and a fourth only when there is unread:
+**The bar:** 46 from the box's top to the first terminal row. The title row is
+22 tall at y 13, and the 32 chip overhangs it by 5 each way, which leaves 8
+above the chip and 6 below it.
 
-| Child | Size | Colour | Type |
-| --- | --- | --- | --- |
-| Name | h12, WIDTH FROM THE TEXT | `green` | 10/600, the display name with NO `@` prefix |
-| Icon | 11x11 | `green` | `bubble.left.fill` |
-| Count | h12, WIDTH FROM THE TEXT | `text` | 10/600, present only when unread is non-zero |
+**Signed in:** height 32, WIDTH SIZED TO CONTENT, r9. In order:
 
-**This overrides the canvas in five ways, deliberately, and none of them may be
-"corrected" back.** The canvas draws a fixed 71x18 pill, handle and glyph in
-`accent`, an `accent` stroke, and a 1x9 `surface1` divider between handle and
-glyph. Every one of those was wrong in the running app:
+| Child | Size | Notes |
+| --- | --- | --- |
+| Name | WIDTH FROM THE TEXT | 11.5/600, the display name with NO `@` prefix, 7 from the chip's leading edge |
+| Face | 24x24, r5 | 7 after the name, inset 4 on the top, trailing and bottom edges |
+| Unread dot | 9x9 `red`, a 2pt ring in the pane's ground | on the face's top-trailing corner, overhanging it by 2 |
 
-- **Green, not `accent`.** Blue already carries too much of this UI, and green
-  is what a status dot means by online everywhere else in these designs.
-- **No stroke.** A bordered pill reads as a selected item rather than a state.
-  The soft `selectionBg` fill is enough to mark it active.
-- **No divider.** Green lettering beside the glyph separates itself, and a 1pt
-  rule inside an 18pt pill is one thing too many.
-- **No fixed width.** The canvas sized the pill around a count that is usually
-  absent, so a zero-unread button carried a permanent empty gap where the
-  number would go. Sizing to content trades a rare reflow when a message
-  lands for a gap that was visible all the time.
-- **No fixed width ON THE CHILDREN EITHER, which is a separate rule.** The
-  table above once read "Handle 18x12", the measured width of the single
-  handle the canvas happened to draw. A button that sizes to content around a
-  child pinned to one name's width still clips every wider name, and it does
-  it unevenly: "nell" fits in 18pt because two `l`s are barely there, while
-  "olga" renders as "o...". **A name is somebody's name and is never
-  abbreviated.** The text sizes to itself, refuses to compress
-  (`fixedSize`), and the pane title is what gives when the legend runs out of
-  room. The same applies to the count, which the canvas drew as a single
-  digit.
+**A name is somebody's name and is never abbreviated.** The text sizes to
+itself and refuses to compress (`fixedSize`), and the pane title is what gives
+when the bar runs out of room. A chip pinned to one name's width clips every
+wider one: "nell" fits where "olga" does not.
 
-The count is `palette.text`, not `accent` and not `panelBg`: it differs from the
-unread pills in the popover and peek, which are `panelBg` on an `accent` ground.
-The count shows only when there is unread; at zero the button is the name and
-the glyph, and nothing else.
+**No number on unread.** The count lives in the popover's Peek.
 
-**Signed out:** 27x17, fill `surface0`, r4, pad 3/8, gap 6, no border. One child,
-an 11x11 `bubble.left.fill` in `overlay0`.
+The face is the name's first letter on a tile until rt can hand over the persona
+the chat app draws.
+
+On an Overview card the chip ends the timeline's row.
+
+**Signed out:** the key at the launcher strip's size, with a 13x13
+`bubble.left.fill`.
 
 **No chat binary:** no button.

@@ -10,8 +10,8 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
     case broadcast
     case peek
     case quickSend
-    case slackSupport
     case openViewer
+    case slackSupport
 
     var id: Self { self }
 
@@ -77,7 +77,8 @@ struct ChatPopover: View {
     /// Nil hides every Slack control: chat is not signed in here, or this
     /// herdr-chat has no Slack support.
     let slackRow: ChatSlackRow?
-    let onStartSlackChat: (_ person: String, _ problem: String) async -> Bool
+    let slackRepos: [ChatSlackRepo]
+    let onStartSlackChat: (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool
     let onEndSlackChat: () -> Void
 
     @Binding private var isPresented: Bool
@@ -110,7 +111,8 @@ struct ChatPopover: View {
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
         viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
         onJump: ((PaneID) -> Void)? = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil,
-        slackRow: ChatSlackRow? = nil, onStartSlackChat: @escaping (_ person: String, _ problem: String) async -> Bool = { _, _ in false },
+        slackRow: ChatSlackRow? = nil, slackRepos: [ChatSlackRepo] = [],
+        onStartSlackChat: @escaping (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool = { _, _, _ in false },
         onEndSlackChat: @escaping () -> Void = {}
     ) {
         self.theme = theme
@@ -124,6 +126,7 @@ struct ChatPopover: View {
         self.onRetry = onRetry
         self.onJump = onJump
         self.slackRow = slackRow
+        self.slackRepos = slackRepos
         self.onStartSlackChat = onStartSlackChat
         self.onEndSlackChat = onEndSlackChat
         self._route = State(initialValue: initialFeature.map(Route.feature) ?? .status)
@@ -425,6 +428,7 @@ struct ChatPopover: View {
                     HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.ChatPopover.Features.rowCornerRadius)
                 }
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -526,7 +530,7 @@ struct ChatPopover: View {
             case .quickSend:
                 ChatQuickSendView(theme: theme, status: status, onBack: onBack, onClose: onClose)
             case .slackSupport:
-                ChatSlackSupportView(theme: theme, onBack: onBack, onClose: onClose, onStart: onStartSlackChat)
+                ChatSlackSupportView(theme: theme, repos: slackRepos, onBack: onBack, onClose: onClose, onStart: onStartSlackChat)
             case .openViewer:
                 EmptyView()
             }

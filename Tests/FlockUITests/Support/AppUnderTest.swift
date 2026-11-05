@@ -338,7 +338,7 @@ private func offset(_ aim: Aim, in frame: CGRect) -> CGVector {
 /// spare, and off the boundary the target shares with its neighbor.
 private let edgeAimInset: CGFloat = 0.05
 
-/// The grip's centre below the box's top: `PaneChrome`'s 10pt of padding and
-/// half its 21pt title row. Not importable here (the UI test bundle links the
+/// The grip's centre below the box's top: `PaneChrome`'s 13pt title row top and
+/// half its 22pt title row. Not importable here (the UI test bundle links the
 /// app, not FlockCore), so it is restated.
-private let paneGripCenterDepth: CGFloat = 20.5
+private let paneGripCenterDepth: CGFloat = 24

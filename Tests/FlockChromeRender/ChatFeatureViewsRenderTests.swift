@@ -407,7 +407,8 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     ) -> ChatSlackSupportView {
         ChromeType.install()
         return ChatSlackSupportView(
-            theme: theme, onBack: {}, onClose: {}, onStart: { _, _ in false }, previewPeople: people,
+            theme: theme, repos: [ChatSlackRepo(path: "/src/acme")], onBack: {}, onClose: {},
+            onStart: { _, _, _ in false }, previewPeople: people,
             previewUnavailable: unavailable, previewQuery: query, previewPicked: picked, previewProblem: problem
         )
     }

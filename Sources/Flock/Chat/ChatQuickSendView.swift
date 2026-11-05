@@ -15,6 +15,7 @@ struct ChatQuickSendView: View {
     @State private var labels: [String: String]
     @State private var selectedTarget: String?
     @State private var message = ""
+    private let isPreview: Bool
 
     /// `previewTargets` exists only so a geometry test can measure a
     /// populated chip row without a live `ChatStore` in the environment --
@@ -32,10 +33,11 @@ struct ChatQuickSendView: View {
         self._targets = State(initialValue: previewTargets ?? [])
         self._labels = State(initialValue: previewLabels)
         self._selectedTarget = State(initialValue: previewTargets?.first)
+        self.isPreview = previewTargets != nil
     }
 
     private var canSend: Bool {
-        ChatPresence.canSend(status) && selectedTarget != nil
+        ChatPresence.canSend(status) && selectedTarget != nil && status?.pane != nil
     }
 
     var body: some View {
@@ -49,9 +51,14 @@ struct ChatQuickSendView: View {
         // overwrite deterministic preview data with whatever an inert test
         // store answers, which is exactly the flake a geometry test cannot
         // have.
-        .task {
-            guard targets.isEmpty else { return }
-            guard let fetched = await chatStore.targets() else { return }
+        // Keyed on the pane: the popover can show this view before its status
+        // arrives, and another pane's targets must not outlive a change.
+        .task(id: status?.pane) {
+            guard !isPreview else { return }
+            targets = []
+            labels = [:]
+            selectedTarget = nil
+            guard let pane = status?.pane, let fetched = await chatStore.targets(pane: pane) else { return }
             targets = fetched.rooms + fetched.people
             labels = fetched.labels ?? [:]
             selectedTarget = targets.first
@@ -167,10 +174,10 @@ struct ChatQuickSendView: View {
     }
 
     private func send() {
-        guard let target = selectedTarget else { return }
+        guard let target = selectedTarget, let pane = status?.pane else { return }
         let body = message
         Task {
-            guard await chatStore.quickSend(to: target, body: body) else { return }
+            guard await chatStore.quickSend(pane: pane, to: target, body: body) else { return }
             message = ""
         }
     }

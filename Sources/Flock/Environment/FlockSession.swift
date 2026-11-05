@@ -43,6 +43,7 @@ final class FlockSession: ProfileSession {
 
     let toastCenter: ToastCenter
     let chatStore: ChatStore
+    let chatSidebarStore = ChatSidebarStore()
     let herdrStore: HerdrStore
     let undoJournal: UndoJournal
     let ghosttyFactory: GhosttyControlSurfaceFactory?
@@ -113,7 +114,10 @@ final class FlockSession: ProfileSession {
         self.toastCenter = toastCenter
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
         // main actor via its `probeTask`; nothing here reads it synchronously.
-        chatStore = ChatStore(toasts: toastCenter)
+        let chatStore = ChatStore(toasts: toastCenter)
+        self.chatStore = chatStore
+        chatSidebarStore.onChats = { await chatStore.noteSlackChats($0) }
+        chatSidebarStore.owner = { chatStore.slackOwner(ofAgent: $0)?.rawValue }
         let herdrStore = resnapshotInterval.map { HerdrStore(socketPath: socketPath, resnapshotInterval: $0) }
             ?? HerdrStore(socketPath: socketPath)
         self.herdrStore = herdrStore

@@ -36,14 +36,17 @@ final class MissionLanesRenderTests: XCTestCase {
         }
     }
 
-    /// A signed-in pane's card ends with its handle, at the left.
+    /// A signed-in pane's card ends with its handle, at the bottom right.
     func testASignedInCardShowsItsChatHandle() async throws {
         let scenario = Scenario(name: "chat", blocked: 1, done: 1, working: 2, background: 1)
         let pane = panes(scenario, only: .working)[0]
         try await render(scenario, signedIn: [("@robin", pane)]) { theme, image, _ in
             let card = try XCTUnwrap(MissionCardFrames.shared.frames[pane])
-            let corner = CGRect(x: card.minX, y: card.maxY - 34, width: 90, height: 34)
-            XCTAssertGreaterThan(self.count(theme.palette.green.hex, in: corner, of: image), 0, "\(theme.id): no handle on the card")
+            let corner = CGRect(x: card.maxX - 90, y: card.maxY - 44, width: 90, height: 44)
+            // The chip's fill is translucent, so it reads as anything but the
+            // card's ground, across far more of the corner than a timeline.
+            let ground = theme.palette.chromeRoles.chrome.hex
+            XCTAssertGreaterThan(self.countOther(than: ground, in: corner, of: image), 4000, "\(theme.id): no handle at the card's bottom right")
         }
     }
 

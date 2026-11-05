@@ -84,16 +84,31 @@ final class ChromeRenderTests: XCTestCase {
         return NSAttributedString(string: text, attributes: [.font: font as Any]).size().width
     }
 
-    /// The signed-in chat button's content-derived width with no unread:
-    /// leading and trailing padding around the handle, one gap, the glyph.
-    private static func chatButtonNoUnreadWidth(handle: String) -> CGFloat {
-        ChromeMetrics.ChatButton.horizontalPadding * 2 + handleTextWidth(handle)
-            + ChromeMetrics.ChatButton.gap + ChromeMetrics.ChatButton.iconSize.width
+    /// The signed-in chip's content-derived width: the gap before the name,
+    /// the name, the gap to the face, the face and its inset.
+    private static func chatChipWidth(handle: String) -> CGFloat {
+        let bar = ChromeMetrics.PaneBar.self
+        return 2 * bar.chipNameGap + handleTextWidth(handle) + bar.faceSize + bar.chipFaceInset
     }
 
-    /// The same button with a count child: one more gap and the count's text.
-    private static func chatButtonWithUnreadWidth(handle: String, unread: Int) -> CGFloat {
-        chatButtonNoUnreadWidth(handle: handle) + ChromeMetrics.ChatButton.gap + handleTextWidth("\(unread)")
+    /// The title row's centre, measured from the box's top.
+    private static var barCentre: CGFloat { PaneChrome.titleRowTop + PaneChrome.titleRowHeight / 2 }
+
+    /// Where the chip's sides run straight, above everything the bar's other
+    /// controls and the grip draw, so only the chip inks this line.
+    private static func chipSideY(in box: CGRect) -> CGFloat {
+        let bar = ChromeMetrics.PaneBar.self
+        return box.minY + barCentre - bar.chipHeight / 2 + bar.chipCornerRadius
+    }
+
+    /// The chat chip's extent along the bar, found in the render.
+    private func chipExtent(_ image: NSBitmapImageRep, box: CGRect, theme: Theme) -> (minX: CGFloat, maxX: CGFloat)? {
+        let y = Self.chipSideY(in: box)
+        let ground = theme.palette.chromeRoles.pane.hex
+        let xs = stride(from: box.midX, through: box.maxX - PaneChrome.horizontalPadding, by: 0.5)
+            .filter { hex(image, CGPoint(x: $0, y: y)) != ground }
+        guard let first = xs.first, let last = xs.last else { return nil }
+        return (first, last)
     }
 
     override func tearDown() {
@@ -118,93 +133,52 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The pane legend's chat button, both states it can actually draw: fill
-    /// sampled against the palette by name, and its frame against the sizes
-    /// `measurements.md` gives -- signed out is fixed, signed in is measured
-    /// from the render, since its width follows its content. The button is
-    /// the only thing in its pane's legend here (idle, unzoomed), so its box
-    /// sits flush against the legend's own padding with nothing else to make
-    /// room for.
-    func testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex() async throws {
+    /// The pane bar's chat button, both states it can actually draw. A key is
+    /// drawn in both, so who is in the pane reads without a hover. Signed in,
+    /// the width is measured from the render, since it follows the name.
+    func testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSize() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
         // A minted identity: the button draws the name, never the id, so it
         // measures as "kay" below. "kay.k3f9" would be several glyphs wider.
         let signedInJSON = #"""
         {"handle":"kay.k3f9","name":"kay","state":"live","pane":"w1:p2","signedIn":true,"rooms":["#general"]}
         """#
+        for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
+            let signedIn = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON])
+            let signedInWindow = signedIn.makeWindow(size: Self.windowSize)
+            await settle(signedInWindow)
+            let signedInImage = try snapshot(signedInWindow)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in-\(scheme).png")
+                try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let box = PaneBox.frame(in: try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let chip = try XCTUnwrap(chipExtent(signedInImage, box: box, theme: theme), "\(scheme): no chip on the bar")
+            XCTAssertEqual(
+                chip.maxX - chip.minX, Self.chatChipWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
+                "\(scheme): the chip is sized to its name, not a fixed frame"
+            )
+            XCTAssertEqual(chip.maxX, box.maxX - PaneChrome.horizontalPadding, accuracy: 1, "\(scheme): the chip ends the bar")
+            signedInWindow.close()
 
-        let signedIn = try await Harness(theme: theme, chatAvailable: true, chatStatusJSON: [pane: signedInJSON])
-        let signedInWindow = signedIn.makeWindow(size: Self.windowSize)
-        await settle(signedInWindow)
-        let signedInImage = try snapshot(signedInWindow)
-        if let directory {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in.png")
-            try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
+            let signedOut = try await Harness(theme: theme, chatAvailable: true)
+            let signedOutWindow = signedOut.makeWindow(size: Self.windowSize)
+            await settle(signedOutWindow)
+            let signedOutImage = try snapshot(signedOutWindow)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-out-\(scheme).png")
+                try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let key = Self.chatButtonFrame(
+                inRawFrame: try XCTUnwrap(signedOut.drag.canvas.paneFrames[pane]), size: ChromeMetrics.PaneBar.keySize
+            )
+            XCTAssertNotEqual(
+                hex(signedOutImage, CGPoint(x: key.minX + 2.5, y: key.midY)),
+                theme.palette.chromeRoles.pane.hex, "\(scheme): the signed-out button keeps its key at rest"
+            )
+            signedOutWindow.close()
         }
-        let signedInBox = try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane])
-        let noUnreadSize = CGSize(width: Self.chatButtonNoUnreadWidth(handle: "kay"), height: ChromeMetrics.ChatButton.signedInHeight)
-        let signedInFrame = Self.chatButtonFrame(inRawFrame: signedInBox, size: noUnreadSize)
-        // Measured against the render, not assumed: this is what catches a
-        // fixed frame coming back, which an assumed size cannot.
-        let insetBox = PaneBox.frame(in: signedInBox, dividerThickness: DividerBand.gutter)
-        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
-        let scanFrom = insetBox.midX
-        let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
-        let measuredMinX = try XCTUnwrap(
-            firstX(signedInImage, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
-            "no selectionBg pixel on the legend row -- the chat button did not draw"
-        )
-        let measuredMaxX = try XCTUnwrap(
-            lastX(signedInImage, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
-            "no selectionBg pixel on the legend row -- the chat button did not draw"
-        )
-        XCTAssertEqual(
-            measuredMaxX - measuredMinX, Self.chatButtonNoUnreadWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
-            "signed-in width sized to content with no unread, not a fixed frame"
-        )
-        // Inside the leading padding, ahead of the handle text: the frame's
-        // own center sits on the glyph, whose antialiased edge blends fill
-        // and text color rather than reading as either.
-        XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: signedInFrame.minX + 3, y: signedInFrame.midY)),
-            theme.palette.selectionBg.hex, "signed-in fill"
-        )
-        XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: signedInFrame.maxX - 0.5, y: signedInFrame.midY)),
-            theme.palette.selectionBg.hex, "signed-in carries no separate stroke"
-        )
-        // The glyph, at its own measured offset past the leading padding and
-        // the handle: pad(8) + handle(18) + gap(6) puts the 11pt glyph's
-        // center at 37.5.
-        XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: signedInFrame.minX + 37.5, y: signedInFrame.midY)),
-            theme.palette.green.hex, "signed-in glyph"
-        )
-        signedInWindow.close()
-
-        let signedOut = try await Harness(theme: theme, chatAvailable: true)
-        let signedOutWindow = signedOut.makeWindow(size: Self.windowSize)
-        await settle(signedOutWindow)
-        let signedOutImage = try snapshot(signedOutWindow)
-        if let directory {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-out.png")
-            try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
-        }
-        let signedOutBox = try XCTUnwrap(signedOut.drag.canvas.paneFrames[pane])
-        let signedOutFrame = Self.chatButtonFrame(inRawFrame: signedOutBox, size: ChromeMetrics.ChatButton.signedOutSize)
-        XCTAssertEqual(signedOutFrame.size, ChromeMetrics.ChatButton.signedOutSize, "signed-out size")
-        // Just inside the rounded corner, clear of the centered glyph.
-        XCTAssertEqual(
-            hex(signedOutImage, CGPoint(x: signedOutFrame.minX + 2, y: signedOutFrame.minY + 2)),
-            theme.palette.surface0.hex, "signed-out fill"
-        )
-        XCTAssertEqual(
-            hex(signedOutImage, CGPoint(x: signedOutFrame.maxX - 0.5, y: signedOutFrame.midY)),
-            theme.palette.surface0.hex, "signed-out carries no separate stroke"
-        )
-        signedOutWindow.close()
     }
 
     /// A handle is somebody's name and is never abbreviated, so the button
@@ -229,15 +203,9 @@ final class ChromeRenderTests: XCTestCase {
             defer { window.close() }
             await settle(window)
             let image = try snapshot(window)
-            let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
-            let insetBox = PaneBox.frame(in: box, dividerThickness: DividerBand.gutter)
-            let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
-            let scanFrom = insetBox.midX
-            let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
-            let fill = theme.palette.selectionBg.hex
-            let minX = try XCTUnwrap(firstX(image, y: legendY, from: scanFrom, to: scanTo, matching: fill))
-            let maxX = try XCTUnwrap(lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: fill))
-            return maxX - minX
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme))
+            return chip.maxX - chip.minX
         }
 
         let narrow = try await buttonWidth(handle: "nell")
@@ -276,7 +244,7 @@ final class ChromeRenderTests: XCTestCase {
             }
             for (pane, changes) in [(holder, true), (other, false)] {
                 let box = PaneBox.frame(in: try XCTUnwrap(held.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
-                let y = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+                let y = box.minY + Self.barCentre
                 var changed = false
                 var x = box.midX
                 while x <= box.maxX - PaneChrome.horizontalPadding, !changed {
@@ -290,12 +258,14 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// The badge's right button is lit, in the accent, while right-clicks go
-    /// to the program, as a pane starts; a real click on the badge flips it.
-    func testTheMouseBadgeLightsItsRightButtonInProgramModeAndAClickFlipsIt() async throws {
+    /// The right clicker is filled while right-clicks go to the program, as a
+    /// pane starts, and a real click on the button flips it. The button is
+    /// found in the render because rt's follows the startup PATH.
+    func testTheMouseButtonFillsItsRightClickerInProgramModeAndAClickFlipsIt() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let holder = PaneID(rawValue: "w1:p2")
         let terminal = TerminalID(rawValue: "term_p2")
+        let bar = ChromeMetrics.PaneBar.self
         for id in ["tokyo-night", "catppuccin-latte"] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             var model = try Fixture.model()
@@ -304,22 +274,27 @@ final class ChromeRenderTests: XCTestCase {
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
             let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[holder]), dividerThickness: DividerBand.gutter)
-            let legend = CGRect(
-                x: box.midX, y: box.minY + PaneChrome.verticalPadding,
-                width: box.maxX - PaneChrome.horizontalPadding - box.midX, height: PaneChrome.titleRowHeight
-            )
-
+            let ground = theme.palette.chromeRoles.pane.hex
             let onProgram = try snapshot(window)
-            let lit = try XCTUnwrap(
-                firstPixel(onProgram, in: legend, matching: theme.palette.accent.hex), "\(id): a pane starts unlit"
+            let centre = box.minY + Self.barCentre
+            let from = box.midX + ChromeMetrics.Pane.Grip.hitWidth
+            let left = try XCTUnwrap(
+                stride(from: from, through: box.maxX, by: 0.5).first { x in
+                    hex(onProgram, CGPoint(x: x, y: centre + 2)) != ground
+                },
+                "\(id): no mouse on the bar"
             )
+            // The outline's left side is 5 units into the 24-unit glyph.
+            let glyphMinX = left - bar.glyphSize * 5 / 24
+            let clicker = CGPoint(x: glyphMinX + bar.glyphSize * 15 / 24, y: centre - bar.glyphSize / 2 + bar.glyphSize * 6 / 24)
+            XCTAssertNotEqual(hex(onProgram, clicker), ground, "\(id): a pane starts with the right clicker filled")
 
             window.makeKeyAndOrderFront(nil)
-            click(window, at: lit)
+            click(window, at: CGPoint(x: glyphMinX + bar.glyphSize / 2, y: centre))
             await settle(window)
             XCTAssertEqual(harness.viewModel.rightClicks.mode(for: terminal), .menu, "\(id): the click did not flip it")
             let onMenu = try snapshot(window)
-            XCTAssertNil(firstPixel(onMenu, in: legend, matching: theme.palette.accent.hex), "\(id): still lit on the menu")
+            XCTAssertNotEqual(hex(onMenu, clicker), hex(onProgram, clicker), "\(id): still filled on the menu")
             for (name, image) in [("menu", onMenu), ("program", onProgram)] {
                 if let directory {
                     let url = URL(fileURLWithPath: directory).appendingPathComponent("mouse-mode-\(name)-\(id).png")
@@ -347,7 +322,7 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
             let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
-            let rowY = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+            let rowY = box.minY + Self.barCentre
             let pill = ChromeMetrics.Pane.Grip.pillSize
             let dots = CGRect(x: box.midX - pill.width / 2, y: rowY - pill.height / 2, width: pill.width, height: pill.height)
             XCTAssertNotNil(firstPixel(image, in: dots, matching: theme.palette.overlay0.hex), "\(id): no grip drawn")
@@ -405,7 +380,7 @@ final class ChromeRenderTests: XCTestCase {
         }
         for (pane, drawn) in [(PaneID(rawValue: "w1:p2"), true), (PaneID(rawValue: "w1:p1"), false)] {
             let box = PaneBox.frame(in: try XCTUnwrap(frames[pane]), dividerThickness: DividerBand.gutter)
-            let y = box.minY + PaneChrome.verticalPadding + PaneChrome.titleRowHeight / 2
+            let y = box.minY + Self.barCentre
             var changed = false
             var x = box.midX
             while x <= box.maxX - PaneChrome.horizontalPadding, !changed {
@@ -426,9 +401,9 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
         let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
-        let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.ChatButton.signedOutSize)
+        let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.PaneBar.keySize)
         XCTAssertEqual(
-            hex(image, CGPoint(x: frame.midX, y: frame.midY)), theme.palette.chromeRoles.pane.hex,
+            hex(image, CGPoint(x: frame.maxX - 2.5, y: frame.midY)), theme.palette.chromeRoles.pane.hex,
             "no chat binary drew a button anyway"
         )
         window.close()
@@ -452,27 +427,17 @@ final class ChromeRenderTests: XCTestCase {
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
         let image = try snapshot(window)
-        let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
-        // Every button size shares the same right edge (`chatButtonFrame`'s
-        // own `box.maxX - horizontalPadding`), so this trailing-edge sample
-        // reads the signed-in box's `selectionBg` fill when it fetched, or the
-        // signed-out box's plain `surface0` fill when it did not -- the same
-        // point `testChatButtonRendersSignedInAndSignedOutAtTheirMeasuredSizeAndHex`
-        // reads for each state on its own.
-        let frame = Self.chatButtonFrame(
-            inRawFrame: box, size: CGSize(width: Self.chatButtonNoUnreadWidth(handle: "kay"), height: ChromeMetrics.ChatButton.signedInHeight)
-        )
+        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+        let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme), "the button still reads as signed out")
         XCTAssertEqual(
-            hex(image, CGPoint(x: frame.maxX - 0.5, y: frame.midY)),
-            theme.palette.selectionBg.hex, "signed-in fill absent: the button still reads as signed out"
+            chip.maxX - chip.minX, Self.chatChipWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
+            "the button still reads as signed out"
         )
         window.close()
     }
 
-    /// The Count child, at render level rather than only the model: a
-    /// fixture pane carrying both a non-idle agent status and a signed-in
-    /// chat with unread. The button's frame is not assumed -- it is found by
-    /// scanning the legend row's own pixels.
+    /// Unread is a dot on the face's corner, which leaves the chip's width
+    /// alone: no number, ever.
     func testChatButtonDrawsUnread() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme.tokyoNight
@@ -491,56 +456,19 @@ final class ChromeRenderTests: XCTestCase {
             let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in-unread.png")
             try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
         }
-        let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
-        let insetBox = PaneBox.frame(in: box, dividerThickness: DividerBand.gutter)
-        // The legend row's own vertical center: the chat button is its
-        // tallest child (18pt against the status pill's 14), so the row's
-        // top is the button's own top, and both center on the same line.
-        let legendY = insetBox.minY + PaneChrome.verticalPadding + ChromeMetrics.ChatButton.signedInHeight / 2
-        let scanFrom = insetBox.midX
-        let scanTo = insetBox.maxX - PaneChrome.horizontalPadding
-
-        let buttonMaxX = try XCTUnwrap(
-            lastX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
-            "no selectionBg pixel on the legend row -- the chat button did not draw"
-        )
-        let buttonMinX = try XCTUnwrap(
-            firstX(image, y: legendY, from: scanFrom, to: scanTo, matching: theme.palette.selectionBg.hex),
-            "no selectionBg pixel on the legend row -- the chat button did not draw"
-        )
-        // Measured, not assumed: a fixed frame reappearing would widen this
-        // past the no-unread button's own measured width instead of matching
-        // it, since a fixed frame draws the same width either way.
+        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+        let bar = ChromeMetrics.PaneBar.self
+        let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme))
         XCTAssertEqual(
-            buttonMaxX - buttonMinX, Self.chatButtonWithUnreadWidth(handle: "kay", unread: 3), accuracy: Self.textLayoutSlack,
-            "signed-in width sized to content with unread present"
+            chip.maxX - chip.minX, Self.chatChipWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
+            "unread changed the chip's width"
         )
-        XCTAssertGreaterThan(
-            buttonMaxX - buttonMinX, Self.chatButtonNoUnreadWidth(handle: "kay"),
-            "the with-unread button is not wider than the empty one -- a fixed frame came back"
+        let corner = CGRect(
+            x: box.maxX - PaneChrome.horizontalPadding - bar.chipFaceInset - bar.unreadDotSize,
+            y: box.minY + Self.barCentre - bar.chipHeight / 2 - bar.unreadDotOverhang,
+            width: bar.unreadDotSize + bar.unreadDotOverhang, height: bar.unreadDotSize + bar.unreadDotOverhang
         )
-        // Leading padding, the handle's own drawn width, a gap, the glyph and
-        // another gap: where the count starts is derived rather than written
-        // down, because the handle's width is now the text's and a constant
-        // here would be a second, stale answer for it.
-        //
-        // A single digit at this size antialiases across its whole slot with
-        // no pixel at full coverage (confirmed by dumping the row: the closest
-        // sampled pixel to `palette.text` was #B5BEE9, twelve units off in the
-        // worst channel, against a plain background over a hundred units off)
-        // -- so this takes the CLOSEST pixel in the slot rather than demanding
-        // an exact match, the same tolerance the file's own
-        // `channelDistance`/`washDither` pattern uses for opacity blends.
-        let countSlotStart = buttonMinX + ChromeMetrics.ChatButton.horizontalPadding
-            + Self.handleTextWidth("kay") + ChromeMetrics.ChatButton.gap
-            + ChromeMetrics.ChatButton.iconSize.width + ChromeMetrics.ChatButton.gap
-        let countDistance = minChannelDistance(
-            image, y: legendY, from: countSlotStart, to: countSlotStart + Self.handleTextWidth("3"),
-            target: theme.palette.text.hex
-        )
-        XCTAssertLessThanOrEqual(
-            countDistance, 20, "no pixel close enough to palette.text in the count's slot (closest off by \(countDistance))"
-        )
+        XCTAssertNotNil(firstPixel(image, in: corner, matching: theme.palette.red.hex), "no dot on the face's corner")
         window.close()
     }
 
@@ -838,7 +766,7 @@ final class ChromeRenderTests: XCTestCase {
     private static func chatButtonFrame(inRawFrame rawFrame: CGRect, size: CGSize) -> CGRect {
         let box = PaneBox.frame(in: rawFrame, dividerThickness: DividerBand.gutter)
         return CGRect(
-            x: box.maxX - PaneChrome.horizontalPadding - size.width, y: box.minY + PaneChrome.verticalPadding,
+            x: box.maxX - PaneChrome.horizontalPadding - size.width, y: box.minY + barCentre - size.height / 2,
             width: size.width, height: size.height
         )
     }
@@ -3854,13 +3782,12 @@ final class ChromeRenderTests: XCTestCase {
     /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
     /// layout's own zoom or the main window's focus leaks through: the box
     /// spanning the row must be `w1:p1`'s and must wear the accent border,
-    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
-    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
-    /// mouse badge in the legend names the pane drawn and shows the legend
-    /// controls survive solo. No drag grip is drawn, and nothing is published
-    /// to the drag coordinator.
+    /// with no canvas-coloured gutter anywhere along it. Only `w1:p1`'s program
+    /// holds the mouse, so a bar that gains a button when it does names the
+    /// pane drawn and shows the controls survive solo. No drag grip is drawn,
+    /// and nothing is published to the drag coordinator.
     /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
-    func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvasWithoutAZoomBadge() async throws {
+    func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvas() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let solo = PaneID(rawValue: "w1:p1")
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
@@ -3898,14 +3825,20 @@ final class ChromeRenderTests: XCTestCase {
                 "\(scheme): the solo box has no accent top border"
             )
             let legend = CGRect(
-                x: midX, y: top + PaneChrome.verticalPadding,
+                x: midX, y: top + PaneChrome.titleRowTop,
                 width: last - PaneChrome.horizontalPadding - midX, height: PaneChrome.titleRowHeight
             )
-            XCTAssertNotNil(
-                firstPoint(in: legend, matching: theme.palette.accent.hex, of: image),
-                "\(scheme): no lit mouse badge in the legend: the pane drawn is not \(solo.rawValue), or its controls are gone"
-            )
-            XCTAssertNil(firstPoint(in: legend, matching: theme.palette.mauve.hex, of: image), "\(scheme): the solo pane wears a zoom badge")
+            let quiet = try await Harness(theme: theme, model: model)
+            let quietWindow = quiet.makeCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(quietWindow)
+            let quietImage = try snapshot(quietWindow)
+            quietWindow.close()
+            let mouseDrew = stride(from: legend.minY, to: legend.maxY, by: 0.5).contains { y in
+                stride(from: legend.minX, to: legend.maxX, by: 0.5).contains { x in
+                    hex(image, CGPoint(x: x, y: y)) != hex(quietImage, CGPoint(x: x, y: y))
+                }
+            }
+            XCTAssertTrue(mouseDrew, "\(scheme): no mouse button on the bar: the pane drawn is not \(solo.rawValue), or its controls are gone")
             XCTAssertTrue(harness.drag.canvas.paneFrames.isEmpty, "\(scheme): the solo canvas published frames for drop hit-testing")
 
             // The same canvas without solo holds `w1:p2` open over the same
@@ -3968,7 +3901,7 @@ final class ChromeRenderTests: XCTestCase {
     /// whole-image comparison between two separately built windows would pass
     /// on any incidental difference. PNGs are written only when
     /// `FLOCK_CHROME_RENDER_DIR` is set.
-    func testEachRenameEditorAndTheZoomBadgePaintOnlyTheirOwnSurface() async throws {
+    func testEachRenameEditorPaintsOnlyItsOwnSurface() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
         // point inside the focused pane -- the three sampled in `assertSamples`.
@@ -4031,43 +3964,11 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(pane.restSamples[0], pane.changedSamples[0], "renaming a pane repainted the strip")
         XCTAssertEqual(pane.restSamples[1], pane.changedSamples[1], "renaming a pane repainted the rail")
 
-        // The badge is its own color and nothing else in the chrome is: the
-        // parity checklist reserves mauve for it, never a status. So the
-        // check is that mauve appears inside the focused pane's legend when
-        // the tab is zoomed and nowhere in that band when it is not -- an
-        // assertion that cannot pass unless the badge actually painted.
-        let legend = CGRect(x: 552, y: Self.bar + 40, width: 342, height: 26)
-        let mauve = Theme.tokyoNight.palette.mauve.hex
-        let resting = try await Harness(theme: .tokyoNight, model: try Fixture.model())
-        let restingWindow = resting.makeWindow(size: Self.windowSize)
-        await settle(restingWindow)
-        let restingImage = try snapshot(restingWindow)
-        let zoomed = try await Harness(theme: .tokyoNight, model: try Fixture.model(zoomed: true))
-        let zoomedWindow = zoomed.makeWindow(size: Self.windowSize)
-        await settle(zoomedWindow)
-        let zoomedImage = try snapshot(zoomedWindow)
-        if let directory {
-            try XCTUnwrap(zoomedImage.representation(using: .png, properties: [:]))
-                .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-badge.png"))
-        }
-        XCTAssertNil(
-            firstPoint(in: legend, matching: mauve, of: restingImage),
-            "the unzoomed legend already carries the badge color, so the check below proves nothing"
-        )
-        XCTAssertNotNil(
-            firstPoint(in: legend, matching: mauve, of: zoomedImage),
-            "no \(mauve) anywhere in the focused pane's legend: the zoom badge did not paint"
-        )
-        XCTAssertEqual(hex(zoomedImage, tabPoint), tab.restSamples[0], "the badge repainted the strip")
-        XCTAssertEqual(hex(zoomedImage, railPoint), tab.restSamples[1], "the badge repainted the rail")
-        zoomedWindow.close()
-        restingWindow.close()
     }
 
-    /// Idle and unknown panes wear a chip too, so the title row always
-    /// carries a status. Read just inside the chip's top-leading corner,
-    /// above any glyph: a pane with no chip shows the pane ground there.
-    func testEveryPaneWearsAStatusChip() async throws {
+    /// Idle and unknown panes wear a dot too, so the bar always carries a
+    /// status: a pane with no dot shows the pane ground there.
+    func testEveryPaneWearsAStatusDot() async throws {
         let theme = Theme.tokyoNight
         let pane = PaneID(rawValue: "w1:p2")
         for status in ["idle", "unknown", "working"] {
@@ -4076,21 +3977,18 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             let image = try snapshot(window)
             let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
-            let fill = CGPoint(
-                x: box.minX + PaneChrome.horizontalPadding + 4,
-                y: box.minY + PaneChrome.verticalPadding + 1.5
+            let dot = CGPoint(
+                x: box.minX + PaneChrome.horizontalPadding + ChromeMetrics.PaneBar.dotSize / 2, y: box.minY + Self.barCentre
             )
-            XCTAssertNotEqual(hex(image, fill), theme.palette.chromeRoles.pane.hex, "\(status): no status chip at the title's leading edge")
+            XCTAssertNotEqual(hex(image, dot), theme.palette.chromeRoles.pane.hex, "\(status): no status dot at the title's leading edge")
             window.close()
         }
     }
 
-    /// The status chip leads the title and the zoom badge stays in the
-    /// trailing corner. The same zoomed window is drawn idle and working: the
-    /// chip is the only difference, so every changed pixel has to land in
-    /// the row's leading half, which the badge never moves for. PNGs of both
-    /// schemes are written only when `FLOCK_CHROME_RENDER_DIR` is set.
-    func testTheStatusChipLeadsTheTitleAndTheZoomBadgeStaysTrailing() async throws {
+    /// The dot leads the title. The same window is drawn idle and working: the
+    /// dot is the only difference, so every changed pixel has to land in the
+    /// row's leading half.
+    func testTheStatusDotLeadsTheTitle() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let pane = PaneID(rawValue: "w1:p2")
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
@@ -4106,23 +4004,21 @@ final class ChromeRenderTests: XCTestCase {
             }
             if let directory {
                 try XCTUnwrap(images[1].representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("zoom-badge-status-\(scheme).png"))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pane-bar-status-\(scheme).png"))
             }
             let box = PaneBox.frame(in: try XCTUnwrap(frame), dividerThickness: DividerBand.gutter)
             let row = CGRect(
-                x: box.minX, y: box.minY + PaneChrome.verticalPadding,
+                x: box.minX, y: box.minY + PaneChrome.titleRowTop,
                 width: box.width, height: PaneChrome.titleRowHeight
             )
-            let trailingHalf = CGRect(x: box.midX, y: row.minY, width: box.width / 2, height: row.height)
-            XCTAssertNotNil(firstX(in: trailingHalf, matching: theme.palette.mauve.hex, of: images[1]), "\(scheme): no zoom badge in the trailing corner")
-            var chipEnd: CGFloat?
+            var dotEnd: CGFloat?
             for y in stride(from: row.minY, to: row.maxY, by: 0.5) {
                 for x in stride(from: row.minX, to: row.maxX, by: 0.5)
                 where hex(images[0], CGPoint(x: x, y: y)) != hex(images[1], CGPoint(x: x, y: y)) {
-                    chipEnd = max(chipEnd ?? x, x)
+                    dotEnd = max(dotEnd ?? x, x)
                 }
             }
-            XCTAssertLessThan(try XCTUnwrap(chipEnd, "\(scheme): no status chip drew"), box.midX, "\(scheme): the status chip is not beside the title")
+            XCTAssertLessThan(try XCTUnwrap(dotEnd, "\(scheme): no status dot drew"), box.midX, "\(scheme): the status dot is not beside the title")
         }
     }
 

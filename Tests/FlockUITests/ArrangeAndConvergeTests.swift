@@ -523,7 +523,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         assertCanvasHolds(app, [badged], "the zoomed tab draws \(badged) and no other pane")
         assertCanvasPaneBox(app, badged, matches: wholeCanvas, "\(badged) fills the canvas while the tab is zoomed")
         assertEventually("the window marks \(badged) zoomed") {
-            app.flockElement("flock.pane.zoomBadge.\(badged)").exists
+            app.flockElement("flock.pane.restore.\(badged)").exists
         } describing: {
             "no zoom badge is drawn; the canvas holds "
                 + "[\(app.flockIdentifiers(prefix: "flock.pane.").joined(separator: ", "))]"
@@ -541,7 +541,7 @@ final class ArrangeAndConvergeTests: XCTestCase {
         assertCanvasPaneBox(app, ids.p1, matches: left, "\(ids.p1) is back in the box it had before the zoom")
         assertCanvasPaneBox(app, ids.p2, matches: right, "\(ids.p2) is back in the box it had before the zoom")
         assertEventually("the window drops the zoom badge") {
-            !app.flockElement("flock.pane.zoomBadge.\(badged)").exists
+            !app.flockElement("flock.pane.restore.\(badged)").exists
         } describing: {
             "the badge for \(badged) is still drawn"
         }
