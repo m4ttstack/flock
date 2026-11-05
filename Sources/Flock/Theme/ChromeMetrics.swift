@@ -259,14 +259,6 @@ enum ChromeMetrics {
     enum Pane {
         static let scrollIndicatorWidth: CGFloat = 5
         static let scrollIndicatorInset: CGFloat = 4
-        /// The status chip's own text inset. Kept apart from `legendItemGap`
-        /// below: the two happened to share one constant, so widening this
-        /// one for the chip's text also widened the gap before the chip.
-        static let statusChipPadding: CGFloat = 8
-        /// The gap between legend items: the title and its status chip, and
-        /// the trailing controls. Never the chip's own inset.
-        static let legendItemGap: CGFloat = 5
-        static let zoomBadgeGap: CGFloat = 5
         static let toastInset: CGFloat = 13
 
         /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
@@ -280,48 +272,6 @@ enum ChromeMetrics {
             static let pillCornerRadius: CGFloat = ChromeRadius.control
             static let hitWidth: CGFloat = 36
         }
-
-        /// The right-click mode's mouse, in a chip the size and corner of the
-        /// signed-out chat button beside it: the body, the buttons across the
-        /// top of it, and the cord rising from the top.
-        enum MouseGlyph {
-            static let chipSize = CGSize(width: 31, height: 20)
-            static let chipCornerRadius: CGFloat = ChromeRadius.control
-            static let bodyWidth: CGFloat = 10.5
-            static let bodyHeight: CGFloat = 12
-            static let cornerRadius: CGFloat = 4.75
-            static let buttonDepth: CGFloat = 5.25
-            static let stroke: CGFloat = 1.25
-            static let cordRise: CGFloat = 3
-            static let cordReach: CGFloat = 3.5
-        }
-    }
-
-    /// The pane legend's chat trigger, also the state it shows: signed in
-    /// carries the handle, the glyph and (when there is unread) a count;
-    /// signed out shows the glyph alone; chat unavailable on this machine
-    /// draws no button at all.
-    enum ChatButton {
-        /// The signed-in button's only fixed dimension. Its width is
-        /// whatever the handle, the glyph and (when present) the count add
-        /// up to: a count that only sometimes shows must not leave a gap
-        /// behind when it is absent.
-        static let signedInHeight: CGFloat = 21
-        static let signedOutSize = CGSize(width: 31, height: 20)
-        static let cornerRadius: CGFloat = ChromeRadius.control
-        static let verticalPadding: CGFloat = 3
-        static let horizontalPadding: CGFloat = 9
-        static let gap: CGFloat = 7
-        /// Height only. The width the canvas drew was 18pt, the width of the
-        /// one handle it happened to contain, and pinning to it clipped any
-        /// name that measured wider -- "nell" fits where "olga" does not,
-        /// because two narrow `l`s are not four average characters. A name is
-        /// never abbreviated, so the text sizes to itself and the button
-        /// grows.
-        static let handleHeight: CGFloat = 14
-        static let iconSize = CGSize(width: 13, height: 13)
-        /// Height only, for the same reason: the canvas drew a single digit.
-        static let countHeight: CGFloat = 14
     }
 
     /// The chat button's popover: the plugin's launcher, six bands stacked
@@ -477,13 +427,14 @@ enum ChromeMetrics {
         static let glyphStroke: CGFloat = 1.1
         static let rtHalfWidth: CGFloat = 28
         static let rtDividerSize = CGSize(width: 1, height: 12)
+        static let chatGlyphSize: CGFloat = 13
         static let chipHeight: CGFloat = faceSize + 2 * chipFaceInset
         /// Concentric with the face: its radius plus the inset around it.
         static let chipCornerRadius: CGFloat = faceCornerRadius + chipFaceInset
-        static let chipFaceInset: CGFloat = 3
+        static let chipFaceInset: CGFloat = 4
         static let chipNameGap: CGFloat = 7
-        static let faceSize: CGFloat = 26
-        static let faceCornerRadius: CGFloat = 5
+        static let faceSize: CGFloat = 24
+        static let faceCornerRadius: CGFloat = ChromeRadius.control
         static let unreadDotSize: CGFloat = 9
         static let unreadDotRing: CGFloat = 2
         static let unreadDotOverhang: CGFloat = 2
@@ -733,14 +684,6 @@ enum ChromeMetrics {
     enum RtButton {
         static let badgeSize = CGSize(width: 19, height: 14)
         static let badgeCornerRadius: CGFloat = ChromeRadius.tiny
-        static let restSize = CGSize(width: 31, height: 20)
-        static let cornerRadius: CGFloat = ChromeRadius.control
-        static let activeHeight: CGFloat = 21
-        static let horizontalPadding: CGFloat = 8
-        static let gap: CGFloat = 6
-        static let countHeight: CGFloat = 14
-        static let dividerSize = CGSize(width: 1, height: 12)
-        static let runnerGlyphSize: CGFloat = 13
     }
 
     /// The rt button's popover: a header, the command band, and (only while

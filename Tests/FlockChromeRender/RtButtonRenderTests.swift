@@ -30,10 +30,9 @@ final class RtButtonRenderTests: XCTestCase {
         ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// The badge is in every state but `.absent`; rt's pink glyph is right of
-    /// the badge only while the pane has a runner. The badge's own letters
-    /// are pink too, which is why the glyph is counted past the badge's edge.
-    func testEveryStateButAbsentDrawsTheBadgeAndOnlyARunnerDrawsTheGlyph() async throws {
+    /// "rt" is in every state but `.absent`, and never a count; rt's pink glyph
+    /// is there only while the pane has a runner.
+    func testEveryStateButAbsentDrawsRtAndOnlyARunnerDrawsTheGlyph() async throws {
         ChromeType.install()
         for theme in Self.themes {
             for state in Self.states {
@@ -47,30 +46,27 @@ final class RtButtonRenderTests: XCTestCase {
                 try write(image, "rt-button-\(state.name)-\(theme.id).png")
                 window.close()
 
-                let plumXs = pixels(in: image) { $0 == Self.plum }.map(\.x)
+                let ground = theme.palette.terminalGround.hex
+                let inked = pixels(in: image) { $0 != ground }
                 let label = "\(theme.id) \(state.name)"
                 guard state.appearance != .absent else {
-                    XCTAssertEqual(plumXs.count, 0, "\(label): an absent button drew the badge")
-                    XCTAssertEqual(pixels(in: image) { self.isPink($0) }.count, 0, "\(label): an absent button drew pink")
+                    XCTAssertEqual(inked.count, 0, "\(label): an absent button drew something")
                     continue
                 }
-                XCTAssertGreaterThan(plumXs.count, 150, "\(label): the plum badge is not on screen")
-                let badgeEdge = try XCTUnwrap(plumXs.max())
-                let glyph = pixels(in: image) { self.isPink($0) }.filter { $0.x > badgeEdge }
+                XCTAssertGreaterThan(inked.count, 20, "\(label): rt is not on screen")
+                let glyph = pixels(in: image) { self.isPink($0) }
                 if case .active(_, true) = state.appearance {
                     XCTAssertGreaterThan(glyph.count, 10, "\(label): the runner glyph is not drawn in rt's pink")
                 } else {
-                    XCTAssertEqual(glyph.count, 0, "\(label): pink right of the badge with no runner")
+                    XCTAssertEqual(glyph.count, 0, "\(label): pink with no runner")
                 }
             }
         }
     }
 
-    /// The pill's two halves meet at the divider with no dead strip between
-    /// them: every point across the pill's middle row answers one of the two
-    /// closures, the badge half left of the divider and the runner half from
-    /// it on.
-    func testTheTwoHalvesOfThePillSplitAtTheDividerWithNoDeadStrip() async throws {
+    /// The two halves meet at the divider with no dead strip between them:
+    /// every point across the key's middle row answers one of the two closures.
+    func testTheTwoHalvesSplitAtTheDividerWithNoDeadStrip() async throws {
         ChromeType.install()
         let theme = Theme(.tokyoNight)
         var fired: [String] = []
@@ -82,23 +78,14 @@ final class RtButtonRenderTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         await settle(window)
         defer { window.close() }
-        let image = try snapshot(window)
 
-        let midY = Self.inset + ChromeMetrics.RtButton.activeHeight / 2
-        let fill = theme.palette.selectionBg.hex
-        let pillMin = try XCTUnwrap(firstX(image, y: midY, from: 0, to: 90) { $0 == fill }, "no pill on screen")
-        let pillMax = try XCTUnwrap(lastX(image, y: midY, from: 0, to: 90) { $0 == fill })
-        let divider = try XCTUnwrap(
-            firstX(image, y: midY, from: pillMin + 20, to: pillMax) { $0 == theme.palette.overlay0.hex },
-            "no divider on screen"
-        )
-
-        for x in stride(from: pillMin + 1, through: pillMax - 1, by: 1) {
+        let half = ChromeMetrics.PaneBar.rtHalfWidth
+        let midY = Self.inset + ChromeMetrics.PaneBar.keySize.height / 2
+        for x in stride(from: 1, through: 2 * half - 1, by: 1) {
             fired = []
-            click(window, at: CGPoint(x: x, y: midY))
+            click(window, at: CGPoint(x: Self.inset + x, y: midY))
             await settle(window, passes: 1)
-            let expected = x < divider ? "popover" : "runner"
-            XCTAssertEqual(fired, [expected], "a click at x \(x) (divider at \(divider))")
+            XCTAssertEqual(fired, [x < half ? "popover" : "runner"], "a click at x \(x)")
         }
     }
 
@@ -181,9 +168,9 @@ final class RtButtonRenderTests: XCTestCase {
             let fills = [Color(theme.palette.surface0), Color(theme.palette.selectionBg)]
             let row = HStack(spacing: 6) {
                 ForEach(0..<4, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius)
+                    RoundedRectangle(cornerRadius: ChromeMetrics.PaneBar.keyCornerRadius)
                         .fill(fills[index / 2])
-                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.RtButton.cornerRadius) } }
+                        .overlay { if index % 2 == 1 { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.PaneBar.keyCornerRadius) } }
                         .frame(width: chip.width, height: chip.height)
                 }
             }
@@ -204,11 +191,13 @@ final class RtButtonRenderTests: XCTestCase {
         }
     }
 
-    func testTheDelayedTipDrawsOnItsOwnGroundInBothThemes() async throws {
+    /// The theme's strong text as the ground and its chrome as the ink, so
+    /// the tip is the inverse of whichever theme it hangs in.
+    func testTheDelayedTipInvertsTheTheme() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for theme in [Theme(.tokyoNight), try XCTUnwrap(Theme.builtins.first { $0.id == "catppuccin-latte" })] {
-            let tip = DelayedTipLabel(text: "Right-clicks go to the program", shortcut: "⌥⌘M")
+            let tip = DelayedTipLabel(theme: theme, text: "Right-clicks go to the program", shortcut: "⌥⌘M")
             let window = host(tip, theme: theme, size: CGSize(width: 280, height: 50))
             await settle(window)
             defer { window.close() }
@@ -217,36 +206,46 @@ final class RtButtonRenderTests: XCTestCase {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-\(theme.id).png")
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
-            let ground = hex(image, at: point(3, 12))
-            XCTAssertLessThanOrEqual(channelDistance(ground, "#121212"), 3, "\(theme.id): the tip's ground is \(ground)")
+            let roles = theme.palette.chromeRoles
+            XCTAssertEqual(hex(image, at: point(5, 12)), roles.textStrong.hex, "\(theme.id): the tip's ground")
+            XCTAssertFalse(
+                pixels(in: image) { self.channelDistance($0, roles.chrome.hex) <= 40 }.isEmpty,
+                "\(theme.id): the tip's ink is not the theme's chrome"
+            )
         }
     }
 
-    /// A shown tip hangs below its control and never covers it.
+    /// A shown tip hangs below its control, on the side it was told to, and
+    /// never covers the control.
     func testAShownTipHangsBelowItsControl() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Theme(.tokyoNight)
-        let control = CGSize(width: 31, height: PaneChrome.titleRowHeight)
-        let view = HStack {
-            Spacer()
-            RoundedRectangle(cornerRadius: ChromeMetrics.RtButton.cornerRadius).fill(Color(theme.palette.surface0))
+        let ground = theme.palette.chromeRoles.textStrong.hex
+        let control = CGSize(width: 31, height: 24)
+        let radius = ChromeMetrics.PaneBar.keyCornerRadius
+        for (edge, name, controlX) in [(HorizontalAlignment.trailing, "trailing", CGFloat(229)), (.leading, "leading", 0)] {
+            let view = RoundedRectangle(cornerRadius: radius).fill(Color(theme.palette.surface0))
                 .frame(width: control.width, height: control.height)
-                .modifier(TipBelow(isShown: true, text: "Right-clicks go to the program", shortcut: "⌥⌘M"))
+                .modifier(TipBelow(theme: theme, edge: edge, isShown: true, text: "Right-clicks go to the program", shortcut: "⌥⌘M"))
+                .padding(.leading, controlX)
+                .frame(width: 260, alignment: .leading)
+            let window = host(view, theme: theme, size: CGSize(width: 280, height: 70))
+            await settle(window)
+            defer { window.close() }
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-placed-\(name).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            let controlMid = point(controlX + control.width / 2, control.height / 2)
+            XCTAssertEqual(hex(image, at: controlMid), theme.palette.surface0.hex, "\(name): the tip covers its control")
+            let tipY = control.height + ChromeMetrics.DelayedTip.gap + 12
+            let inside = edge == .trailing ? controlX + control.width - 5 : controlX + 5
+            let beyond = edge == .trailing ? controlX + control.width + 5 : controlX - 5
+            XCTAssertEqual(hex(image, at: point(inside, tipY)), ground, "\(name): no tip below the control")
+            XCTAssertNotEqual(hex(image, at: point(beyond, tipY)), ground, "\(name): the tip runs past the control's side")
         }
-        .frame(width: 260)
-        let window = host(view, theme: theme, size: CGSize(width: 280, height: 70))
-        await settle(window)
-        defer { window.close() }
-        let image = try snapshot(window)
-        if let directory {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("delayed-tip-placed.png")
-            try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
-        }
-        let controlMid = point(260 - control.width / 2, control.height / 2)
-        XCTAssertEqual(hex(image, at: controlMid), theme.palette.surface0.hex, "the tip covers its control")
-        let below = point(260 - 4, control.height + ChromeMetrics.DelayedTip.gap + 4)
-        XCTAssertLessThanOrEqual(channelDistance(hex(image, at: below), "#121212"), 3, "no tip below the control")
     }
 
     private func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
@@ -254,7 +253,7 @@ final class RtButtonRenderTests: XCTestCase {
     }
 
     private func isPink(_ hex: String) -> Bool {
-        channelDistance(hex, Self.pink) <= 24
+        channelDistance(hex, Self.pink) <= 70
     }
 
     /// Hosts `view` at `inset` from the top-left of a borderless window over

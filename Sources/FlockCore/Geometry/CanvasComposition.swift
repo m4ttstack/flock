@@ -34,8 +34,8 @@ public enum CanvasComposition: Equatable, Sendable {
     }
 
     /// The pane the zoom is holding open, `nil` while the tab is tiled: what
-    /// a pane cell reads to decide whether it wears the zoom badge, so the
-    /// badge and the pane that actually fills the canvas can never disagree.
+    /// a pane cell reads to decide what its window control offers, so the
+    /// control and the pane that actually fills the canvas can never disagree.
     public var zoomedPaneID: PaneID? {
         switch self {
         case .tiled: nil

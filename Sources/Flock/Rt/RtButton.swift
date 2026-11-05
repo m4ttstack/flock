@@ -25,14 +25,19 @@ struct RtButton: View {
 
     var body: some View {
         if appearance != .absent {
+            // Over the seam rather than in the row, so no strip between the
+            // halves goes dead to a click.
             HStack(spacing: 0) {
                 popoverHalf
+                if hasRunner { runnerHalf }
+            }
+            .overlay {
                 if hasRunner {
                     Rectangle()
                         .fill(LauncherStripStyle(theme: theme).divider)
                         .frame(width: M.rtDividerSize.width, height: M.rtDividerSize.height)
                         .opacity(hoveredHalf == nil ? 1 : 0)
-                    runnerHalf
+                        .allowsHitTesting(false)
                 }
             }
         }

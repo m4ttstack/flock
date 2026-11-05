@@ -79,7 +79,7 @@ struct PaneWindowButton: View {
             theme: theme, edge: .leading
         )
         .accessibilityLabel(isZoomed ? "Restore" : "Maximize")
-        .accessibilityIdentifier("flock.pane.maximize.\(paneID.rawValue)")
+        .accessibilityIdentifier("flock.pane.\(isZoomed ? "restore" : "maximize").\(paneID.rawValue)")
     }
 }
 
@@ -163,7 +163,7 @@ struct ChatSignedOutButton: View {
         let shape = RoundedRectangle(cornerRadius: M.keyCornerRadius, style: .continuous)
         Button(action: action) {
             ChatGlyph(color: style.text(state))
-                .frame(width: ChromeMetrics.ChatButton.iconSize.width, height: ChromeMetrics.ChatButton.iconSize.height)
+                .frame(width: M.chatGlyphSize, height: M.chatGlyphSize)
                 .frame(width: M.keySize.width, height: M.keySize.height)
                 .background(shape.fill(style.keyFill(state)))
                 .overlay(shape.strokeBorder(style.keyEdge(state), lineWidth: 1))

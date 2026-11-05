@@ -12,6 +12,14 @@ public struct ChatSidebarChat: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case room, pane, name, displayName }
 
+    public init(room: String, pane: String? = nil, name: String, displayName: String? = nil, linkedPane: String? = nil) {
+        self.room = room
+        self.pane = pane
+        self.name = name
+        self.displayName = displayName
+        self.linkedPane = linkedPane
+    }
+
     public var shownName: String {
         displayName.flatMap { $0.isEmpty ? nil : $0 } ?? name
     }

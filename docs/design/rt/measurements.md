@@ -32,35 +32,19 @@ Type is Inter throughout (`ChromeType`). `600` is semibold, `500` medium,
 
 ## The legend
 
-Order at the title row's trailing end: zoom badge, chat button, **rt button**,
-status chip, all `ChromeMetrics.Pane.legendItemGap` (5) apart. There is no
-separate runner button: a live runner is the rt button's second half.
+Order at the pane bar's trailing end: mouse (only while the program has the
+mouse), **rt button**, chat chip, 8 apart. There is no separate runner button: a
+live runner is the rt button's second half.
 
-**rt badge**, the mark inside every rt state: 19x14, fill `rt-plum`, r3, "rt"
-centred at 10/700 in `rt-pink`.
+**rt button:** "rt" at 11/600 in the terminal's face, bare until the pointer is
+on it, when it takes the launcher strip's keycap. It never carries a count.
 
-**rt button at rest:** 31x20, fill `surface0`, r4, no stroke, the badge centred.
-It matches signed-out chat's square exactly.
+**With a runner:** two keys of 28 wide, the second holding a 14x14
+`waveform.path.ecg` in `rt-pink`. A 1x12 divider sits over the seam and drops
+while either half is hovered, so the key reads as one piece.
 
-**rt button active:** height 21, width sized to content, fill `selectionBg`, r4,
-pad 0/8, gap 6. In order:
-
-| Child | Size | Colour | Present |
-| --- | --- | --- | --- |
-| Badge | 19x14 | as above | always |
-| Count | h14, width from the text | `palette.text`, 11.5/600 | while any rt run item is running; the number of them |
-| Divider | 1x12 | `palette.overlay0` | while the pane has a runner |
-| Runner glyph | 13x13 | `rt-pink` | while the pane has a runner |
-
-Active while the pane has running rt run items or a runner. **The count is rt
-run items only**: the runner has its own half and is not counted again, so a
-pane with a runner and nothing else reads as the badge, the divider and the
-glyph. The glyph is lucide `activity` on the canvas; in SwiftUI it is the SF
-Symbol `waveform.path.ecg`.
-
-**Two targets in one pill.** Clicking the badge-and-count half opens the rt
-menu; clicking the divider-and-glyph half shows the runner. Without a runner
-the whole pill opens the menu.
+**Two targets.** The "rt" half opens the rt menu and the glyph half shows the
+runner. Nothing between them goes dead to a click.
 
 **rt not installed:** no button.
 
@@ -158,6 +142,6 @@ illustration.
 | rt menu | a native `NSMenu` of text rows | a flock popover (above) |
 | modal placement | over the rail and the canvas | over the tab area only (tab strip and panes) |
 | runner button | a separate `selectionBg` pill, `green` dot, "runner" | none: the rt pill's second half (divider and `rt-pink` glyph) |
-| rt button count | running rt run items plus one for a runner | running rt run items only |
+| rt button count | running rt run items plus one for a runner | none |
 
 Every other starting value in the plan matches the canvas.

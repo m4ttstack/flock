@@ -99,6 +99,7 @@ struct MissionCardView: View {
             }
             if let chat {
                 ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .padding(.vertical, M.cardVerticalPadding)
