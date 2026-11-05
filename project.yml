@@ -12,11 +12,6 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
   configs:
     Release:
-      # Vendor/GhosttyKit.xcframework is built `-Dxcframework-target=native`
-      # (Scripts/libghostty.sh), so it carries only the architecture of the
-      # machine that built it. Release's usual universal build has nothing to
-      # link the other slice against.
-      ONLY_ACTIVE_ARCH: YES
       # Ad-hoc by default so a machine with no Developer ID still produces a
       # launchable bundle; Scripts/release-build.sh overrides both of these on
       # the xcodebuild command line when a real identity is resolved.

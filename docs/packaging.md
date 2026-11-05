@@ -3,8 +3,29 @@
 `Scripts/release-build.sh` builds the signed release bundle. See `README.md` for
 how to run it.
 
-The bundle is single-architecture (arm64), because `Vendor/GhosttyKit.xcframework`
-is built native-only and a universal Release fails to link.
+The bundle is universal (arm64 and x86_64), and `release-build.sh` refuses
+one whose `Flock` or `herdr-chat` is missing either slice. Building it needs:
+
+- `Scripts/libghostty.sh` at the current pin, which builds
+  `Vendor/GhosttyKit.xcframework` universal. It needs Xcode's Metal toolchain:
+  `xcodebuild -downloadComponent MetalToolchain`.
+- Both Rust targets for herdr-chat:
+  `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
+
+Flock Dev builds only the building Mac's own architecture.
+
+The herdr mouse patch is published per architecture into one `herdr-patch-X`
+release. Intel builds cross-compile on Apple silicon, and Rosetta runs the
+built binary's version check:
+
+```bash
+Scripts/build-herdr-patch.sh --version 0.9.5 --arch x86_64
+Scripts/publish-herdr-patch.sh 0.9.5 x86_64
+```
+
+The second run adds its assets to the existing release and prints the SHA-256
+for that architecture's slot in `HerdrMousePatchCatalog`. A version with no
+Intel entry offers no patch on an Intel Mac.
 
 ## Releasing an update
 

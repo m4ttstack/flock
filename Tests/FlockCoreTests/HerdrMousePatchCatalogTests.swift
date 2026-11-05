@@ -3,18 +3,39 @@ import XCTest
 
 final class HerdrMousePatchCatalogTests: XCTestCase {
     func testEveryEntryHasAReleaseURLAndAFullChecksum() {
-        for entry in HerdrMousePatchCatalog.entries {
-            XCTAssertEqual(
-                entry.url.absoluteString,
-                "https://github.com/m4ttstack/flock/releases/download/herdr-patch-\(entry.version)/herdr-mouse-patch-\(entry.version)-arm64"
-            )
-            XCTAssertEqual(entry.sha256.count, 64, entry.version)
-            XCTAssertTrue(entry.sha256.allSatisfy { "0123456789abcdef".contains($0) }, entry.version)
+        for arch in HerdrPatchArch.allCases {
+            for entry in HerdrMousePatchCatalog.entries(for: arch) {
+                XCTAssertEqual(
+                    entry.url.absoluteString,
+                    "https://github.com/m4ttstack/flock/releases/download/herdr-patch-\(entry.version)/herdr-mouse-patch-\(entry.version)-\(arch.rawValue)"
+                )
+                XCTAssertEqual(entry.sha256.count, 64, entry.version)
+                XCTAssertTrue(entry.sha256.allSatisfy { "0123456789abcdef".contains($0) }, entry.version)
+            }
         }
     }
 
+    func testEveryReleaseCarriesAppleSilicon() {
+        XCTAssertEqual(
+            HerdrMousePatchCatalog.entries(for: .arm64).map(\.version), HerdrMousePatchCatalog.releases.map(\.version)
+        )
+    }
+
+    func testARunningMacOnlySeesItsOwnArchitecture() {
+        XCTAssertEqual(HerdrMousePatchCatalog.entries, HerdrMousePatchCatalog.entries(for: .current))
+        XCTAssertTrue(HerdrMousePatchCatalog.entries.allSatisfy { $0.arch == .current })
+    }
+
+    /// An Intel Mac on a version published only for Apple silicon has no
+    /// patch, rather than one it cannot run.
+    func testAVersionWithoutAnIntelBuildHasNoIntelEntry() {
+        let release = HerdrMousePatchRelease(version: "0.9.9", arm64: String(repeating: "a", count: 64))
+        XCTAssertNil(release.entry(for: .x86_64))
+        XCTAssertEqual(release.entry(for: .arm64)?.fileName, "herdr-mouse-patch-0.9.9-arm64")
+    }
+
     func testVersionsAreUniqueAndRunWithoutGapsFromTheFirst() {
-        let versions = HerdrMousePatchCatalog.entries.map(\.version)
+        let versions = HerdrMousePatchCatalog.releases.map(\.version)
         XCTAssertEqual(Set(versions).count, versions.count)
         XCTAssertEqual(versions.first, "0.9.1")
         let patches = versions.compactMap { $0.split(separator: ".").last.flatMap { Int($0) } }
@@ -22,7 +43,7 @@ final class HerdrMousePatchCatalogTests: XCTestCase {
     }
 
     func testLookupFindsOnlyCataloguedVersions() {
-        XCTAssertEqual(HerdrMousePatchCatalog.entry(for: "0.9.5")?.version, "0.9.5")
+        XCTAssertEqual(HerdrMousePatchCatalog.entry(for: "0.9.5", arch: .arm64)?.version, "0.9.5")
         XCTAssertNil(HerdrMousePatchCatalog.entry(for: "0.9.6"))
         XCTAssertNil(HerdrMousePatchCatalog.entry(for: "0.9.0"))
     }

@@ -34,6 +34,16 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
+# The release bundle runs on Apple silicon and Intel, so the tool inside it
+# must too.
+TARGETS="aarch64-apple-darwin x86_64-apple-darwin"
+for target in $TARGETS; do
+  if ! rustup target list --installed 2>/dev/null | grep -qx "$target"; then
+    echo "build-herdr-chat: the Rust $target target is missing. Run: rustup target add $target" >&2
+    exit 1
+  fi
+done
+
 if [ -n "$(git -C "$MATTSTACK_CHECKOUT" status --porcelain -- "$CRATE")" ]; then
   echo "build-herdr-chat: $CRATE has uncommitted changes; they are NOT in this build, which uses HEAD"
 fi
@@ -49,15 +59,21 @@ echo "build-herdr-chat: cloning $MATTSTACK_CHECKOUT at ${CHECKOUT_HEAD:0:9} (rea
 git clone --quiet --local --no-checkout "$MATTSTACK_CHECKOUT" "$WORK/mattstack"
 git -C "$WORK/mattstack" checkout --quiet --detach "$CHECKOUT_HEAD"
 
-echo "build-herdr-chat: building herdr-chat"
-CARGO_TARGET_DIR="$WORK/target" \
-  cargo build --release --locked --manifest-path "$WORK/mattstack/$CRATE/Cargo.toml"
+SLICES=()
+for target in $TARGETS; do
+  echo "build-herdr-chat: building herdr-chat for $target"
+  CARGO_TARGET_DIR="$WORK/target" \
+    cargo build --release --locked --target "$target" --manifest-path "$WORK/mattstack/$CRATE/Cargo.toml"
+  slice="$WORK/target/$target/release/herdr-chat"
+  [ -x "$slice" ] || {
+    echo "build-herdr-chat: cargo build produced no $slice" >&2
+    exit 1
+  }
+  SLICES+=("$slice")
+done
 
-BUILT="$WORK/target/release/herdr-chat"
-[ -x "$BUILT" ] || {
-  echo "build-herdr-chat: cargo build produced no $BUILT" >&2
-  exit 1
-}
+BUILT="$WORK/herdr-chat"
+lipo -create "${SLICES[@]}" -output "$BUILT"
 
 mkdir -p "$(dirname "$ARTIFACT")"
 cp "$BUILT" "$ARTIFACT"
@@ -68,7 +84,7 @@ cat > "$PROVENANCE" <<EOF
 # Written by Scripts/build-herdr-chat.sh.
 mattstack_commit=$CHECKOUT_HEAD
 herdr_chat_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$WORK/mattstack/$CRATE/Cargo.toml" | head -n1)
-arch=$(uname -m)
+arch=$(lipo -archs "$ARTIFACT")
 built_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
