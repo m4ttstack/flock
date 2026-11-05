@@ -53,6 +53,9 @@ final class ChatStore {
     private(set) var requestedPopover: ChatPopoverRequest?
 
     @ObservationIgnored private var runner: ChatRunning?
+    private var faces: [String: ChatFaceImage] = [:]
+    @ObservationIgnored private var faceLoads: [String: Task<ChatFaceImage?, Never>] = [:]
+    @ObservationIgnored private let loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)?
     private let toasts: ToastCenter
     private var statuses: [PaneID: ChatStatus] = [:]
     /// Populated by `peek()`, keyed by each buddy's own pane.
@@ -117,6 +120,7 @@ final class ChatStore {
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
+        loadFace: (@Sendable (_ handle: String) async -> ChatFaceImage?)? = nil,
         defaults: UserDefaults = .standard
     ) {
         self.toasts = toasts
@@ -126,6 +130,7 @@ final class ChatStore {
         self.startAgent = startAgent
         self.typeIntoAgent = typeIntoAgent
         self.readAgentRefusal = readAgentRefusal
+        self.loadFace = loadFace
         self.defaults = defaults
         slackAgents = Self.savedSlackAgents(in: defaults)
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
@@ -171,6 +176,37 @@ final class ChatStore {
     /// status call for this pane has last succeeded.
     func statusError(for pane: PaneID) -> String? {
         statusErrors[pane]
+    }
+
+    func face(for handle: String) -> ChatFaceImage? {
+        faces[handle]
+    }
+
+    /// Keeps asking until the face is final: a failure may be an rt that has
+    /// not got faces yet, and a Slack handle's photo can arrive late. Every
+    /// chip showing the handle follows it for itself, so one going away never
+    /// strands another; chips asking at once share one rt call.
+    func followFace(_ handle: String) async {
+        guard let loadFace else { return }
+        var attempt = 0
+        while !Task.isCancelled, faces[handle]?.isFinal != true {
+            if let face = await sharedFaceLoad(handle, loadFace) { faces[handle] = face }
+            if faces[handle]?.isFinal == true { return }
+            let wait = Self.faceRechecks[min(attempt, Self.faceRechecks.count - 1)]
+            attempt += 1
+            guard (try? await pause(wait)) != nil else { return }
+        }
+    }
+
+    private func sharedFaceLoad(
+        _ handle: String, _ loadFace: @escaping @Sendable (String) async -> ChatFaceImage?
+    ) async -> ChatFaceImage? {
+        if let running = faceLoads[handle] { return await running.value }
+        let load = Task { await loadFace(handle) }
+        faceLoads[handle] = load
+        let face = await load.value
+        faceLoads[handle] = nil
+        return face
     }
 
     /// A global chat command's request to open this pane's popover, read
@@ -301,6 +337,7 @@ final class ChatStore {
         exitAgent(agent.pane, after: delay)
     }
 
+    private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {

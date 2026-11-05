@@ -97,7 +97,7 @@ struct MissionCardView: View {
                     .frame(minWidth: M.timelineMinimumWidth, maxWidth: M.timelineWidth)
                     .frame(height: M.timelineHeight)
                 if let chat {
-                    ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                    ChatHandlePill(theme: theme, name: chat.displayName, handle: chat.handle, unread: chat.unread)
                 }
             }
         }

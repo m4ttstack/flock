@@ -8,8 +8,11 @@ import SwiftUI
 struct ChatHandlePill: View {
     let theme: Theme
     let name: String
+    let handle: String?
     let unread: Int
     var isHovered = false
+
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
 
     private typealias M = ChromeMetrics.PaneBar
 
@@ -26,7 +29,7 @@ struct ChatHandlePill: View {
                 .foregroundStyle(style.text(state))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-            ChatFace(style: style, name: name)
+            ChatFace(style: style, name: name, image: handle.flatMap { chatStore?.face(for: $0) })
                 .overlay(alignment: .topTrailing) {
                     if unread > 0 { ChatUnreadDot(theme: theme) }
                 }
@@ -37,25 +40,39 @@ struct ChatHandlePill: View {
         .background(shape.fill(style.keyFill(state)))
         .overlay(shape.strokeBorder(style.keyEdge(state), lineWidth: 1))
         .contentShape(shape)
+        .task(id: handle) {
+            guard let handle else { return }
+            await chatStore?.followFace(handle)
+        }
     }
 }
 
-/// Stands in for the persona until rt can hand one over: the chat app
-/// generates them, and a copy here would drift from what it shows.
+/// The face rt hands over, or the name's initial until one arrives. An rt
+/// without faces stays on the initial.
 private struct ChatFace: View {
     let style: LauncherStripStyle
     let name: String
+    let image: ChatFaceImage?
 
     private typealias M = ChromeMetrics.PaneBar
 
     var body: some View {
-        Text(name.prefix(1).uppercased())
-            .font(ChromeType.paneBarFaceInitial)
-            .foregroundStyle(style.text(.rest))
-            .frame(width: M.faceSize, height: M.faceSize)
-            .background(
-                RoundedRectangle(cornerRadius: M.faceCornerRadius, style: .continuous).fill(style.keyFill(.hovered))
-            )
+        let shape = RoundedRectangle(cornerRadius: M.faceCornerRadius, style: .continuous)
+        if let image {
+            Image(decorative: image.image, scale: 1)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .frame(width: M.faceSize, height: M.faceSize)
+                .scaleEffect(image.zoom)
+                .clipShape(shape)
+        } else {
+            Text(name.prefix(1).uppercased())
+                .font(ChromeType.paneBarFaceInitial)
+                .foregroundStyle(style.text(.rest))
+                .frame(width: M.faceSize, height: M.faceSize)
+                .background(shape.fill(style.keyFill(.hovered)))
+        }
     }
 }
 

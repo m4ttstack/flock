@@ -1156,7 +1156,7 @@ struct MiniPane: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if detail != nil, let chat {
-                ChatHandlePill(theme: theme, name: chat.displayName, unread: chat.unread)
+                ChatHandlePill(theme: theme, name: chat.displayName, handle: chat.handle, unread: chat.unread)
                     .padding(ChromeMetrics.Grid.chatPillInset)
                     .allowsHitTesting(false)
             }
