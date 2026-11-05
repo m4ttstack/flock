@@ -15,6 +15,16 @@ final class ChatAvatarTests: XCTestCase {
         XCTAssertNil(ChatAvatar.decode(stdout: Data(#"{"ok":true,"kind":"new","path":"/a"}"#.utf8), exitCode: 0))
     }
 
+    func testUsageTextMeansNoVerbAndAnErrorMeansNoFace() {
+        XCTAssertEqual(ChatAvatar.answer(stdout: Data("usage: rt chat <join|leave> ...".utf8), exitCode: 1), .noVerb)
+        XCTAssertEqual(ChatAvatar.answer(stdout: Data(), exitCode: 2), .noVerb)
+        XCTAssertEqual(ChatAvatar.answer(stdout: Data(#"{"ok":false,"error":"no face"}"#.utf8), exitCode: 1), .noFace)
+        XCTAssertEqual(
+            ChatAvatar.answer(stdout: Data(#"{"ok":true,"kind":"generated","path":"/a.png"}"#.utf8), exitCode: 0),
+            .face(ChatAvatar(kind: .generated, path: "/a.png"))
+        )
+    }
+
     func testTheArgumentsAskForJSONAtASize() {
         XCTAssertEqual(
             ChatAvatar.arguments(handle: "ivy.a1b2", size: 48),
