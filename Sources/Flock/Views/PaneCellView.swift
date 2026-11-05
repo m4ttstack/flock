@@ -290,7 +290,7 @@ struct PaneCellView: View {
     /// row. Rearrange mode drags from anywhere on the pane instead.
     private var grip: some View {
         PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
-            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.top, PaneChrome.titleRowTop)
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
             .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
@@ -449,7 +449,7 @@ struct PaneCellView: View {
                 onCancel: { viewModel.cancelRename() }
             )
             .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
-            .padding(.top, PaneChrome.verticalPadding)
+            .padding(.top, PaneChrome.titleRowTop)
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {

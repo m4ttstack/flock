@@ -39,12 +39,16 @@ struct TipBelow: ViewModifier {
     let shortcut: String?
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: Alignment(horizontal: edge, vertical: .bottom)) {
-            if isShown {
-                DelayedTipLabel(theme: theme, text: text, shortcut: shortcut)
-                    .alignmentGuide(.bottom) { $0[.top] - ChromeMetrics.DelayedTip.gap }
-                    .transition(.opacity)
-            }
+        content.overlay(alignment: .bottom) {
+            Color.clear
+                .frame(height: 0)
+                .overlay(alignment: Alignment(horizontal: edge, vertical: .top)) {
+                    if isShown {
+                        DelayedTipLabel(theme: theme, text: text, shortcut: shortcut)
+                            .offset(y: ChromeMetrics.DelayedTip.gap)
+                            .transition(.opacity)
+                    }
+                }
         }
     }
 }

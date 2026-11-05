@@ -466,8 +466,8 @@ enum ChromeMetrics {
     /// A pane's title row. The chip is taller than the row, so the row sits on
     /// a whole-point centre: the chip's own edges land on pixels.
     enum PaneBar {
-        static let rowHeight: CGFloat = 22
-        static let rowTop: CGFloat = 9
+        static let rowHeight: CGFloat = PaneChrome.titleRowHeight
+        static let rowTop: CGFloat = PaneChrome.titleRowTop
         static let leadingGap: CGFloat = 9
         static let trailingGap: CGFloat = 8
         static let dotSize: CGFloat = 9
@@ -477,12 +477,12 @@ enum ChromeMetrics {
         static let glyphStroke: CGFloat = 1.1
         static let rtHalfWidth: CGFloat = 28
         static let rtDividerSize = CGSize(width: 1, height: 12)
-        static let chipHeight: CGFloat = 28
+        static let chipHeight: CGFloat = faceSize + 2 * chipFaceInset
         /// Concentric with the face: its radius plus the inset around it.
         static let chipCornerRadius: CGFloat = faceCornerRadius + chipFaceInset
         static let chipFaceInset: CGFloat = 3
         static let chipNameGap: CGFloat = 7
-        static let faceSize: CGFloat = 22
+        static let faceSize: CGFloat = 26
         static let faceCornerRadius: CGFloat = 5
         static let unreadDotSize: CGFloat = 9
         static let unreadDotRing: CGFloat = 2
