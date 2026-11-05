@@ -1,9 +1,9 @@
 import FlockCore
 import SwiftUI
 
-/// A pane's right-click mode, shown while its program has the mouse: the left
-/// clicker is filled at the default, right-clicks opening flock's menu, and
-/// empty when they go to the program. A click flips the mode.
+/// A pane's right-click mode, shown while its program has the mouse: the right
+/// clicker is filled at the default, right-clicks going to the program, and
+/// empty when they open flock's menu. A click flips the mode.
 struct MouseModeButton: View {
     let theme: Theme
     let paneID: PaneID
@@ -16,7 +16,7 @@ struct MouseModeButton: View {
         Button {
             onToggle?()
         } label: {
-            MouseGlyph(isFilled: mode == .menu)
+            MouseGlyph(isFilled: mode != .menu)
                 .frame(width: M.glyphSize, height: M.glyphSize)
         }
         .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme)))

@@ -131,13 +131,13 @@ struct PaneMouseOutline: Shape {
     }
 }
 
-/// The left clicker, following the outline's top-left curve.
+/// The right clicker, following the outline's top-right curve.
 struct PaneMouseClicker: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: 12, y: 2))
-        path.addCurve(to: CGPoint(x: 5, y: 9), control1: CGPoint(x: 8.13, y: 2), control2: CGPoint(x: 5, y: 5.13))
-        path.addLine(to: CGPoint(x: 5, y: 10))
+        path.addCurve(to: CGPoint(x: 19, y: 9), control1: CGPoint(x: 15.87, y: 2), control2: CGPoint(x: 19, y: 5.13))
+        path.addLine(to: CGPoint(x: 19, y: 10))
         path.addLine(to: CGPoint(x: 12, y: 10))
         path.closeSubpath()
         return path.applying(CGAffineTransform(scaleX: rect.width / 24, y: rect.height / 24))
