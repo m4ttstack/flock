@@ -60,7 +60,8 @@ enum ChromeType {
     static let newTabSymbolName = "plus"
 
     static let paneTitle = inter(11.5, .medium)
-    static let statusChip = mono(11.5)
+    static let paneBarRt = Font.custom(TerminalFont.face, size: 11).weight(.semibold)
+    static let paneBarFaceInitial = inter(11, .semibold)
     /// Named apart from the `Font` so a test can measure the handle in the
     /// exact face that draws it. The button's width now follows the handle's
     /// own text, so an expectation about that width has to start from the

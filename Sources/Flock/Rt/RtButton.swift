@@ -1,10 +1,10 @@
 import FlockCore
 import SwiftUI
 
-/// The pane legend's rt control. At rest, one square that opens the popover.
-/// While the pane has running rt run items or a runner, one pill holding two
-/// targets: the badge and the count open the popover, the divider and the
-/// glyph show the runner.
+/// The pane bar's rt control. One button that opens the popover and, while
+/// the pane has a runner, a second beside it that shows the runner. The
+/// divider between them drops while either is hovered, so the key reads as
+/// one piece.
 struct RtButton: View {
     let theme: Theme
     let paneID: PaneID
@@ -12,79 +12,52 @@ struct RtButton: View {
     let onOpenPopover: () -> Void
     let onShowRunner: () -> Void
 
-    private typealias Metrics = ChromeMetrics.RtButton
+    @State private var hoveredHalf: Half?
+
+    private enum Half { case popover, runner }
+
+    private typealias M = ChromeMetrics.PaneBar
+
+    private var hasRunner: Bool {
+        if case .active(_, runner: true) = appearance { return true }
+        return false
+    }
 
     var body: some View {
-        switch appearance {
-        case .absent:
-            EmptyView()
-        case .rest:
-            Button(action: onOpenPopover) {
-                RtBadge()
-                    .frame(width: Metrics.restSize.width, height: Metrics.restSize.height)
-                    .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.surface0)))
-                    .hoverWash(theme, cornerRadius: Metrics.cornerRadius)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("rt")
-            .accessibilityIdentifier("flock.pane.rtButton.\(paneID.rawValue)")
-        case let .active(count, runner):
+        if appearance != .absent {
             HStack(spacing: 0) {
-                popoverHalf(count: count, runner: runner)
-                if runner { runnerHalf }
+                popoverHalf
+                if hasRunner {
+                    Rectangle()
+                        .fill(LauncherStripStyle(theme: theme).divider)
+                        .frame(width: M.rtDividerSize.width, height: M.rtDividerSize.height)
+                        .opacity(hoveredHalf == nil ? 1 : 0)
+                    runnerHalf
+                }
             }
-            .frame(height: Metrics.activeHeight)
-            .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.selectionBg)))
-            // Each half washes square on hover; the pill's own corners clip it.
-            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
         }
     }
 
-    /// Owns the gap before the divider, so the halves meet at the divider's
-    /// leading edge and a click anywhere in the pill lands on one of them.
-    private func popoverHalf(count: Int, runner: Bool) -> some View {
+    private var popoverHalf: some View {
         Button(action: onOpenPopover) {
-            HStack(spacing: Metrics.gap) {
-                RtBadge()
-                if count > 0 {
-                    Text("\(count)")
-                        .font(ChromeType.rtButtonCount)
-                        .foregroundStyle(theme.text)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(height: Metrics.countHeight)
-                }
-            }
-            .padding(.leading, Metrics.horizontalPadding)
-            .padding(.trailing, runner ? Metrics.gap : Metrics.horizontalPadding)
-            .frame(maxHeight: .infinity)
-            .hoverWash(theme, cornerRadius: 0)
-            .contentShape(Rectangle())
+            Text("rt").font(ChromeType.paneBarRt)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(count > 0 ? "rt, \(count) running" : "rt")
+        .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme), width: hasRunner ? M.rtHalfWidth : M.keySize.width))
+        .onHover { hoveredHalf = $0 ? .popover : nil }
+        .accessibilityLabel("rt")
         .accessibilityIdentifier("flock.pane.rtButton.\(paneID.rawValue)")
     }
 
     private var runnerHalf: some View {
         Button(action: onShowRunner) {
-            HStack(spacing: Metrics.gap) {
-                Rectangle()
-                    .fill(theme.overlay0)
-                    .frame(width: Metrics.dividerSize.width, height: Metrics.dividerSize.height)
-                Image(systemName: "waveform.path.ecg")
-                    .resizable()
-                    .scaledToFit()
-                    .foregroundStyle(RtBrand.pink)
-                    .frame(width: Metrics.runnerGlyphSize, height: Metrics.runnerGlyphSize)
-            }
-            .padding(.trailing, Metrics.horizontalPadding)
-            .frame(maxHeight: .infinity)
-            .hoverWash(theme, cornerRadius: 0)
-            .contentShape(Rectangle())
+            Image(systemName: "waveform.path.ecg")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(RtBrand.pink)
+                .frame(width: M.glyphSize, height: M.glyphSize)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme), width: M.rtHalfWidth))
+        .onHover { hoveredHalf = $0 ? .runner : nil }
         .accessibilityLabel("Show runner")
         .accessibilityIdentifier("flock.pane.rtRunner.\(paneID.rawValue)")
     }
