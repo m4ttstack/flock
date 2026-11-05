@@ -240,7 +240,29 @@ final class ChatStoreSlackTests: XCTestCase {
 
         let verbs = await script.verbs
         XCTAssertTrue(verbs.contains(.slackClose(pane: "bg:w9:p1")))
-        XCTAssertEqual(store.slackTransition(for: pane), .closing)
+    }
+
+    func testAnAgentsChatThatOutlivesTheCloseWindowOffersEndAgain() async {
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]))
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        await store.noteSlackChats([open()])
+
+        await store.endSlackChat(pane)
+        await store.slackWatch(for: pane)?.value
+
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertEqual(store.slackRow(for: pane), .open(name: "alex"))
+        XCTAssertEqual(toasts.current?.message, "Slack chat still open. Check the pane")
+    }
+
+    func testAFailedCloseOnAnAgentsChatLeavesNoWait() async {
+        let (store, _) = await makeStore(SlackScript(chats: [nil], closeError: "no chat"))
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.endSlackChat(pane)
+
+        XCTAssertNil(store.slackTransition(for: pane))
+        XCTAssertNil(store.slackWatch(for: pane))
     }
 
     func testTheLinkToAnAgentSurvivesARelaunch() async {

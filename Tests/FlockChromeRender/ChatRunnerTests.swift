@@ -22,6 +22,14 @@ final class ChatRunnerTests: XCTestCase {
         XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self), "w1:p2\n")
     }
 
+    func testACallerPaneDropsAnInheritedSession() async throws {
+        let runner = ChatRunner(
+            binaryPath: "/usr/bin/printenv", deadline: .seconds(5), environment: { ["CLAUDE_CODE_SESSION_ID": "inherited"] }
+        )
+        let result = try await runner.runRaw(["CLAUDE_CODE_SESSION_ID"], callerPane: "w1:p2")
+        XCTAssertEqual(result.stdout, Data())
+    }
+
     func testNoCallerPaneLeavesTheChildWithoutOne() async throws {
         let runner = ChatRunner(binaryPath: "/usr/bin/printenv", deadline: .seconds(5), environment: { [:] })
         let result = try await runner.runRaw(["HERDR_PANE_ID"])

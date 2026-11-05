@@ -237,7 +237,7 @@ in `flock-chat.pen` holds the design.
 22 tall at y 11, and the 32 chip overhangs it by 5 each way, which leaves 6
 above the chip and 6 below it.
 
-**Signed in:** height 32, WIDTH SIZED TO CONTENT, r8. In order:
+**Signed in:** height 32, WIDTH SIZED TO CONTENT, r9. In order:
 
 | Child | Size | Notes |
 | --- | --- | --- |

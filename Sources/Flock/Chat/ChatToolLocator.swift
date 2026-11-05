@@ -91,8 +91,9 @@ enum ChatToolLocator {
         return ChatSlackAgent.refusal(stdout: stdout, exitCode: exitCode)
     }
 
-    /// A new agent can answer that it isn't running yet, so a failed send is
-    /// tried again here, where `typeIntoPane` takes it as maybe typed.
+    /// A new agent can answer that it isn't running yet, so a clean failure is
+    /// tried again here, where `typeIntoPane` takes it as maybe typed. A call
+    /// cut off may have typed the line, and typing it twice opens two chats.
     @Sendable
     static func typeIntoAgent(_ pane: String, line: String) async -> String? {
         let resolved = await Task.detached(priority: .userInitiated) {
@@ -101,11 +102,15 @@ enum ChatToolLocator {
         guard let (rt, environment) = resolved else { return "rt not found" }
         let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatSlackCommand.sendDeadline)
         for _ in 0..<ChatSlackAgent.sendAttempts {
-            if let (stdout, exitCode) = try? await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line)),
-               exitCode == 0 {
-                return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode)
+            do {
+                let (stdout, exitCode) = try await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line))
+                if exitCode == 0 { return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode) }
+            } catch ToolRunner.Failure.didNotStart(let reason) {
+                return "rt could not start: \(reason)"
+            } catch {
+                return nil
             }
-            try? await Task.sleep(for: ChatSlackAgent.sendRetryDelay)
+            do { try await Task.sleep(for: ChatSlackAgent.sendRetryDelay) } catch { return nil }
         }
         return "the agent didn't start"
     }

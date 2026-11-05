@@ -35,7 +35,12 @@ public struct ChatRunner: ChatRunning {
     public func runRaw(_ arguments: [String], callerPane: String? = nil) async throws -> (stdout: Data, exitCode: Int32) {
         do {
             var environment = await Task.detached(priority: .userInitiated) { [environment] in environment() }.value
-            if let callerPane { environment["HERDR_PANE_ID"] = callerPane }
+            if let callerPane {
+                environment["HERDR_PANE_ID"] = callerPane
+                // rt reads a session before a pane, and an app started from an
+                // agent's shell inherits that agent's.
+                environment["CLAUDE_CODE_SESSION_ID"] = nil
+            }
             return try await ToolRunner(binaryPath: binaryPath, environment: environment, deadline: deadline).run(arguments)
         } catch let failure as ToolRunner.Failure {
             switch failure {

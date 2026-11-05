@@ -3782,11 +3782,10 @@ final class ChromeRenderTests: XCTestCase {
     /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
     /// layout's own zoom or the main window's focus leaks through: the box
     /// spanning the row must be `w1:p1`'s and must wear the accent border,
-    /// with no canvas-coloured gutter anywhere along it and no mauve zoom
-    /// badge in its legend. Only `w1:p1`'s program holds the mouse, so its lit
-    /// mouse badge in the legend names the pane drawn and shows the legend
-    /// controls survive solo. No drag grip is drawn, and nothing is published
-    /// to the drag coordinator.
+    /// with no canvas-coloured gutter anywhere along it. Only `w1:p1`'s program
+    /// holds the mouse, so a bar that gains a button when it does names the
+    /// pane drawn and shows the controls survive solo. No drag grip is drawn,
+    /// and nothing is published to the drag coordinator.
     /// PNGs are written only when `FLOCK_GRID_RENDER_DIR` is set.
     func testASoloCanvasDrawsOnePaneAcrossTheWholeCanvas() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_GRID_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -3829,11 +3828,17 @@ final class ChromeRenderTests: XCTestCase {
                 x: midX, y: top + PaneChrome.titleRowTop,
                 width: last - PaneChrome.horizontalPadding - midX, height: PaneChrome.titleRowHeight
             )
-            let controls = legend.insetBy(dx: ChromeMetrics.Pane.Grip.hitWidth / 2, dy: 0).offsetBy(dx: ChromeMetrics.Pane.Grip.hitWidth / 2, dy: 0)
-            XCTAssertNotNil(
-                firstPointDiffering(in: controls, from: roles.pane.hex, of: image),
-                "\(scheme): no mouse button on the bar: the pane drawn is not \(solo.rawValue), or its controls are gone"
-            )
+            let quiet = try await Harness(theme: theme, model: model)
+            let quietWindow = quiet.makeCanvasWindow(size: Self.windowSize, solo: solo)
+            await settle(quietWindow)
+            let quietImage = try snapshot(quietWindow)
+            quietWindow.close()
+            let mouseDrew = stride(from: legend.minY, to: legend.maxY, by: 0.5).contains { y in
+                stride(from: legend.minX, to: legend.maxX, by: 0.5).contains { x in
+                    hex(image, CGPoint(x: x, y: y)) != hex(quietImage, CGPoint(x: x, y: y))
+                }
+            }
+            XCTAssertTrue(mouseDrew, "\(scheme): no mouse button on the bar: the pane drawn is not \(solo.rawValue), or its controls are gone")
             XCTAssertTrue(harness.drag.canvas.paneFrames.isEmpty, "\(scheme): the solo canvas published frames for drop hit-testing")
 
             // The same canvas without solo holds `w1:p2` open over the same

@@ -295,6 +295,7 @@ final class ChatStore {
     }
 
     private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration) {
+        slackWatches[owner]?.cancel()
         slackAgents[owner] = nil
         slackTransitions[owner] = nil
         exitAgent(agent.pane, after: delay)
@@ -326,7 +327,11 @@ final class ChatStore {
         if let agent = slackAgents[owner] {
             slackTransitions[owner] = .closing
             let closed: ChatSlackClosed? = await run(.slackClose(pane: agent.pane))
-            if closed == nil { slackTransitions[owner] = nil }
+            guard closed != nil else {
+                slackTransitions[owner] = nil
+                return
+            }
+            watchAgentClose(owner, agent: agent.pane)
             return
         }
         slackTransitions[pane] = .closing
@@ -338,6 +343,18 @@ final class ChatStore {
         watchSlack(
             pane, transition: .closing, interval: ChatSlackWatch.closeInterval, attempts: ChatSlackWatch.closeAttempts
         )
+    }
+
+    /// rt's list ends the wait through `noteSlackChats`. A chat it keeps
+    /// listing would otherwise leave End chat disabled until a relaunch.
+    private func watchAgentClose(_ owner: PaneID, agent: String) {
+        slackWatches[owner]?.cancel()
+        slackWatches[owner] = Task { [weak self, pause] in
+            do { try await pause(ChatSlackWatch.closeInterval * ChatSlackWatch.closeAttempts) } catch { return }
+            guard let self, self.slackAgents[owner]?.pane == agent, self.slackTransitions[owner] == .closing else { return }
+            self.slackTransitions[owner] = nil
+            self.toasts.show("Slack chat still open. Check the pane", kind: .info)
+        }
     }
 
     private func watchSlack(_ pane: PaneID, transition: ChatSlackTransition, interval: Duration, attempts: Int) {
