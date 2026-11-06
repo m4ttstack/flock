@@ -215,6 +215,71 @@ final class ProfilePickerRenderTests: XCTestCase {
         XCTAssertTrue(picker.canOpen, "the machine screen's picker lets the shortcut open it")
     }
 
+    /// ⌃`'s panel: Default current with the last-used machine selected, then
+    /// acme-mini current with its live dot and Default selected. The panel's
+    /// rows are the switcher's, the marker and dot the picker's.
+    func testTheProfileSwitcherShowsMachinesWithTheirMarkerAndTheCurrentDot() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let column = CGSize(width: 480, height: 400)
+        let miniID = "machine.\(Self.mini.id)"
+        let cases: [(current: String, dot: ProfileConnectionDot?)] = [(FlockProfile.defaultID, nil), (miniID, .live)]
+        let size = CGSize(width: column.width * CGFloat(cases.count), height: column.height)
+        typealias Metrics = ChromeMetrics.Palette
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let pickers = try cases.map { try picker(current: $0.current) }
+            let switchers = try cases.indices.map { index in
+                let switcher = ProfileSwitcher(userDefaults: try scratchDefaults())
+                switcher.note(currentProfile: cases[index].current == miniID ? FlockProfile.defaultID : miniID)
+                switcher.note(currentProfile: cases[index].current)
+                let profiles = pickers[index].profiles
+                XCTAssertTrue(switcher.begin(
+                    items: ProfileSwitcher.candidates(profiles.profiles, isLocked: false),
+                    current: ProfileID(rawValue: profiles.currentID)
+                ))
+                switcher.show(session: switcher.session)
+                return switcher
+            }
+            let view = HStack(spacing: 0) {
+                ForEach(cases.indices, id: \.self) { index in
+                    ProfileSwitcherOverlay(
+                        theme: theme, switcher: switchers[index], profiles: pickers[index].profiles, isLocked: false,
+                        currentDot: cases[index].dot, blocked: { false }, choose: { _ in }
+                    )
+                    .frame(width: column.width, height: column.height)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .background(theme.chrome)
+            let image = try await render(view, size: size)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-switcher-\(scheme).png"))
+            }
+
+            XCTAssertEqual(switchers[0].order.first?.rawValue, FlockProfile.defaultID)
+            XCTAssertEqual(switchers[0].selected?.rawValue, miniID, "\(scheme): a tap from Default goes to the machine")
+            XCTAssertEqual(switchers[1].selected?.rawValue, FlockProfile.defaultID, "\(scheme): and back")
+            let rowCount = switchers[0].order.count
+            let area = column.height - ChromeMetrics.TitleBar.height
+            let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Switcher.top(inTabAreaHeight: area, rowCount: rowCount)
+            let rowY = { (index: Int) in
+                top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth + Metrics.listPadding + CGFloat(index) * (Metrics.rowHeight + 1)
+            }
+            let boxX = (column.width - ChromeMetrics.Switcher.width) / 2
+            let selection = Color(theme.palette.chromeRoles.selection)
+            for index in cases.indices {
+                let x = CGFloat(index) * column.width + boxX
+                let highlight = CGRect(x: x + ChromeMetrics.Switcher.width - 40, y: rowY(1) + 3, width: 8, height: 4)
+                XCTAssertTrue(contains(image, highlight, selection), "\(scheme) column \(index): the second row is selected")
+                let currentRow = CGRect(x: x, y: rowY(0), width: ChromeMetrics.Switcher.width, height: Metrics.rowHeight)
+                let green = contains(image, currentRow, Color(theme.palette.green))
+                XCTAssertEqual(green, cases[index].dot == .live, "\(scheme) column \(index): only a current machine shows its dot")
+            }
+        }
+    }
+
     private func scratchDefaults() throws -> UserDefaults {
         let suite = "ProfilePickerRenderTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -1,8 +1,8 @@
 import AppKit
 import FlockCore
 
-/// Watches keys and modifier changes for a switcher's trigger plus Tab ahead
-/// of the pane's terminal, and for the trigger being let go, which opens the
+/// Watches keys and modifier changes for a switcher's trigger ahead of the
+/// pane's terminal, and for the trigger being let go, which opens the
 /// selection. An event monitor with no view of its own: an `NSView` beside
 /// the tab area, however inert, cost the rail's rename editor its focus.
 @MainActor
@@ -10,9 +10,8 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
     private var monitor: Any?
     private var resignObserver: NSObjectProtocol?
 
-    /// `blocked` is read on every key: while the palette, a rename editor,
-    /// the rt modal or the other switcher is up, an idle switcher passes
-    /// everything through.
+    /// `blocked` is read on every key: while `SwitcherBlockers` says so, an
+    /// idle switcher passes everything through.
     func install(
         switcher: RecentsSwitcher<ID>,
         trigger: SwitcherTrigger,

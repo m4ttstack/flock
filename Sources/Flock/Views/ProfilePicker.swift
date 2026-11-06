@@ -174,7 +174,9 @@ struct ProfilePicker: View {
 
     /// The full name, which a narrow rail truncates, over what a click does.
     static func tooltip(name: String, isLocked: Bool) -> String {
-        "\(name)\n" + (isLocked ? ProfilesSettingsSection.lockedNote : "Switch profile (\(ProfilePickerContext.shortcutLabel))")
+        "\(name)\n" + (isLocked
+            ? ProfilesSettingsSection.lockedNote
+            : "Switch profile (\(ProfilePickerContext.shortcutLabel)), last profile (\(SwitcherTrigger.controlBacktick.label))")
     }
 }
 

@@ -110,6 +110,8 @@ enum ChromeType {
     static let paletteSection = inter(10, .semibold)
     static let paletteFooter = inter(11)
     static let switcherChatGlyph = Font.system(size: 9.5)
+    /// Inter draws a backtick as a speck at footer size.
+    static let switcherBacktick = Font.system(size: 12, weight: .bold, design: .monospaced)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

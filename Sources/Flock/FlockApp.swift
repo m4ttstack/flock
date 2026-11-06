@@ -79,6 +79,8 @@ struct FlockApp: App {
     @State private var serverPicker: ServerPicker
     @State private var profilePicker: ProfilePickerContext
     @State private var settingsTabSelection = SettingsTabSelection()
+    /// Here rather than on the session, which every switch replaces.
+    @State private var profileSwitcher = ProfileSwitcher()
     /// The window's content is rebuilt on every switch, which reruns its
     /// tasks; the launch guard and first start belong to launch alone, since
     /// a switch has already asked and started its own session.
@@ -296,6 +298,14 @@ struct FlockApp: App {
         })
     }
 
+    /// The dot the rail's picker or the machine screen's shows for the
+    /// current profile.
+    private var currentProfileDot: ProfileConnectionDot? {
+        guard session.isRemoteMachine else { return nil }
+        if case .notRunning = viewModel.connectionState { return .attention }
+        return .forMachine(hasNotice: machineNotice != nil)
+    }
+
     /// The not-running screen of a machine session. A tunnel that has not
     /// reported yet reads as connecting.
     private func machineScreen(_ notice: MachineNotice?) -> NoHerdrScreen {
@@ -367,6 +377,21 @@ struct FlockApp: App {
                     )
                 }
             }
+                .overlay {
+                    ProfileSwitcherOverlay(
+                        theme: themeStore.active, switcher: profileSwitcher, profiles: controller.profiles,
+                        isLocked: controller.isLocked, currentDot: currentProfileDot,
+                        blocked: { [controller, profilePicker, profileSwitcher] in
+                            ProfileSwitcherOverlay.blocked(
+                                session: controller.session, profilePicker: profilePicker, profiles: profileSwitcher
+                            )
+                        },
+                        choose: { [profilePicker] in profilePicker.choose($0) }
+                    )
+                }
+                .onChange(of: controller.profiles.currentID, initial: true) { _, id in
+                    profileSwitcher.note(currentProfile: id)
+                }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
@@ -400,6 +425,7 @@ struct FlockApp: App {
                 .environment(paletteRecents)
                 .environment(workspaceSwitcher)
                 .environment(tabSwitcher)
+                .environment(profileSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .id(controller.generation)
                 .task {
