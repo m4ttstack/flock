@@ -12,13 +12,22 @@ public struct ProfileSessionContext {
     public let socketPath: String
     public let preferences: UserDefaults
     public let idState: UserDefaults
-    public var isRemoteMachine: Bool { profile.machine != nil }
+    /// False for a machine profile under a socket override, which then runs
+    /// as a plain socket session.
+    public let isRemoteMachine: Bool
 
-    public init(profile: FlockProfile, socketPath: String, preferences: UserDefaults, idState: UserDefaults) {
+    public init(
+        profile: FlockProfile,
+        socketPath: String,
+        preferences: UserDefaults,
+        idState: UserDefaults,
+        isRemoteMachine: Bool = false
+    ) {
         self.profile = profile
         self.socketPath = socketPath
         self.preferences = preferences
         self.idState = idState
+        self.isRemoteMachine = isRemoteMachine
     }
 }
 
@@ -87,10 +96,11 @@ public final class ProfileSessionController<Session: ProfileSession> {
         let profile = profiles.current
         let socket = environment.socketOverride.map { HerdrServerAddress.normalize($0, home: environment.home) }
             ?? HerdrServerAddress.normalize(profiles.socketPath(of: profile), home: environment.home)
-        environment.setChildSocket(profile.isMachine ? nil : socket)
+        let isMachine = Self.isMachineSession(profile, environment: environment)
+        environment.setChildSocket(isMachine ? nil : socket)
         session = environment.make(Self.context(for: profile, on: socket, environment: environment))
         socketPath = socket
-        attachKey = ProfileSuites.attachKey(for: profile, socketPath: socket)
+        attachKey = Self.attachKey(for: profile, on: socket, environment: environment)
     }
 
     @discardableResult
@@ -120,7 +130,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         let targetLabel = target.isMachine
             ? target.name
             : HerdrServerAddress(socketPath: newSocket, home: environment.home).label
-        let key = ProfileSuites.attachKey(for: target, socketPath: newSocket)
+        let key = Self.attachKey(for: target, on: newSocket, environment: environment)
         guard await environment.confirmAttach(key, targetLabel, profiles.current.name) else { return false }
         switchingTo = newSocket
         await session.shutdown()
@@ -145,8 +155,8 @@ public final class ProfileSessionController<Session: ProfileSession> {
 
     private func rebuild(on newSocket: String) async {
         let profile = profiles.current
-        let key = ProfileSuites.attachKey(for: profile, socketPath: newSocket)
-        environment.setChildSocket(profile.isMachine ? nil : newSocket)
+        let key = Self.attachKey(for: profile, on: newSocket, environment: environment)
+        environment.setChildSocket(Self.isMachineSession(profile, environment: environment) ? nil : newSocket)
         session = environment.make(Self.context(for: profile, on: newSocket, environment: environment))
         socketPath = newSocket
         attachKey = key
@@ -158,6 +168,21 @@ public final class ProfileSessionController<Session: ProfileSession> {
 
     private func normalize(_ path: String) -> String {
         HerdrServerAddress.normalize(path, home: environment.home)
+    }
+
+    /// An override binds the session to its socket, whatever the current profile is.
+    private static func isMachineSession(_ profile: FlockProfile, environment: ProfileSessionEnvironment<Session>) -> Bool {
+        environment.socketOverride == nil && profile.isMachine
+    }
+
+    private static func attachKey(
+        for profile: FlockProfile,
+        on socket: String,
+        environment: ProfileSessionEnvironment<Session>
+    ) -> String {
+        isMachineSession(profile, environment: environment)
+            ? ProfileSuites.attachKey(for: profile, socketPath: socket)
+            : socket
     }
 
     private static func context(
@@ -180,7 +205,8 @@ public final class ProfileSessionController<Session: ProfileSession> {
             profile: profile,
             socketPath: socket,
             preferences: preferences,
-            idState: environment.defaults(idSuite)
+            idState: environment.defaults(idSuite),
+            isRemoteMachine: isMachineSession(profile, environment: environment)
         )
     }
 }

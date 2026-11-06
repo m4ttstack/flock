@@ -9,9 +9,20 @@ public struct MachineTunnelPaths: Equatable, Sendable {
     public let clientSocket: String
 
     public init(uid: uid_t, bundleTag: String, machineID: String) {
-        directory = "/tmp/flock-\(uid)/\(bundleTag)-\(machineID.prefix(12))"
+        directory = "\(Self.root(uid: uid))/\(bundleTag)-\(machineID.prefix(12))"
         apiSocket = "\(directory)/herdr.sock"
         clientSocket = "\(directory)/herdr-client.sock"
+    }
+
+    public static func root(uid: uid_t) -> String {
+        "/tmp/flock-\(uid)"
+    }
+
+    /// Entries of `root` that are this app's tunnel directories; another
+    /// app's are its own to clear.
+    public static func staleEntries(_ entries: [String], bundleTag: String) -> [String] {
+        let prefix = "\(bundleTag)-"
+        return entries.filter { $0.hasPrefix(prefix) && $0.count > prefix.count }
     }
 
     /// Keeps Flock and Flock Dev tunnels apart.

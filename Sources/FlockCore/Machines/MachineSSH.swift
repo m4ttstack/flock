@@ -32,6 +32,14 @@ public enum MachineSSH {
         return match.socketPath
     }
 
+    /// ssh writes its reason for failing as the last line of stderr.
+    public static func lastLine(of output: Data) -> String? {
+        String(decoding: output, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty }
+    }
+
     public static func remoteClientSocket(apiSocket: String) -> String {
         let directory = (apiSocket as NSString).deletingLastPathComponent
         return directory + "/herdr-client.sock"

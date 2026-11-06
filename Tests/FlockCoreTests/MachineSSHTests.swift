@@ -65,4 +65,11 @@ final class MachineSSHTests: XCTestCase {
         XCTAssertTrue(cmd.contains("cat > "))
         XCTAssertTrue(cmd.contains("x.png"))
     }
+
+    func testLastLineSkipsTrailingBlankLines() {
+        let stderr = Data("Warning: Permanently added acme-mini\r\nPermission denied (publickey).\n\n  \n".utf8)
+        XCTAssertEqual(MachineSSH.lastLine(of: stderr), "Permission denied (publickey).")
+        XCTAssertNil(MachineSSH.lastLine(of: Data("\n \n".utf8)))
+        XCTAssertNil(MachineSSH.lastLine(of: Data()))
+    }
 }

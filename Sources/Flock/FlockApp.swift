@@ -82,6 +82,7 @@ struct FlockApp: App {
     /// tasks; the launch guard and first start belong to launch alone, since
     /// a switch has already asked and started its own session.
     @State private var launchSettled = false
+    @State private var machinesSynced = false
     @State private var commandLineToolStore = CommandLineToolStore()
     #if FLOCK_SPARKLE
     @State private var updater = Updater()
@@ -138,8 +139,12 @@ struct FlockApp: App {
         _boardStore = State(initialValue: boardStore)
         let herdProgressStore = HerdProgressStore()
         _herdProgressStore = State(initialValue: herdProgressStore)
+        MachineSources.sweepStaleDirectories(bundleTag: MachineSources.bundleTag)
         let controller = ProfileSessionController<FlockSession>(
-            profiles: ProfileStore(bundleID: bundleID, defaultSocketPath: defaultSocketPath),
+            profiles: ProfileStore(
+                bundleID: bundleID, defaultSocketPath: defaultSocketPath,
+                machineSocketPath: { MachineSources.paths(for: $0).apiSocket }
+            ),
             environment: ProfileSessionEnvironment(
                 bundleID: bundleID,
                 defaultSocketPath: defaultSocketPath,
@@ -172,6 +177,7 @@ struct FlockApp: App {
             initialValue: BuildFlavor.isDev ? DevRebuild(notice: { controller.session.toastCenter.show($0, kind: .info) }) : nil
         )
         FlockAppDelegate.onTerminate.append { controller.session.viewModel.flushPaneTitles() }
+        FlockAppDelegate.onTerminate.append { controller.session.machineTunnel?.stopNow() }
         FlockAppDelegate.onOpenURL = { url in
             FlockLinkOpener.open(url, session: { controller.session }, board: boardStore)
         }
@@ -267,8 +273,10 @@ struct FlockApp: App {
 
     /// Nil for a picked custom path: herdr only attaches to a custom socket,
     /// so only an override (which binds `herdr server` to its path) starts one.
+    /// Nil for a machine, whose server is not this Mac's to start.
     private var startTarget: HerdrServerLauncher.Target? {
         if controller.isLocked { return .overrideSocket(session.socketPath) }
+        if session.isRemoteMachine { return nil }
         switch session.address {
         case .defaultServer: return .defaultServer
         case .named(let name): return .named(name)
@@ -361,6 +369,11 @@ struct FlockApp: App {
                     await FlockClientGuard.settle(attachKey: controller.attachKey, defaultSocketPath: defaultSocketPath)
                     guard controller.generation == generation else { return }
                     await controller.session.start()
+                }
+                .task {
+                    guard !machinesSynced else { return }
+                    machinesSynced = true
+                    if let machines = await MachineSources.list() { controller.profiles.syncMachines(machines) }
                 }
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }

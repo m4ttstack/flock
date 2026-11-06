@@ -56,6 +56,10 @@ final class FlockSession: ProfileSession {
     let dragCoordinator: DragCoordinator
     let dividerDragCoordinator: DividerDragCoordinator
     let commandPalette: CommandPaletteState
+    /// Holds itself alive until stopped, so `shutdown()` must run before the
+    /// session is dropped.
+    let machineTunnel: MachineTunnel?
+    var isRemoteMachine: Bool { machineTunnel != nil }
 
     init(
         context: ProfileSessionContext,
@@ -63,7 +67,8 @@ final class FlockSession: ProfileSession {
         board: BoardStore,
         herdProgress: HerdProgressStore,
         resnapshotInterval: Duration?,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(),
+        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel = MachineSources.tunnel(for:)
     ) {
         let preferences = context.preferences
         let idState = context.idState
@@ -71,6 +76,7 @@ final class FlockSession: ProfileSession {
         profile = context.profile
         self.socketPath = socketPath
         address = HerdrServerAddress(socketPath: socketPath, home: home)
+        machineTunnel = context.isRemoteMachine ? context.profile.machine.map(makeTunnel) : nil
 
         let themeStore = ThemeStore(userDefaults: preferences)
         self.themeStore = themeStore
@@ -222,7 +228,9 @@ final class FlockSession: ProfileSession {
         commandPalette = CommandPaletteState()
     }
 
+    /// The store's reconnect loop covers the wait for the tunnel's socket.
     func start() async {
+        machineTunnel?.start()
         await herdrStore.start()
     }
 
@@ -234,5 +242,6 @@ final class FlockSession: ProfileSession {
         await viewModel.shutdown()
         chatStore.stop()
         toastCenter.clear()
+        await machineTunnel?.stop()
     }
 }

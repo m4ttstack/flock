@@ -13,6 +13,13 @@ final class MachineTunnelPathsTests: XCTestCase {
         XCTAssertLessThanOrEqual(dev.clientSocket.utf8.count, 104)
     }
 
+    func testStaleEntriesAreOnlyThisAppsTunnelDirectories() {
+        let entries = ["dev-0123456789ab", "rel-0123456789ab", "dev-", "devx-0123", "dev", "abcd1234-0123", "dev-fedcba987654"]
+        XCTAssertEqual(MachineTunnelPaths.staleEntries(entries, bundleTag: "dev"), ["dev-0123456789ab", "dev-fedcba987654"])
+        XCTAssertEqual(MachineTunnelPaths.root(uid: 501), "/tmp/flock-501")
+        XCTAssertTrue(MachineTunnelPaths(uid: 501, bundleTag: "dev", machineID: id).directory.hasPrefix("/tmp/flock-501/"))
+    }
+
     func testBundleTags() {
         XCTAssertEqual(MachineTunnelPaths.bundleTag(for: "dev.mattstack.Flock"), "rel")
         XCTAssertEqual(MachineTunnelPaths.bundleTag(for: "dev.mattstack.Flock.dev"), "dev")

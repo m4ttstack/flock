@@ -80,6 +80,11 @@ public final class MachineTunnel {
     /// Final: a stopped tunnel never restarts. Does not wait for an in-flight
     /// resolve, which may be an ssh that has not timed out yet.
     public func stop() async {
+        stopNow()
+    }
+
+    /// `stop()` for app termination, which cannot await.
+    public func stopNow() {
         stopped = true
         supervision?.cancel()
         supervision = nil

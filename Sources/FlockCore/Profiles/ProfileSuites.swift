@@ -9,8 +9,9 @@ public enum ProfileSuites {
         profile.id == FlockProfile.defaultID || profile.isMachine ? nil : "\(bundleID).profile.\(profile.id)"
     }
 
-    /// What two Flocks compare to tell whether they hold one herdr session. A
-    /// machine's tunnel socket path changes per launch, its id does not.
+    /// What two Flocks compare to tell whether they hold one herdr session.
+    /// Flock and Flock Dev tunnel one machine through different local paths,
+    /// so a machine is keyed by its id.
     public static func attachKey(for profile: FlockProfile, socketPath: String) -> String {
         profile.machine.map { "\(FlockClientRecord.machineKeyPrefix)\($0.id)" } ?? socketPath
     }

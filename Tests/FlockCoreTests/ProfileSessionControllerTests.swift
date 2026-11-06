@@ -10,6 +10,7 @@ final class ProfileSessionControllerTests: XCTestCase {
 
     private final class Log {
         var lines: [String] = []
+        var remote: [Bool] = []
     }
 
     private final class Gate {
@@ -90,6 +91,7 @@ final class ProfileSessionControllerTests: XCTestCase {
             setChildSocket: { log.lines.append("child \($0 ?? "nil")") },
             make: { context in
                 log.lines.append("make \(context.profile.id) \(context.socketPath)")
+                log.remote.append(context.isRemoteMachine)
                 return FakeSession(socketPath: context.socketPath, log: log, gate: gate)
             }
         )
@@ -120,6 +122,23 @@ final class ProfileSessionControllerTests: XCTestCase {
         ])
         XCTAssertEqual(controller.attachKey, "herdr-machine:\(machine.id)")
         XCTAssertEqual(controller.socketPath, tunnel)
+        XCTAssertEqual(fixture.log.remote, [false, true])
+    }
+
+    func testAnOverrideRunsAMachineProfileAsAPlainSocketSession() throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        fixture.store.select("machine.\(machine.id)")
+        let controller = makeController(fixture, socketOverride: "/tmp/acme/x.sock")
+        XCTAssertEqual(fixture.log.lines, [
+            "child /tmp/acme/x.sock",
+            "suite standard",
+            "suite b.override",
+            "make machine.\(machine.id) /tmp/acme/x.sock",
+        ])
+        XCTAssertEqual(fixture.log.remote, [false])
+        XCTAssertEqual(controller.attachKey, "/tmp/acme/x.sock")
+        XCTAssertEqual(controller.socketPath, "/tmp/acme/x.sock")
     }
 
     func testSwitchingBackFromAMachineRestoresTheChildSocket() async throws {

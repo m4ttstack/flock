@@ -361,6 +361,19 @@ final class MachineTunnelTests: XCTestCase {
         rig.heldProbes.forEach { $0.resume() }
     }
 
+    func testStopNowTerminatesWithoutAwaiting() async {
+        let rig = Rig()
+        rig.probeAnswer = true
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+        await waitUntil { tunnel.state == .up }
+
+        tunnel.stopNow()
+        XCTAssertTrue(rig.children[0].terminated)
+        XCTAssertEqual(rig.removed, [rig.paths.directory])
+        XCTAssertEqual(tunnel.state, .stopped)
+    }
+
     func testBackoffSchedule() {
         XCTAssertEqual((1...7).map(MachineTunnel.defaultBackoff), [1, 2, 4, 8, 15, 15, 15].map { .seconds($0) })
     }
