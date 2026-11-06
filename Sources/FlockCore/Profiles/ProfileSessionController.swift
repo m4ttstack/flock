@@ -87,6 +87,14 @@ public final class ProfileSessionController<Session: ProfileSession> {
     /// The profile a confirmed switch is moving onto, over the same span as
     /// `switchingTo`; nil for a server change within the current profile.
     public private(set) var switchingToProfile: FlockProfile?
+    /// True from a confirmed server change until the next confirmed profile
+    /// switch: the loader names the server it attaches to, not the profile,
+    /// after the rebuild as well as before it.
+    public private(set) var lastChangeWasServer = false
+
+    /// The socket a confirmed server change is moving onto; nil during a
+    /// profile switch.
+    public var switchingToServer: String? { switchingToProfile == nil ? switchingTo : nil }
 
     @ObservationIgnored private let environment: ProfileSessionEnvironment<Session>
     @ObservationIgnored private var queue: Task<Bool, Never>?
@@ -137,6 +145,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         guard await environment.confirmAttach(key, targetLabel, profiles.current.name) else { return false }
         switchingTo = newSocket
         switchingToProfile = target
+        lastChangeWasServer = false
         await session.shutdown()
         profiles.select(profileID)
         await rebuild(on: newSocket)
@@ -150,6 +159,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         let targetLabel = HerdrServerAddress(socketPath: newSocket, home: environment.home).label
         guard await environment.confirmAttach(newSocket, targetLabel, stayLabel) else { return false }
         switchingTo = newSocket
+        lastChangeWasServer = true
         await session.shutdown()
         let isDefault = newSocket == normalize(environment.defaultSocketPath)
         profiles.setSocket(isDefault ? nil : newSocket, for: profiles.currentID)

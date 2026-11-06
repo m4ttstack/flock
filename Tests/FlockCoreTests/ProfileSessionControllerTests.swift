@@ -312,6 +312,38 @@ final class ProfileSessionControllerTests: XCTestCase {
         XCTAssertNil(controller.switchingTo)
     }
 
+    func testAServerChangeIsNamedAsOneUntilTheNextProfileSwitch() async throws {
+        let fixture = try makeFixture()
+        let controller = makeController(fixture)
+        XCTAssertFalse(controller.lastChangeWasServer)
+
+        fixture.gate.armed = true
+        let changed = Task { await controller.changeServer(to: acme) }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        XCTAssertEqual(controller.switchingToServer, acme)
+        XCTAssertTrue(controller.lastChangeWasServer)
+        fixture.gate.waiting?.resume()
+        fixture.gate.waiting = nil
+        _ = await changed.value
+        XCTAssertNil(controller.switchingToServer)
+        XCTAssertTrue(controller.lastChangeWasServer, "kept after the rebuild, so the loader keeps the server's name")
+
+        fixture.gate.armed = true
+        let switched = Task { await controller.switchTo(profileID: fixture.p1.id) }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        XCTAssertNil(controller.switchingToServer, "a profile switch is not a server change")
+        XCTAssertFalse(controller.lastChangeWasServer)
+        fixture.gate.waiting?.resume()
+        _ = await switched.value
+    }
+
+    func testARefusedServerChangeKeepsTheLastChangesKind() async throws {
+        let fixture = try makeFixture()
+        let controller = makeController(fixture, confirm: false)
+        await controller.changeServer(to: acme)
+        XCTAssertFalse(controller.lastChangeWasServer)
+    }
+
     func testARefusedSwitchLeavesNothingInFlight() async throws {
         let fixture = try makeFixture()
         let controller = makeController(fixture, confirm: false)

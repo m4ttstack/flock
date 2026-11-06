@@ -5,7 +5,7 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs, ⌃` over profiles. Keeps what was most recently selected
+/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers. Keeps what was most recently selected
 /// across launches, and, while the trigger is held, the rows on offer and
 /// which one letting go will open.
 @MainActor
@@ -162,7 +162,7 @@ extension RecentsSwitcher where ID == TabID {
 }
 
 /// What opens a switcher and holds it open: ⌃Tab over workspaces, ⌥Tab over
-/// tabs, ⌃` over profiles.
+/// tabs, ⌃` over profiles, ⌥` over servers.
 public struct SwitcherTrigger: Equatable, Sendable {
     public enum Modifier: Sendable { case control, option }
 
@@ -172,6 +172,7 @@ public struct SwitcherTrigger: Equatable, Sendable {
     public static let controlTab = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.tab)
     public static let optionTab = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.tab)
     public static let controlBacktick = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.grave)
+    public static let optionBacktick = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.grave)
 
     public var modifierGlyph: String {
         switch modifier {

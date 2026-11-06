@@ -162,13 +162,23 @@ final class ProfileSwitcherTests: XCTestCase {
         XCTAssertFalse(SwitcherBlockers().blocks(.profiles))
     }
 
+    func testTheServerSwitcherAndTheOthersBlockEachOther() {
+        let up = SwitcherBlockers(active: [.servers])
+        XCTAssertFalse(up.blocks(.servers))
+        for kind in [SwitcherKind.workspaces, .tabs, .profiles] {
+            XCTAssertTrue(up.blocks(kind), "servers up blocks \(kind)")
+            XCTAssertTrue(SwitcherBlockers(active: [kind]).blocks(.servers), "\(kind) up blocks servers")
+        }
+        XCTAssertFalse(SwitcherBlockers().blocks(.servers))
+    }
+
     func testModalLayersBlockEverySwitcher() {
         let layers = [
             SwitcherBlockers(paletteOpen: true), SwitcherBlockers(renaming: true), SwitcherBlockers(rtModal: true),
             SwitcherBlockers(profilePickerOpen: true),
         ]
         for blockers in layers {
-            for kind in [SwitcherKind.workspaces, .tabs, .profiles] {
+            for kind in [SwitcherKind.workspaces, .tabs, .profiles, .servers] {
                 XCTAssertTrue(blockers.blocks(kind), "\(blockers) blocks \(kind)")
             }
         }
