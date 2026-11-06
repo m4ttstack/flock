@@ -81,6 +81,8 @@ struct FlockApp: App {
     @State private var settingsTabSelection = SettingsTabSelection()
     /// Here rather than on the session, which every switch replaces.
     @State private var profileSwitcher = ProfileSwitcher()
+    /// Here for the same reason: a switch's rebuild must not restart its loader.
+    @State private var switchLoader = SwitchLoaderPresenter()
     /// The window's content is rebuilt on every switch, which reruns its
     /// tasks; the launch guard and first start belong to launch alone, since
     /// a switch has already asked and started its own session.
@@ -298,7 +300,7 @@ struct FlockApp: App {
         })
     }
 
-    /// The dot the rail's picker or the machine screen's shows for the
+    /// The dot the rail's picker and the profile switcher show for the
     /// current profile.
     private var currentProfileDot: ProfileConnectionDot? {
         guard session.isRemoteMachine else { return nil }
@@ -306,17 +308,60 @@ struct FlockApp: App {
         return .forMachine(hasNotice: machineNotice != nil)
     }
 
-    /// The not-running screen of a machine session. A tunnel that has not
-    /// reported yet reads as connecting.
-    private func machineScreen(_ notice: MachineNotice?) -> NoHerdrScreen {
-        let label = session.profile.machine?.label ?? session.address.label
-        return NoHerdrScreen(
-            theme: themeStore.active,
-            copy: NoHerdrScreen.machine(label: label, message: notice?.text ?? "Connecting to \(label)\u{2026}"),
-            primaryAction: notice?.action.map { action in .init(title: action.title, perform: action.perform) },
-            profilePicker: profilePicker,
-            profileDot: .attention
+    /// What the switch loader reads: the target while a switch tears the old
+    /// session down, the current session otherwise.
+    private var switchLoaderSnapshot: SwitchLoaderPresenter.Snapshot {
+        if let target = controller.switchingToProfile {
+            return SwitchLoaderPresenter.Snapshot(
+                input: SwitchLoaderInput(
+                    label: target.machine?.label ?? target.name, isMachine: target.isMachine,
+                    isDefaultProfile: target.id == FlockProfile.defaultID, tunnel: .connecting, store: .connecting
+                ),
+                switchPending: true, generation: controller.generation
+            )
+        }
+        let profile = session.profile
+        return SwitchLoaderPresenter.Snapshot(
+            input: SwitchLoaderInput(
+                label: session.isRemoteMachine ? profile.machine?.label ?? session.address.label : profile.name,
+                isMachine: session.isRemoteMachine,
+                isDefaultProfile: profile.id == FlockProfile.defaultID,
+                tunnel: session.machineTunnel?.state ?? .stopped,
+                store: herdrStore.connection,
+                tunnelUpGraceActive: session.machineConnection?.graceActive ?? false,
+                currentMachineMissing: controller.profiles.currentMachineMissing
+            ),
+            switchPending: false, generation: controller.generation
         )
+    }
+
+    private var showsMissingHerdr: Bool {
+        HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound)
+    }
+
+    /// What the switch loader covers, and what shows through as it fades. A
+    /// machine's server is not this Mac's to start, so only a local session
+    /// gets the not-running screen.
+    @ViewBuilder private var sessionContent: some View {
+        if showsMissingHerdr {
+            NoHerdrScreen(theme: themeStore.active)
+        } else if case .notRunning = viewModel.connectionState, !session.isRemoteMachine {
+            NoHerdrScreen(
+                theme: themeStore.active, copy: notRunningCopy,
+                primaryAction: NoHerdrScreen.startTitle(
+                    for: session.address, isOverride: controller.isLocked, isStarting: session.isStartingHerdr
+                ).map {
+                    .init(title: $0, isDisabled: session.isStartingHerdr, perform: startHerdr)
+                }
+            )
+        } else {
+            MainWindow(
+                viewModel: viewModel,
+                sessionLabel: session.address.label,
+                herdrMousePatchStore: herdrMousePatchStore,
+                machineNotice: machineNotice
+            )
+        }
     }
 
     /// Nil for a picked custom path: herdr only attaches to a custom socket,
@@ -354,29 +399,17 @@ struct FlockApp: App {
 
     var body: some Scene {
         WindowGroup("Flock") {
-            Group {
-                if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
-                    NoHerdrScreen(theme: themeStore.active)
-                } else if case .notRunning = viewModel.connectionState, session.isRemoteMachine {
-                    machineScreen(machineNotice)
-                } else if case .notRunning = viewModel.connectionState {
-                    NoHerdrScreen(
-                        theme: themeStore.active, copy: notRunningCopy,
-                        primaryAction: NoHerdrScreen.startTitle(
-                            for: session.address, isOverride: controller.isLocked, isStarting: session.isStartingHerdr
-                        ).map {
-                            .init(title: $0, isDisabled: session.isStartingHerdr, perform: startHerdr)
-                        }
-                    )
-                } else {
-                    MainWindow(
-                        viewModel: viewModel,
-                        sessionLabel: session.address.label,
-                        herdrMousePatchStore: herdrMousePatchStore,
-                        machineNotice: machineNotice
+            ZStack {
+                if !switchLoader.coversWindow || showsMissingHerdr { sessionContent }
+                if let run = switchLoader.run, !showsMissingHerdr {
+                    SwitchLoaderScreen(
+                        theme: themeStore.active, run: run, isSettled: switchLoader.isSettled,
+                        profilePicker: profilePicker, profileDot: session.isRemoteMachine ? .attention : nil,
+                        onSwitchToDefault: { Task { await controller.switchTo(profileID: FlockProfile.defaultID) } }
                     )
                 }
             }
+                .onChange(of: switchLoaderSnapshot, initial: true) { _, snapshot in switchLoader.update(snapshot) }
                 .overlay {
                     ProfileSwitcherOverlay(
                         theme: themeStore.active, switcher: profileSwitcher, profiles: controller.profiles,

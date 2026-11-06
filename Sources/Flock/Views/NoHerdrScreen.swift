@@ -50,12 +50,6 @@ struct NoHerdrScreen: View {
         }
     }
 
-    /// A machine profile's server is not this Mac's to start, so the screen
-    /// carries the connection message and no hint about starting one.
-    static func machine(label: String, message: String) -> Copy {
-        Copy(headline: "herdr on \(label)", body: message, hint: "")
-    }
-
     /// Nil means no button: flock starts a custom path's server only under
     /// an override.
     static func startTitle(for address: HerdrServerAddress, isOverride: Bool, isStarting: Bool) -> String? {
@@ -70,25 +64,11 @@ struct NoHerdrScreen: View {
     let theme: Theme
     var copy: Copy = Self.missing
     var primaryAction: PrimaryAction?
-    /// A machine profile's screen keeps the profile picker where the rail
-    /// draws it, so switching away needs no menu.
-    var profilePicker: ProfilePickerContext?
-    var profileDot: ProfileConnectionDot?
-
-    @Environment(RailWidthStore.self) private var railWidth: RailWidthStore?
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(theme.chrome)
-            .overlay(alignment: .topLeading) {
-                if let profilePicker {
-                    ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
-                        .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding)
-                        .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                        .frame(width: railWidth?.width ?? RailWidth.default)
-                }
-            }
             // Must match `MainWindow`'s own floor: the window must not
             // visibly resize when herdr appears and this screen is replaced
             // by the session window.
@@ -122,7 +102,7 @@ struct NoHerdrScreen: View {
             }
             if let primaryAction {
                 Button(primaryAction.title, action: primaryAction.perform)
-                    .buttonStyle(PrimaryActionStyle(theme: theme))
+                    .buttonStyle(NoHerdrPrimaryActionStyle(theme: theme))
                     .disabled(primaryAction.isDisabled)
                     .padding(.top, ChromeMetrics.NoHerdr.primaryActionTopPadding)
                     .accessibilityIdentifier("flock.noHerdr.primaryAction")
@@ -135,7 +115,7 @@ struct NoHerdrScreen: View {
 /// The theme's accent whatever the window's state: `.borderedProminent`
 /// greys out in a window that is not key, which a screen with one thing to
 /// do cannot afford.
-private struct PrimaryActionStyle: ButtonStyle {
+struct NoHerdrPrimaryActionStyle: ButtonStyle {
     let theme: Theme
     @Environment(\.isEnabled) private var isEnabled
 

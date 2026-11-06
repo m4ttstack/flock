@@ -2,7 +2,7 @@ import FlockCore
 import SwiftUI
 
 /// ⌃`'s profiles, over the whole window below the title bar: a switch
-/// replaces everything the window shows, and the machine screen has no tab
+/// replaces everything the window shows, and the switch loader has no tab
 /// area to sit over.
 struct ProfileSwitcherOverlay: View {
     let theme: Theme

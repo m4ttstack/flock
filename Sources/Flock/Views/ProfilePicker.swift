@@ -125,7 +125,7 @@ extension ProfileConnectionDot {
     }
 }
 
-/// The top of the rail, and the same spot on a machine's connection screen:
+/// The top of the rail, and the same spot on the switch loader:
 /// the current profile, which opens the list of profiles and herdr machines
 /// to switch to.
 struct ProfilePicker: View {
