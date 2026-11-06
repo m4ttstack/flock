@@ -93,6 +93,7 @@ final class MainCheckoutTests: XCTestCase {
         XCTAssertNil(MainCheckout.resolve(from: "/"))
         XCTAssertNil(MainCheckout.resolve(from: "/.."))
         XCTAssertNil(MainCheckout.resolve(from: "/../.."))
+        XCTAssertNil(MainCheckout.resolve(from: "/tmp/../.."))
     }
 
     /// rt moves a removed worktree to a trash folder and git prunes its

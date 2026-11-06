@@ -49,10 +49,11 @@ public enum RepoBranchReader {
                     ? URL(fileURLWithPath: raw, isDirectory: true).standardized
                     : directory.appendingPathComponent(raw, isDirectory: true).standardized
             }
-            // macOS 15 answers "/.." for the parent of "/".
+            // macOS 15 answers "/.." for the parent of "/"; only a strictly
+            // shorter parent continues.
             guard directory.path != "/" else { return nil }
             let parent = directory.deletingLastPathComponent().standardized
-            guard parent.path != directory.path else { return nil }
+            guard parent.path.count < directory.path.count else { return nil }
             directory = parent
         }
     }

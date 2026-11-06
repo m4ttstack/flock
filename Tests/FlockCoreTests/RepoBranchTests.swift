@@ -52,8 +52,10 @@ final class RepoBranchTests: XCTestCase {
     }
 
     /// macOS 15 gives "/.." as the parent of "/"; the walk must still end.
-    func testTheRootHasNoBranch() {
-        XCTAssertNil(RepoBranchReader.read(folder: "/").branch)
+    func testTheGitDirectoryWalkEndsAtTheRoot() {
+        XCTAssertNil(RepoBranchReader.gitDirectory(from: "/"))
+        XCTAssertNil(RepoBranchReader.gitDirectory(from: "/.."))
+        XCTAssertNil(RepoBranchReader.gitDirectory(from: "/tmp/../.."))
     }
 
     @MainActor

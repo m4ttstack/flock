@@ -18,11 +18,12 @@ public enum MainCheckout {
             if FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) {
                 return isDirectory.boolValue ? directory.path : checkout(linkedBy: dotGit, from: directory)
             }
-            // macOS 15 answers "/.." for the parent of "/", so the walk
-            // stops at the root by name, not by the parent repeating.
+            // macOS 15 answers "/.." for the parent of "/", and a ".." the
+            // walk started with grows on each step, so only a strictly
+            // shorter parent continues.
             guard directory.path != "/" else { return nil }
             let parent = directory.deletingLastPathComponent().standardized
-            guard parent.path != directory.path else { return nil }
+            guard parent.path.count < directory.path.count else { return nil }
             directory = parent
         }
     }
