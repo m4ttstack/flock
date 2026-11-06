@@ -1,7 +1,8 @@
 import Foundation
 
 /// The herdr workspaces the board app launches its panes into, one per role,
-/// as the `board.workspaces` setting names them.
+/// as the `board.workspaces` setting names them. `mrs` holds the tabs a
+/// board link opens for an MR whose repo has no pinned workspace.
 ///
 /// Board finds these workspaces by label and nothing else, so the label is
 /// the whole of membership: a workspace is Board's when its label is one of
@@ -10,25 +11,27 @@ public struct BoardWorkspaceNames: Equatable, Sendable {
     public let reviews: String
     public let responds: String
     public let doctors: String
+    public let mrs: String
 
     /// Board's own fallbacks, field by field (`src/config.ts` in the board
     /// app), for a setting that leaves a role out.
-    public static let defaults = BoardWorkspaceNames(reviews: "reviews", responds: "responses", doctors: "doctors")
+    public static let defaults = BoardWorkspaceNames(reviews: "reviews", responds: "responses", doctors: "doctors", mrs: "mrs")
 
-    public init(reviews: String, responds: String, doctors: String) {
+    public init(reviews: String, responds: String, doctors: String, mrs: String = "mrs") {
         self.reviews = reviews
         self.responds = responds
         self.doctors = doctors
+        self.mrs = mrs
     }
 
     /// Role order, each name once: two roles sharing a workspace list it once.
     public var labels: [String] {
         var seen = Set<String>()
-        return [reviews, responds, doctors].filter { seen.insert($0).inserted }
+        return [reviews, responds, doctors, mrs].filter { seen.insert($0).inserted }
     }
 
     public func contains(label: String) -> Bool {
-        label == reviews || label == responds || label == doctors
+        label == reviews || label == responds || label == doctors || label == mrs
     }
 
     /// What `rt settings get board.workspaces --json` answered, or nil for no
@@ -44,7 +47,8 @@ public struct BoardWorkspaceNames: Equatable, Sendable {
         return BoardWorkspaceNames(
             reviews: value?.reviews ?? defaults.reviews,
             responds: value?.responds ?? defaults.responds,
-            doctors: value?.doctors ?? defaults.doctors
+            doctors: value?.doctors ?? defaults.doctors,
+            mrs: value?.mrs ?? defaults.mrs
         )
     }
 }
@@ -60,9 +64,10 @@ private struct SettingsGetEnvelope: Decodable {
         let reviews: String?
         let responds: String?
         let doctors: String?
+        let mrs: String?
 
         private enum CodingKeys: String, CodingKey {
-            case reviews, responds, doctors
+            case reviews, responds, doctors, mrs
         }
 
         init(from decoder: Decoder) throws {
@@ -74,6 +79,7 @@ private struct SettingsGetEnvelope: Decodable {
             reviews = name(.reviews)
             responds = name(.responds)
             doctors = name(.doctors)
+            mrs = name(.mrs)
         }
     }
 }

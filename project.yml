@@ -73,6 +73,12 @@ targetTemplates:
         # restoration attempt logged). This Info.plist key is read before
         # either of those.
         NSApplicationSupportsSecureRestorableState: NO
+        # flock://open, the board's "open this MR in Flock" link. Both
+        # flavors claim it; the board opens it by bundle id when Flock Dev
+        # is the one running.
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.mattstack.flock.open
+            CFBundleURLSchemes: [flock]
         # The chat sidebar's page is served over plain http on localhost.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

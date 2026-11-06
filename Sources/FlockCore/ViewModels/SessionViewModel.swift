@@ -2559,6 +2559,56 @@ public final class SessionViewModel {
         return created.rootPaneID
     }
 
+    /// A board link's tab: in `pin`'s workspace when the link's repo has one
+    /// (reopened first if it is closed), else in Board's MRs workspace, made
+    /// on first use. The tab lands focused, then the link's command is typed
+    /// once its shell reaches a prompt, under the pin's Claude account for a
+    /// Claude kind.
+    public func openLink(_ link: FlockOpenLink, pin: PinnedWorkspace?, board: BoardWorkspaceNames?) async {
+        var workspace: WorkspaceID?
+        if let pin {
+            if !isOpen(pin) { await reopen(pin.id, focus: false) }
+            workspace = pins.pin(pin.id)?.workspace
+        } else {
+            let label = (board ?? .defaults).mrs
+            workspace = userModel?.workspaces.first { $0.label == label }?.workspaceID
+        }
+        let created: CreatedTab?
+        if let workspace {
+            created = await create("tab.create", [
+                "workspace_id": .string(workspace.rawValue), "cwd": .string(link.folder),
+                "label": .string(link.label), "focus": .bool(true),
+            ], label: "Open \(link.label)")
+        } else {
+            created = await create("workspace.create", [
+                "label": .string((board ?? .defaults).mrs), "cwd": .string(link.folder), "focus": .bool(true),
+            ], label: "Open \(link.label)")
+            if let created {
+                _ = try? await client.requestRaw(
+                    "tab.rename", ["tab_id": .string(created.tabID.rawValue), "label": .string(link.label)]
+                )
+            }
+        }
+        guard let created else { return }
+        let account = link.kind.isClaude ? pin?.claudeAccount : nil
+        var accountLine: String?
+        if let account {
+            let line = ClaudeAccountLaunch.line(binary: ClaudeAccountLaunch.claudeBinary, account: account, accounts: await cswapAccounts())
+            if let pin, let fallback = line.fallback {
+                noticeSink(ClaudeAccountLaunch.notice(pinName: pin.name, fallback: fallback))
+            }
+            accountLine = line.text
+        }
+        guard let line = link.paneLine(accountLine: accountLine) else { return }
+        guard await awaitPrompt(created.rootPaneID) else {
+            noticeSink("\(link.label)'s shell never reached a prompt, so \"\(line)\" wasn't typed.")
+            return
+        }
+        _ = try? await client.requestRaw("pane.send_input", [
+            "pane_id": .string(created.rootPaneID.rawValue), "text": .string(line), "keys": .array([.string("Enter")]),
+        ])
+    }
+
     /// Whether the pin's workspace is one herdr reports, which is when the rail
     /// draws it as a live row. Every other pin is drawn empty and acts empty.
     public func isOpen(_ pin: PinnedWorkspace) -> Bool {

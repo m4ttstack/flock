@@ -13,6 +13,12 @@ final class BoardWorkspaceNamesTests: XCTestCase {
         XCTAssertEqual(answer, BoardWorkspaceNames(reviews: "🛹 Reviews", responds: "🛹 Responses", doctors: "🛹 Doctors"))
     }
 
+    func testTheMrsRoleIsRead() {
+        let answer = names(#"{"ok":true,"value":{"mrs":"🛹 MRs"}}"#)
+        XCTAssertEqual(answer?.mrs, "🛹 MRs")
+        XCTAssertEqual(answer?.contains(label: "🛹 MRs"), true)
+    }
+
     func testARoleLeftOutFallsBackToBoardsOwnDefault() {
         let answer = names(#"{"ok":true,"key":"board.workspaces","value":{"responds":"triage"}}"#)
         XCTAssertEqual(answer, BoardWorkspaceNames(reviews: "reviews", responds: "triage", doctors: "doctors"))
@@ -57,8 +63,10 @@ final class BoardWorkspaceNamesTests: XCTestCase {
     // MARK: - Membership
 
     func testLabelsAreInRoleOrderWithASharedNameListedOnce() {
-        XCTAssertEqual(BoardWorkspaceNames.defaults.labels, ["reviews", "responses", "doctors"])
-        XCTAssertEqual(BoardWorkspaceNames(reviews: "board", responds: "board", doctors: "doctors").labels, ["board", "doctors"])
+        XCTAssertEqual(BoardWorkspaceNames.defaults.labels, ["reviews", "responses", "doctors", "mrs"])
+        XCTAssertEqual(
+            BoardWorkspaceNames(reviews: "board", responds: "board", doctors: "doctors", mrs: "board").labels, ["board", "doctors"]
+        )
     }
 
     func testMembershipIsAnExactLabelMatch() {

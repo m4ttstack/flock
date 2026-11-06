@@ -41,7 +41,17 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.global(qos: .utility).async { ClipboardImageStaging.sweep() }
+        let home = NSHomeDirectory()
+        DispatchQueue.global(qos: .utility).async { _ = FlockOpenToken.readOrCreate(home: home) }
         windowFrame.start()
+    }
+
+    /// Set by `FlockApp.init`, which runs before Launch Services delivers a
+    /// link, cold launch included.
+    static var onOpenURL: (@MainActor (URL) -> Void)?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        urls.forEach { Self.onOpenURL?($0) }
     }
 
     /// Work the app's state owners register to finish before the process
@@ -160,6 +170,9 @@ struct FlockApp: App {
             initialValue: BuildFlavor.isDev ? DevRebuild(notice: { controller.session.toastCenter.show($0, kind: .info) }) : nil
         )
         FlockAppDelegate.onTerminate.append { controller.session.viewModel.flushPaneTitles() }
+        FlockAppDelegate.onOpenURL = { url in
+            FlockLinkOpener.open(url, session: { controller.session }, board: boardStore)
+        }
         let herdrMousePatchStore = HerdrMousePatchStore()
         _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
         _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
