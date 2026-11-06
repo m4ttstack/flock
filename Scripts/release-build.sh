@@ -207,13 +207,15 @@ ditto "$BUILT_APP" "$APP_OUT"
 for binary in "$APP_OUT/Contents/MacOS/Flock" "$APP_OUT/Contents/Frameworks/FlockCore.framework/FlockCore" \
   "$APP_OUT/Contents/Resources/herdr-chat"; do
   archs="$(lipo -archs "$binary")"
-  case " $archs " in
-    *" arm64 "*" x86_64 "*|*" x86_64 "*" arm64 "*) ;;
-    *)
-      echo "release-build.sh: $binary carries only $archs; a release must run on Apple silicon and Intel" >&2
-      exit 1
-      ;;
-  esac
+  for arch in arm64 x86_64; do
+    case " $archs " in
+      *" $arch "*) ;;
+      *)
+        echo "release-build.sh: $binary carries only $archs; a release must run on Apple silicon and Intel" >&2
+        exit 1
+        ;;
+    esac
+  done
 done
 
 INFO_PLIST="$APP_OUT/Contents/Info.plist"
