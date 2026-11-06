@@ -105,7 +105,7 @@ extension RtCoordinator {
     /// The full model, flock-owned workspaces included. Called on every model
     /// change; a nil model is a gap in the connection and changes nothing.
     public func update(model newModel: SessionModel?) {
-        guard let newModel else { return }
+        guard let newModel, !isRemoteMachine else { return }
         model = newModel
         seenTabs.formUnion(newModel.tabs.values.flatMap { $0 }.map(\.tabID))
         if !adopted, opensInFlight == 0, linkedTerminals(in: newModel) != nil {

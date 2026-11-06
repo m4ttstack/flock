@@ -239,7 +239,7 @@ struct WorkspaceRail: View {
                     PinFolderPopover(
                         theme: theme, name: row.pin.name, ask: ask,
                         onChoose: { viewModel.answerPinFolder(row.pin.id, with: $0) },
-                        onOther: { chooseOtherFolder(for: row.pin) }
+                        onOther: viewModel.isRemoteMachine ? nil : { chooseOtherFolder(for: row.pin) }
                     )
                 }
             }

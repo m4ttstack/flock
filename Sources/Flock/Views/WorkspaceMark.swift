@@ -58,6 +58,8 @@ private struct WorkspaceMenu: ViewModifier {
                                 Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
                             }
                         }
+                        // Finder offers this Mac's folders, not a herdr machine's.
+                        .disabled(entry.action == .changeFolder && viewModel.isRemoteMachine)
                         .accessibilityIdentifier(entry.accessibilityIdentifier)
                         if entry.action == .rename, let changeSymbol {
                             Button("Change Symbol\u{2026}", action: changeSymbol)
@@ -103,6 +105,7 @@ private struct EmptyPinMenu: ViewModifier {
                     case .remove: viewModel.removePin(pin.id)
                     }
                 }
+                .disabled(entry.action == .changeFolder && viewModel.isRemoteMachine)
                 .accessibilityIdentifier(entry.accessibilityIdentifier)
                 if entry.action == .rename {
                     Button("Change Symbol\u{2026}", action: changeSymbol)

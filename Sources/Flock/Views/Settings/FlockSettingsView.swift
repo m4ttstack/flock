@@ -170,8 +170,9 @@ struct FlockSettingsView: View {
         }
         .background(SettingsWindowRegistration(contentSize: Self.size))
         .onAppear {
-            herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
+            guard !isRemoteMachine else { return }
+            herdrMousePatchStore.refresh()
             Task { await herdrUpdateStore?.checkIfDue() }
         }
     }

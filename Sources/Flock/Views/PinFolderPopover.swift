@@ -9,7 +9,8 @@ struct PinFolderPopover: View {
     let name: String
     let ask: PinFolderAsk
     let onChoose: (String) -> Void
-    let onOther: () -> Void
+    /// nil on a herdr machine, where Finder can only offer this Mac's folders.
+    let onOther: (() -> Void)?
     /// Per row, for renders; `PinFolderPopover.otherRow` is Other's.
     var forced: [Int: ControlInteraction] = [:]
 
@@ -39,22 +40,24 @@ struct PinFolderPopover: View {
                 .buttonStyle(PinFolderRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
                 .onHover { hovered = $0 ? index : (hovered == index ? nil : hovered) }
             }
-            Rectangle()
-                .fill(theme.rule)
-                .frame(height: ChromeMetrics.ruleWidth)
-            Button(action: onOther) {
-                Text("Other\u{2026}")
-                    .font(ChromeType.pinFolderOther)
-                    .foregroundStyle(theme.textDim)
-                    .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
-                    .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            if let onOther {
+                Rectangle()
+                    .fill(theme.rule)
+                    .frame(height: ChromeMetrics.ruleWidth)
+                Button(action: onOther) {
+                    Text("Other\u{2026}")
+                        .font(ChromeType.pinFolderOther)
+                        .foregroundStyle(theme.textDim)
+                        .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
+                        .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PinFolderRowStyle(
+                    theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
+                ))
+                .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
             }
-            .buttonStyle(PinFolderRowStyle(
-                theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
-            ))
-            .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
         }
         .padding(.vertical, ChromeMetrics.PinFolderPopover.verticalPadding)
         .frame(width: ChromeMetrics.PinFolderPopover.width)

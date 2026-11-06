@@ -2240,7 +2240,7 @@ public final class SessionViewModel {
             noticeSink("A pinned workspace is already called \"\(record.label)\".")
             return
         }
-        let folder = PinFolders.firstPane(of: workspace, in: model) ?? homeDirectory
+        let folder = PinFolders.firstPane(of: workspace, in: model) ?? (isRemoteMachine ? "" : homeDirectory)
         guard let pin = pins.add(workspace: workspace, name: record.label, folder: folder, at: index) else { return }
         identity?.rekey(from: workspace.rawValue, to: pin.identityKey)
         let pane = PinFolders.firstPaneID(of: workspace, in: model)
@@ -2478,7 +2478,7 @@ public final class SessionViewModel {
     }
 
     private func startingCwd(forTabIn workspace: WorkspaceID) async -> String? {
-        if let folder = pins.pin(linkedTo: workspace)?.folder, pinFolderIsThere(folder) { return folder }
+        if let folder = pins.pin(linkedTo: workspace).flatMap({ usableFolder(of: $0) }) { return folder }
         return await startingCwd(for: .tab, from: resolvedFocusedPaneID)
     }
 
@@ -2550,9 +2550,11 @@ public final class SessionViewModel {
     }
 
     /// A remote machine's pin folders came from its own panes and name
-    /// nothing here, so this disk is not asked about them.
-    private func pinFolderIsThere(_ folder: String) -> Bool {
-        isRemoteMachine || folderExists(folder)
+    /// nothing here, so this disk is not asked about them; an empty one is
+    /// a pin that never learned a folder there.
+    private func usableFolder(of pin: PinnedWorkspace) -> String? {
+        if isRemoteMachine { return pin.folder.isEmpty ? nil : pin.folder }
+        return folderExists(pin.folder) ? pin.folder : nil
     }
 
     public nonisolated static func directoryExists(_ path: String) -> Bool {
@@ -2567,17 +2569,16 @@ public final class SessionViewModel {
         guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return nil }
         reopening.insert(id)
         defer { reopening.remove(id) }
-        let folderIsThere = pinFolderIsThere(pin.folder)
-        let params: [String: JSONValue] = [
-            "focus": .bool(focus), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
-        ]
+        let folder = usableFolder(of: pin)
+        var params: [String: JSONValue] = ["focus": .bool(focus)]
+        if let cwd = folder ?? (isRemoteMachine ? nil : homeDirectory) { params["cwd"] = .string(cwd) }
         guard let created = await create("workspace.create", params, label: "Reopen \(pin.name)", lands: focus) else { return nil }
         // Read again past the await: a rename made while the create was out wins.
         guard let name = pins.pin(id)?.name else { return nil }
         pins.link(id, to: created.workspaceID)
         if pins.pin(id)?.placement == .topBar { refreshVisibility() }
         await run(OpPlan(ops: [.renameWorkspace(created.workspaceID, name)], label: "Rename workspace"), recordsUndo: false)
-        if !folderIsThere {
+        if folder == nil, !isRemoteMachine {
             noticeSink("\"\(name)\" opened in your home folder: its folder is gone. Change Folder\u{2026} picks another.")
         }
         return created.rootPaneID

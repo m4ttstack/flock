@@ -17,6 +17,19 @@ private actor RecordingClient: HerdrCommandClient {
     var methods: [String] { calls.map(\.method) }
 }
 
+/// Counts every touch of rt's files.
+private final class CountingRtFiles: RtFileStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var touches: Int { lock.withLock { count } }
+
+    private func touch() { lock.withLock { count += 1 } }
+    func read(_ url: URL) -> String? { touch(); return nil }
+    func write(_ text: String, to url: URL) { touch() }
+    func delete(_ url: URL) { touch() }
+    func prepareDirectory(_ url: URL) { touch() }
+}
+
 /// A machine session's panes live on another Mac, so nothing here may read
 /// their folders against this Mac's disk or hand them to local tools.
 final class SessionViewModelRemoteMachineTests: XCTestCase {
@@ -33,6 +46,7 @@ final class SessionViewModelRemoteMachineTests: XCTestCase {
             startingFolder: { _ in startingFolder },
             homeDirectory: home,
             repoBranches: repoBranches,
+            folderExists: { _ in false },
             isRemoteMachine: remote
         )
         let json = #"""
@@ -109,6 +123,57 @@ final class SessionViewModelRemoteMachineTests: XCTestCase {
         }
         let methods = await client.methods
         XCTAssertFalse(methods.contains("pane.process_info"), "the pane's folder is never needed")
+    }
+
+    @MainActor
+    func testRemoteReopenSendsThePinsOwnFolderUnchecked() async {
+        let client = RecordingClient()
+        let viewModel = makeViewModel(client: client)
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w9"), name: "app", folder: "/Users/acme/src/app", at: nil)!
+
+        await viewModel.reopen(pin.id)
+
+        let params = await client.call("workspace.create")
+        guard case .string(let cwd)? = params?["cwd"] else { return XCTFail("no cwd") }
+        XCTAssertEqual(cwd, "/Users/acme/src/app")
+    }
+
+    @MainActor
+    func testRemoteReopenOfAPinWithNoFolderSendsNone() async {
+        let client = RecordingClient()
+        let viewModel = makeViewModel(client: client)
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w9"), name: "app", folder: "", at: nil)!
+
+        await viewModel.reopen(pin.id)
+
+        let params = await client.call("workspace.create")
+        XCTAssertNotNil(params)
+        XCTAssertNil(params?["cwd"] ?? nil, "never this Mac's home")
+    }
+
+    /// rt's launch adoption reads this Mac's rt files and shuts down
+    /// `flock:rt` tabs it cannot link, which on a machine are not its own.
+    @MainActor
+    func testRemoteSessionLeavesRtWorkspacesAlone() async {
+        let world = FakeRtWorld()
+        world.seed(workspace: "wS", label: RtLabels.sharedWorkspace)
+        world.seed(tab: "wS:t1", in: "wS", label: "run term_old old5", number: 1)
+        world.seed(pane: "wS:p1", tab: "wS:t1", workspace: "wS", terminal: "term_s1")
+        world.seed(tab: "wS:t2", in: "wS", label: "zsh", number: 2)
+        world.seed(pane: "wS:p2", tab: "wS:t2", workspace: "wS", terminal: "term_s2")
+        let files = CountingRtFiles()
+        let rt = RtCoordinator(client: world, files: files, linkedPanes: scratchLinkedPanes())
+        let viewModel = SessionViewModel(client: world, rt: rt, isRemoteMachine: true)
+
+        viewModel.update(model: world.model(), connection: .live)
+        await rt.settle()
+
+        let rtMethods = world.calls.map(\.method).filter {
+            $0.hasPrefix("pane.") || $0 == "tab.close" || $0 == "workspace.close" || $0 == "tab.rename"
+        }
+        XCTAssertEqual(rtMethods, [])
+        XCTAssertEqual(files.touches, 0)
+        XCTAssertTrue(rt.items.isEmpty)
     }
 
     @MainActor

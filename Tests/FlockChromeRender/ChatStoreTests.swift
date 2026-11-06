@@ -174,12 +174,12 @@ final class ChatStoreTests: XCTestCase {
     /// herdr-chat and rt run against this Mac's herdr, which a herdr
     /// machine's panes are not on, so nothing is even looked for.
     func testARemoteMachineSessionNeverProbesAndStaysUnavailable() async {
-        let probed = expectation(description: "probe")
-        probed.isInverted = true
+        final class Probes { var count = 0 }
+        let probes = Probes()
         let store = ChatStore(
             toasts: ToastCenter(),
             probe: {
-                probed.fulfill()
+                probes.count += 1
                 return "/usr/local/bin/herdr-chat"
             },
             rtProbe: { true }, deckProbe: { true },
@@ -187,7 +187,7 @@ final class ChatStoreTests: XCTestCase {
             isRemoteMachine: true
         )
         await store.probeTask.value
-        await fulfillment(of: [probed], timeout: 0.2)
+        XCTAssertEqual(probes.count, 0)
         XCTAssertFalse(store.isAvailable)
     }
 

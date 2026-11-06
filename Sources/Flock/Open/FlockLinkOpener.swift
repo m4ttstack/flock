@@ -36,18 +36,18 @@ enum FlockLinkOpener {
                 if case .failure(let refusal) = parsed { session().toastCenter.show(refusal.message, kind: .info) }
                 return
             }
-            if board.names == nil { await board.refresh() }
             let viewModel = session().viewModel
+            guard !viewModel.isRemoteMachine else {
+                await viewModel.openLink(link, pin: nil, board: nil)
+                return
+            }
+            if board.names == nil { await board.refresh() }
             let deadline = ContinuousClock.now + snapshotWait
             while viewModel.userModel == nil, ContinuousClock.now < deadline {
                 try? await Task.sleep(for: snapshotPoll)
             }
             guard viewModel.userModel != nil else {
                 session().toastCenter.show("Flock isn't connected to herdr, so \(link.label) didn't open.", kind: .info)
-                return
-            }
-            guard !viewModel.isRemoteMachine else {
-                await viewModel.openLink(link, pin: nil, board: nil)
                 return
             }
             let pins = viewModel.pins.pins
