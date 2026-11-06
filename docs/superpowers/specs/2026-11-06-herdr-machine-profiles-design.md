@@ -210,7 +210,9 @@ in the connection banner; do not block. (My call.)
 
 ### Local files into remote panes
 
-- **Clipboard image paste and file drop** copy the file to mini over the
+- **Clipboard image paste and pasted files** (Flock has no drag-and-drop
+  onto panes today, so "file drop" means files copied in Finder and
+  pasted) copy the file to mini over the
   machine's SSH connection (a short `ssh <target> 'cat > <path>'` or
   equivalent) into a temp
   directory on mini, then paste mini's path. Upload failures show a short

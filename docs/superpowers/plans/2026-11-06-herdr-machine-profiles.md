@@ -72,7 +72,7 @@ func testProfilesStoredBeforeMachinesStillDecode()       // old JSON without "ma
 ```
 
 - [ ] **Step 2: Run, expect FAIL** (`-only-testing:FlockCoreTests/HerdrMachineTests -only-testing:FlockCoreTests/ProfileStoreTests`): types undefined.
-- [ ] **Step 3: Implement.** Machine profiles persist with the rest (that is what makes relaunch work without a list read). `syncMachines` upserts by machine id and removes absent ones except `currentID`. `rename`/`delete`/`setSocket` ignore machine profiles. `knownSockets` for a machine profile is `[]`.
+- [ ] **Step 3: Implement.** Machine profiles persist with the rest (that is what makes relaunch work without a list read). `syncMachines` upserts by machine id and removes absent ones except `currentID`. `rename`/`delete`/`setSocket` ignore machine profiles. `knownSockets` for a machine profile is `[]`, so when `syncMachines` drops one it removes that profile's id-state suite itself: `removeSuite(ProfileSuites.serverSuiteName(bundleID:profileID:socketPath: machineSocketPath(machine), defaultSocketPath:))` (add `testDroppedMachineRemovesItsIdStateSuite`).
 - [ ] **Step 4: Run, expect PASS.**
 - [ ] **Step 5: Commit** `profiles: herdr machines as derived profiles`
 
@@ -88,7 +88,10 @@ func testProfilesStoredBeforeMachinesStillDecode()       // old JSON without "ma
   - `ProfileSuites.preferencesSuiteName(bundleID: String, profile: FlockProfile) -> String?` (replaces the `profileID:` form; nil for Default and for every machine profile)
   - `ProfileSuites.attachKey(for profile: FlockProfile, socketPath: String) -> String` = `"herdr-machine:\(machine.id)"` for machines, else `socketPath`
   - `ProfileSessionEnvironment.setChildSocket: (String?) -> Void`; controller passes nil when the profile is a machine
-  - `confirmAttach` and `register` receive the attach key, not the socket
+  - `ProfileSessionEnvironment.confirmAttach: (_ attachKey: String, _ targetLabel: String, _ stayLabel: String) async -> Bool`; `register` receives the attach key. `targetLabel` is the profile name for a machine, else `HerdrServerAddress(socketPath:home:).label` as today
+  - `ProfileSessionController.attachKey: String` (the current profile's key; FlockApp's launch `settle` call uses it in place of `controller.socketPath`)
+  - `FlockClientRecord.normalized` (`Sources/FlockCore/Environment/FlockClients.swift:30`) returns keys with the `herdr-machine:` prefix unchanged; only paths go through URL normalization
+  - `FlockClientGuard.confirmAttach(attachKey:targetLabel:defaultSocketPath:stayLabel:)` uses the passed `targetLabel` in its alert instead of deriving one from the key
   - `ToolPath.setHerdrSocket(_ socketPath: String?)` (nil clears it)
   - `ProfileSessionContext.isRemoteMachine: Bool` (`profile.machine != nil`)
 
@@ -108,7 +111,7 @@ func testMachineIdStateIsItsOwnSuite()                              // idState s
 ```
 
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement.** Update `FlockApp`'s `confirmAttach`/`register`/`settle` call sites to the key; `FlockClientGuard` treats the key as an opaque string already.
+- [ ] **Step 3: Implement.** Update `FlockApp`'s `confirmAttach`/`register`/`settle` call sites and `FlockClientGuard` (`Sources/Flock/Environment/FlockClientGuard.swift`) to the key and label. Add to the tests above: `testMachineKeySurvivesRecordNormalization()` (`FlockClientRecord(..., socketPath: "herdr-machine:0123456789abcdef0123456789abcdef").socketPath` equals the key) in `Tests/FlockCoreTests` beside the existing `FlockClientRecord` tests.
 - [ ] **Step 4: Run, expect PASS** (`ProfileSuitesTests`, `ProfileSessionControllerTests`, `ProfileStoreTests`).
 - [ ] **Step 5: Commit** `profiles: machine profiles share Default's settings, attach by machine id`
 
@@ -123,7 +126,8 @@ func testMachineIdStateIsItsOwnSuite()                              // idState s
 - Produces:
   - `MachineTunnelPaths(uid: uid_t, bundleTag: String, machineID: String)` with `directory`, `apiSocket`, `clientSocket: String`; `static func bundleTag(for bundleID: String) -> String` (`"rel"` for the release id, `"dev"` for any id ending `.dev`, else first 8 hex of SHA-256)
   - `MachineSSH.resolveArguments(target: String) -> [String]` (ssh args that run the remote herdr's `session list --json`)
-  - `MachineSSH.remoteAPISocket(from entries: [HerdrSessionEntry], session: String) -> String?` (`session == "default"` matches `isDefault`)
+  - `MachineSSH.remoteAPISocket(from entries: [HerdrSessionEntry], session: String) throws -> String` (`session == "default"` matches `isDefault`; throws `MachineResolveError.noServer` when the matched entry has `isRunning == false`, `MachineResolveError.unknownSession` when none matches)
+  - `public enum MachineResolveError: Error, Equatable { case noServer, unknownSession, failed(String) }` (`failed` carries ssh's stderr line; Task 5's resolver throws only these, Task 4 maps `.noServer` to the `.noServer` state and the rest to `.unreachable`)
   - `MachineSSH.remoteClientSocket(apiSocket: String) -> String` (sibling `herdr-client.sock`)
   - `MachineSSH.forwardArguments(target: String, paths: MachineTunnelPaths, remoteAPISocket: String) -> [String]`
   - `MachineSSH.uploadArguments(target: String, remotePath: String) -> [String]`, `MachineSSH.remotePasteDirectory = "/tmp/flock-paste"`
@@ -150,6 +154,7 @@ func testForwardArgumentsCarryBothSocketsAndTheFixedOptions() {
 }
 func testResolveScriptFallsBackToLocalBin()     // the remote command string contains "command -v herdr" and "$HOME/.local/bin/herdr"
 func testRemoteSocketPicksNamedOrDefaultSession()
+func testStoppedRemoteSessionThrowsNoServer()   // entry isRunning == false -> MachineResolveError.noServer
 func testUploadArgumentsWriteIntoPasteDirectory() // remote command: mkdir -p /tmp/flock-paste && cat > '<quoted path>'
 ```
 
@@ -173,7 +178,7 @@ func testUploadArgumentsWriteIntoPasteDirectory() // remote command: mkdir -p /t
     `init(machine: HerdrMachine, paths: MachineTunnelPaths, resolve: @escaping (HerdrMachine) async throws -> String, launch: @escaping ([String]) throws -> MachineTunnelChild, probe: @escaping (String) async -> Bool, prepareDirectory: @escaping (String) throws -> Void, removeDirectory: @escaping (String) -> Void, backoff: @escaping (Int) -> Duration = MachineTunnel.defaultBackoff)`,
     `private(set) var state: MachineTunnelState`, `func start()`, `func stop() async`
   - `static func defaultBackoff(_ attempt: Int) -> Duration` = 1, 2, 4, 8, 15, then 15 s
-  - Resolve errors whose message reports no running server map to `.noServer`; every other failure to `.unreachable(reason:)`. Resolved remote socket cached per instance; dropped and re-resolved once after a forward exit that happens before `probe` ever succeeded.
+  - `MachineResolveError.noServer` maps to `.noServer`; every other failure to `.unreachable(reason:)` (the `failed` string, or the error's description). Resolved remote socket cached per instance; dropped and re-resolved once after a forward exit that happens before `probe` ever succeeded. ssh does not exit when the remote socket is missing (it logs a per-connection "connect failed" and stays up), so that case never triggers the re-resolve; the store's reconnect plus Task 6's `(.up, not live)` banner cover it.
 
 - [ ] **Step 1: Write the failing tests** (fake child, fake clock via injected backoff of `.zero`)
 
@@ -202,7 +207,7 @@ func testBackoffSchedule() { XCTAssertEqual((1...7).map(MachineTunnel.defaultBac
 - Consumes: Tasks 1 to 4
 - Produces: `FlockSession.machineTunnel: MachineTunnel?` (non-nil exactly when `context.isRemoteMachine`), `FlockSession.isRemoteMachine: Bool`
 
-- [ ] **Step 1: Wire it.** `ProfileStore` gets `machineSocketPath: { MachineTunnelPaths(uid: getuid(), bundleTag: …, machineID: $0.id).apiSocket }`. `FlockSession.start()` starts the tunnel then the store (the store's reconnect loop absorbs the gap); `shutdown()` runs the existing teardown, then `await machineTunnel?.stop()`. At launch: sweep this bundle's stale tunnel dirs, then `profiles.syncMachines(await MachineSources.list() ?? [])` off the first frame (a nil list changes nothing). `startTarget` returns nil for machine profiles.
+- [ ] **Step 1: Wire it.** `ProfileStore` gets `machineSocketPath: { MachineTunnelPaths(uid: getuid(), bundleTag: …, machineID: $0.id).apiSocket }`. `FlockSession.start()` starts the tunnel then the store (the store's reconnect loop absorbs the gap); `shutdown()` runs the existing teardown, then `await machineTunnel?.stop()`. At launch: sweep this bundle's stale tunnel dirs, then, off the first frame, `if let machines = await MachineSources.list() { profiles.syncMachines(machines) }`. A nil list (herdr missing, deadline hit) must change nothing; the same `if let` rule applies at every other sync site (Task 7, Task 9). `startTarget` returns nil for machine profiles.
 - [ ] **Step 2: Build.** `xcodebuild build -scheme Flock-dev -destination 'platform=macOS' -skipPackagePluginValidation -derivedDataPath <scratch>/dd` succeeds.
 - [ ] **Step 3: Run Task 1 to 4 test classes, expect PASS.**
 - [ ] **Step 4: Commit** `machines: run the tunnel for machine profile sessions`
@@ -212,12 +217,12 @@ func testBackoffSchedule() { XCTAssertEqual((1...7).map(MachineTunnel.defaultBac
 
 **Files:**
 - Create: `Sources/FlockCore/Machines/MachineConnectionCopy.swift`
-- Modify: the connection banner in `Sources/Flock/Views/MainWindow.swift` (around the `connectionState` switch at line 529) and its text source
-- Test: `Tests/FlockCoreTests/MachineConnectionCopyTests.swift`, `Tests/FlockChromeRender` (existing banner render, add machine states)
+- Modify: `Sources/Flock/Views/NoHerdrScreen.swift` (the full-window copy and Start button shown while the store is `.notRunning`, which is what a machine profile shows until its tunnel socket exists: `Copy.notRunning(for:isOverride:)`, `startTitle(for:isOverride:isStarting:)`), and the dot plus "herdr · label" notice in `Sources/Flock/Views/MainWindow.swift` (`connectionNotice`/`noticeColor`, around the `connectionState` switch at line 527)
+- Test: `Tests/FlockCoreTests/MachineConnectionCopyTests.swift`, `Tests/FlockChromeRender` (render NoHerdrScreen and the notice in machine states)
 
 **Interfaces:**
-- Consumes: `MachineTunnelState`, `HerdrModel.herdrVersion`
-- Produces: `MachineConnectionCopy.banner(label: String, tunnel: MachineTunnelState, store: HerdrConnectionState) -> String?`, `MachineConnectionCopy.versionWarning(label: String, local: String?, remote: String?) -> String?`
+- Consumes: `MachineTunnelState`, the remote version as `session.viewModel.model?.herdrVersion` (`SessionModel.herdrVersion`, as FlockApp already reads it for `HerdrUpdateStore`), the store's `ConnectionState` (`HerdrStore.swift:5-12`: `.connecting`, `.live`, `.reconnecting(attempt:)`, `.notRunning(attempt:)`)
+- Produces: `MachineConnectionCopy.banner(label: String, tunnel: MachineTunnelState, store: ConnectionState) -> String?`, `MachineConnectionCopy.versionWarning(label: String, local: String?, remote: String?) -> String?`, `MachineConnectionCopy.removed(label: String) -> String`
 
 - [ ] **Step 1: Write the failing tests** with the spec's exact copy:
 
@@ -226,7 +231,10 @@ XCTAssertEqual(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .connect
 XCTAssertEqual(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .unreachable(reason: "Permission denied (publickey)."), store: .reconnecting(attempt: 1)),
     "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works.")
 XCTAssertEqual(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .noServer, store: .notRunning(attempt: 1)), "herdr isn't running on acme-mini.")
-XCTAssertNil(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .up, store: .connected))
+XCTAssertNil(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .up, store: .live))
+// Forward up but the remote herdr gone (ssh stays alive, the store retries):
+XCTAssertEqual(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .up, store: .reconnecting(attempt: 2)), "herdr isn't running on acme-mini.")
+XCTAssertEqual(MachineConnectionCopy.banner(label: "acme-mini", tunnel: .connecting, store: .notRunning(attempt: 1)), "Connecting to acme-mini…")
 XCTAssertEqual(MachineConnectionCopy.versionWarning(label: "acme-mini", local: "0.9.5", remote: "0.9.6"),
     "acme-mini runs herdr 0.9.6 and this Mac has 0.9.5. Panes may misbehave until they match.")
 XCTAssertNil(MachineConnectionCopy.versionWarning(label: "acme-mini", local: "0.9.5", remote: "0.9.5"))
@@ -235,7 +243,7 @@ XCTAssertEqual(MachineConnectionCopy.removed(label: "acme-mini"), "acme-mini is 
 
 The removed banner shows when a non-nil machine list (launch, picker or Settings open) no longer has the current machine, with a "Switch to Default" button calling `controller.switchTo(profileID: FlockProfile.defaultID)`. `ProfileStore` exposes `var currentMachineMissing: Bool`, set by `syncMachines` (add `testSyncFlagsCurrentMachineMissing` to Task 1).
 
-(Host-key failures get "…then add its host key to known_hosts." in place of the ssh-add sentence. Use whatever the store's connection type is actually named.)
+(Host-key failures get "…then add its host key to known_hosts." in place of the ssh-add sentence. The tunnel state wins over the store state except when the tunnel is `.up`.)
 - [ ] **Step 2: Run, expect FAIL.**  - [ ] **Step 3: Implement and wire;** no Start button for machine profiles; local version from `herdr --version` once per session.
 - [ ] **Step 4: Run tests, expect PASS; render the banner dark and light and look at it.**
 - [ ] **Step 5: Commit** `machines: connection banner and version warning`
@@ -305,7 +313,7 @@ func testRemotePathIsInPasteDirectory() {
 **Files:**
 - Create: `Sources/Flock/Views/ProfilePicker.swift`
 - Modify: `Sources/Flock/Views/WorkspaceRail.swift` (top of the rail), `Sources/Flock/Menus/ProfileCommands.swift`, `Sources/Flock/FlockApp.swift`
-- Test: `Tests/FlockChromeRender` (rail render with picker: Local current, acme-mini machine with its dot), `Tests/FlockCoreTests/ProfileCommandsTests` if rows logic moves
+- Test: `Tests/FlockChromeRender` (rail render with picker: Local current, acme-mini machine with its dot), `Tests/FlockChromeRender/ProfileCommandsTests.swift` for menu rows
 
 **Interfaces:**
 - Consumes: `ProfileStore.profiles`, `FlockProfile.isMachine`, `MachineTunnelState` of the current session, `controller.switchTo(profileID:)`
