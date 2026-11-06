@@ -1,5 +1,5 @@
 import XCTest
-@testable import Flock
+import FlockCore
 
 @MainActor
 final class LocalHerdrVersionTests: XCTestCase {
