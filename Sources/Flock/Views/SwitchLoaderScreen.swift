@@ -43,6 +43,7 @@ struct SwitchLoaderScreen: View {
         SwitchLoaderFrameView(frame: frame, theme: theme, reduceMotion: reduceMotion, onSwitchToDefault: onSwitchToDefault)
             .overlay(alignment: .topLeading) {
                 ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
+                    .environment(\.profilePickerPresentsPopover, !run.isFinishing)
                     .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding)
                     .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
                     .frame(width: railWidth?.width ?? RailWidth.default)
@@ -231,5 +232,55 @@ struct SwitchLoaderFrameView: View {
             .allowsHitTesting(frame.failReveal > 0.5)
             .accessibilityHidden(frame.failReveal == 0)
             .accessibilityIdentifier("flock.switchLoader.switchToDefault")
+    }
+}
+
+/// Swallows typing aimed at this view's window while active: the window
+/// under a fading-in loader is still mounted and must not take keystrokes.
+/// Menu shortcuts and control chords pass, so ⌃⌘P and ⌃` keep working.
+struct WindowKeySink: NSViewRepresentable {
+    let isActive: Bool
+
+    final class SinkView: NSView {
+        private var monitor: Any?
+
+        var isActive = false {
+            didSet { if isActive != oldValue { refresh() } }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            refresh()
+        }
+
+        private func refresh() {
+            if isActive, window != nil {
+                guard monitor == nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                    guard let self, event.window === self.window,
+                          event.modifierFlags.isDisjoint(with: [.command, .control]) else { return event }
+                    return nil
+                }
+            } else if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> SinkView {
+        let view = SinkView()
+        view.isActive = isActive
+        return view
+    }
+
+    func updateNSView(_ nsView: SinkView, context: Context) {
+        nsView.isActive = isActive
+    }
+
+    static func dismantleNSView(_ nsView: SinkView, coordinator: ()) {
+        nsView.isActive = false
     }
 }

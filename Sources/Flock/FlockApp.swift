@@ -353,6 +353,8 @@ struct FlockApp: App {
         )
     }
 
+    private var loaderBlocksInput: Bool { switchLoader.blocksInput && !showsMissingHerdr }
+
     private var showsMissingHerdr: Bool {
         HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound)
     }
@@ -418,16 +420,24 @@ struct FlockApp: App {
     var body: some Scene {
         WindowGroup("Flock") {
             ZStack {
-                if !switchLoader.coversWindow || showsMissingHerdr { sessionContent }
+                if !switchLoader.coversWindow || showsMissingHerdr {
+                    sessionContent
+                        .allowsHitTesting(!loaderBlocksInput)
+                        .environment(\.profilePickerPresentsPopover, !loaderBlocksInput)
+                }
                 if let run = switchLoader.run, !showsMissingHerdr {
                     SwitchLoaderScreen(
                         theme: themeStore.active, run: run, isSettled: switchLoader.isSettled,
-                        profilePicker: profilePicker, profileDot: session.isRemoteMachine ? .attention : nil,
+                        profilePicker: profilePicker, profileDot: currentProfileDot,
                         onSwitchToDefault: { Task { await controller.switchTo(profileID: FlockProfile.defaultID) } }
                     )
                 }
             }
+                .background(WindowKeySink(isActive: loaderBlocksInput && !switchLoader.coversWindow))
                 .onChange(of: switchLoaderSnapshot, initial: true) { _, snapshot in switchLoader.update(snapshot) }
+                // The popover changes hands between the rail's picker and the
+                // loader's here, so an open one closes rather than jumping.
+                .onChange(of: loaderBlocksInput) { profilePicker.isOpen = false }
                 .overlay {
                     ProfileSwitcherOverlay(
                         theme: themeStore.active, switcher: profileSwitcher, profiles: controller.profiles,

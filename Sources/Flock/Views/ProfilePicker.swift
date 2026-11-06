@@ -136,7 +136,14 @@ struct ProfilePicker: View {
 
     @Environment(\.openSettings) private var openSettings
     @Environment(SettingsTabSelection.self) private var selection: SettingsTabSelection?
+    @Environment(\.profilePickerPresentsPopover) private var presentsPopover
     @State private var isHovering = false
+
+    /// Two pickers share one context while the switch loader overlaps the
+    /// rail; only the one that presents may bind the popover, or it opens twice.
+    private var popoverShown: Binding<Bool> {
+        presentsPopover ? $context.isOpen : .constant(false)
+    }
 
     private var model: ProfilePickerModel {
         ProfilePickerModel(profiles: context.profiles.profiles, currentID: context.profiles.currentID, currentDot: currentDot)
@@ -155,7 +162,7 @@ struct ProfilePicker: View {
         .disabled(context.isLocked)
         .onHover { isHovering = $0 }
         .help(Self.tooltip(name: current?.title ?? context.profiles.current.name, isLocked: context.isLocked))
-        .popover(isPresented: $context.isOpen, arrowEdge: .bottom) {
+        .popover(isPresented: popoverShown, arrowEdge: .bottom) {
             ProfilePickerList(
                 theme: theme, model: model, onChoose: context.choose,
                 onManage: { context.manage(opensNewProfile: false, selection: selection, openSettings: openSettings) },
@@ -396,5 +403,16 @@ private struct ProfilePickerRowInset: ViewModifier {
         content
             .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.control))
             .padding(.horizontal, ChromeMetrics.ProfilePicker.listRowInset)
+    }
+}
+
+private struct ProfilePickerPresentsPopoverKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var profilePickerPresentsPopover: Bool {
+        get { self[ProfilePickerPresentsPopoverKey.self] }
+        set { self[ProfilePickerPresentsPopoverKey.self] = newValue }
     }
 }

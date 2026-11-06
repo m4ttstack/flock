@@ -30,6 +30,10 @@ public final class SwitchLoaderPresenter {
     /// Nothing on the loader moves, so its clock may stop.
     public private(set) var isSettled = false
 
+    /// The window under the loader must take no input, though it may still
+    /// show through the fade in.
+    public var blocksInput: Bool { run.map { !$0.isFinishing } ?? false }
+
     @ObservationIgnored private let now: () -> Double
     @ObservationIgnored private let sleep: @Sendable (Double) async -> Void
     @ObservationIgnored private var nextID = 0
@@ -48,6 +52,9 @@ public final class SwitchLoaderPresenter {
 
     public func update(_ snapshot: Snapshot) {
         if snapshot.generation != generation {
+            // A rebuild is a switch even when no pending snapshot was drawn
+            // between the switch starting and the rebuild landing.
+            if generation != nil { switchUnderway = true }
             generation = snapshot.generation
             hasBeenLive = false
         }

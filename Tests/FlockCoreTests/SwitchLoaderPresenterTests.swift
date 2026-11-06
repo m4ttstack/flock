@@ -86,6 +86,32 @@ final class SwitchLoaderPresenterTests: XCTestCase {
         let presenter = makePresenter(Clock())
         presenter.update(machine(.connecting, .connecting, pending: true, generation: 0))
         XCTAssertEqual(presenter.run?.isFinishing, false)
+        XCTAssertTrue(presenter.blocksInput, "the window under the fade in takes no input from the first frame")
+        XCTAssertFalse(presenter.coversWindow, "but it still shows through")
+    }
+
+    func testAFinishingRunLetsTheWindowTakeInputAgain() {
+        let presenter = makePresenter(Clock())
+        XCTAssertFalse(presenter.blocksInput)
+        presenter.update(local(.connecting, pending: true))
+        presenter.update(local(.live, generation: 1))
+        XCTAssertEqual(presenter.run?.isFinishing, true)
+        XCTAssertFalse(presenter.blocksInput)
+    }
+
+    func testARebuildWithNoPendingSnapshotIsStillALocalSwitch() {
+        let presenter = makePresenter(Clock())
+        presenter.update(local(.live, generation: 0, label: "Work"))
+        XCTAssertNil(presenter.run)
+        presenter.update(local(.connecting, generation: 1, label: "Default"))
+        XCTAssertEqual(presenter.run?.title.current, "Switching to Default")
+        XCTAssertEqual(presenter.run?.isFinishing, false)
+    }
+
+    func testTheFirstUpdateIsLaunchNotASwitch() {
+        let presenter = makePresenter(Clock())
+        presenter.update(local(.connecting, generation: 3))
+        XCTAssertNil(presenter.run)
     }
 
     func testALocalSwitchOntoAStoppedServerHandsOverToTheNoHerdrScreen() {
