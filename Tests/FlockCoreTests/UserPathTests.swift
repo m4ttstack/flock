@@ -109,6 +109,34 @@ final class UserPathTests: XCTestCase {
         XCTAssertNil(UserPath.resolve("herdr", on: "", isExecutable: { _ in true }))
     }
 
+    /// A profile that adds `~/.local/bin` only in `~/.zshrc` answers the
+    /// login probe without it.
+    func testFallbackDirectoriesGoLastAndOnlyOnce() {
+        let merged = UserPath.merged(
+            inherited: launchdDefault, loginShell: "/usr/local/bin:/usr/bin",
+            fallback: UserPath.installDirectories(home: "/Users/m")
+        )
+        XCTAssertEqual(
+            UserPath.entries(merged),
+            [
+                "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/bin",
+                "/Users/m/.local/bin", "/Users/m/.cargo/bin", "/Users/m/.bun/bin",
+                "/Users/m/.local/share/mise/shims", "/opt/homebrew/bin",
+            ]
+        )
+    }
+
+    func testFallbackNeverOutranksTheProfile() {
+        let merged = UserPath.merged(
+            inherited: launchdDefault, loginShell: "/Users/m/custom/bin",
+            fallback: UserPath.installDirectories(home: "/Users/m")
+        )
+        let found = UserPath.resolve("herdr", on: merged, isExecutable: {
+            $0 == "/Users/m/custom/bin/herdr" || $0 == "/Users/m/.local/bin/herdr"
+        })
+        XCTAssertEqual(found, "/Users/m/custom/bin/herdr")
+    }
+
     // MARK: - Entries
 
     func testEntriesKeepOrderAndDropEmpties() {

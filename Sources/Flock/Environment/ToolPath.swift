@@ -14,8 +14,9 @@ import os
 /// machine, so that is the bare system default, and `~/.local/bin` -- where
 /// herdr and both agent CLIs live -- is not on it. Asking the login shell is
 /// what closes the gap, and it answers for whatever the user has actually
-/// installed rather than for a list of directories flock would have to keep
-/// up to date.
+/// installed. A profile that sets PATH only in its interactive rc answers
+/// without those directories, so the usual install directories are searched
+/// last as a backstop.
 ///
 /// `UserPath.merged` owns what happens to the answer; this type owns only the
 /// asking.
@@ -34,7 +35,10 @@ enum ToolPath {
         let inherited = ProcessInfo.processInfo.environment["PATH"] ?? ""
         let shell = loginShell()
         let answer = probeLoginShell(shell)
-        let merged = UserPath.merged(inherited: inherited, loginShell: answer)
+        let merged = UserPath.merged(
+            inherited: inherited, loginShell: answer,
+            fallback: UserPath.installDirectories(home: NSHomeDirectory())
+        )
         log.log(
             "tool path shell=\(shell, privacy: .public) answered=\(answer != nil) inherited=\(UserPath.entries(inherited).count) merged=\(UserPath.entries(merged).count)"
         )

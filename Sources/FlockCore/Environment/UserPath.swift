@@ -32,13 +32,27 @@ public enum UserPath {
     /// gains the profile's directories at the back. `nil` is a shell that gave
     /// no usable answer (failed to start, exited non-zero, or was still
     /// running when the probe gave up) and leaves the inherited PATH untouched.
-    public static func merged(inherited: String, loginShell: String?) -> String {
+    ///
+    /// `fallback` goes last of all. A profile that adds a directory only in
+    /// its interactive rc (`~/.zshrc`) never shows it to the login shell
+    /// probe.
+    public static func merged(inherited: String, loginShell: String?, fallback: [String] = []) -> String {
         var seen = Set<String>()
         var merged: [String] = []
-        for entry in entries(inherited) + entries(loginShell ?? "") where seen.insert(entry).inserted {
+        for entry in entries(inherited) + entries(loginShell ?? "") + fallback where seen.insert(entry).inserted {
             merged.append(entry)
         }
         return merged.joined(separator: ":")
+    }
+
+    /// Where the installers of the tools flock runs put them: herdr's and the
+    /// agent CLIs' (`~/.local/bin`), cargo, bun, mise's shims, and Homebrew
+    /// on both architectures.
+    public static func installDirectories(home: String) -> [String] {
+        [
+            "\(home)/.local/bin", "\(home)/.cargo/bin", "\(home)/.bun/bin",
+            "\(home)/.local/share/mise/shims", "/opt/homebrew/bin", "/usr/local/bin",
+        ]
     }
 
     /// The first executable named `name` on `path`, or nil when no directory
