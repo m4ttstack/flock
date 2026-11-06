@@ -92,6 +92,22 @@ final class MachineConnectionCopyTests: XCTestCase {
         XCTAssertNil(notice(.up, .unsupported(.timedOut(method: "x"))), "the version warning only shows while live")
     }
 
+    func testShortKeepsTheFirstSentenceOnly() {
+        XCTAssertEqual(
+            MachineConnectionCopy.short(
+                "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works."
+            ),
+            "Can't reach acme-mini."
+        )
+        XCTAssertEqual(
+            MachineConnectionCopy.short("acme-mini runs herdr 0.9.6 and this Mac has 0.9.5. Panes may misbehave until they match."),
+            "acme-mini runs herdr 0.9.6 and this Mac has 0.9.5."
+        )
+        XCTAssertEqual(MachineConnectionCopy.short("herdr isn't running on acme-mini."), "herdr isn't running on acme-mini.")
+        XCTAssertEqual(MachineConnectionCopy.short("Connecting to acme-mini\u{2026}"), "Connecting to acme-mini\u{2026}")
+        XCTAssertEqual(MachineConnectionCopy.short(""), "")
+    }
+
     func testRemoved() {
         XCTAssertEqual(MachineConnectionCopy.removed(label: label), "acme-mini is no longer a saved herdr machine.")
     }

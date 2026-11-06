@@ -414,6 +414,7 @@ struct TitleBar: View {
     @State private var trailingWidth: CGFloat = 0
     @State private var noticesWidth: CGFloat = 0
     @State private var namedStripWidth: CGFloat = 0
+    @State private var showsMachineNoticeDetail = false
 
     private var showsTitle: Bool {
         TitleBarFit.showsTitle(
@@ -520,14 +521,28 @@ struct TitleBar: View {
         if let machineNotice {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                 Circle().fill(theme.yellow).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
-                Text(machineNotice.text)
-                    .font(ChromeType.connectionNotice)
-                    .foregroundStyle(theme.textLabel)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: ChromeMetrics.TitleBar.machineNoticeMaxWidth, alignment: .leading)
-                    .help(machineNotice.text)
-                    .accessibilityIdentifier("flock.titleBar.machineNotice")
+                Button { showsMachineNoticeDetail.toggle() } label: {
+                    Text(MachineConnectionCopy.short(machineNotice.text))
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: ChromeMetrics.TitleBar.machineNoticeMaxWidth, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(machineNotice.text)
+                .popover(isPresented: $showsMachineNoticeDetail, arrowEdge: .bottom) {
+                    Text(machineNotice.text)
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.textStrong)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: ChromeMetrics.TitleBar.machineNoticePopoverWidth, alignment: .leading)
+                        .padding(ChromeMetrics.TitleBar.machineNoticePopoverPadding)
+                        .background(theme.chrome)
+                        .accessibilityIdentifier("flock.titleBar.machineNoticeDetail")
+                }
+                .accessibilityIdentifier("flock.titleBar.machineNotice")
                 if let action = machineNotice.action {
                     Button(action.title, action: action.perform)
                         .buttonStyle(.plain)

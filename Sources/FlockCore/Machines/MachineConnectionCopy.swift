@@ -41,6 +41,12 @@ public enum MachineConnectionCopy {
         return "\(label) runs herdr \(remote) and this Mac has \(local). Panes may misbehave until they match."
     }
 
+    /// The first sentence of a banner, for where the whole of it does not fit.
+    public static func short(_ full: String) -> String {
+        guard let stop = full.range(of: ". ") else { return full }
+        return String(full[..<stop.upperBound]).trimmingCharacters(in: .whitespaces)
+    }
+
     public static func removed(label: String) -> String {
         "\(label) is no longer a saved herdr machine."
     }

@@ -32,9 +32,11 @@ enum ChromeMetrics {
         static let height: CGFloat = 36
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
-        /// A machine's connection sentence is longer than the bar can spare; the
-        /// full text is the tooltip.
+        /// The bar shows a machine notice's first sentence; the whole text is
+        /// the tooltip and the popover a click opens.
         static let machineNoticeMaxWidth: CGFloat = 440
+        static let machineNoticePopoverWidth: CGFloat = 320
+        static let machineNoticePopoverPadding: CGFloat = 12
         static let noticeTrailingPadding: CGFloat = 13
         /// The design sets the title 1.5pt below the bar's center; the inset
         /// is twice that because the frame centers the padded label.

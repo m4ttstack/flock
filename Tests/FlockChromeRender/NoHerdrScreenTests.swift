@@ -76,7 +76,19 @@ final class NoHerdrScreenTests: XCTestCase {
         XCTAssertTrue(copy.hint.isEmpty)
     }
 
-    func testTheMachineScreenInEachState() async throws {
+    func testTheMachineScreenGrowsWithItsMessageAndItsButton() {
+        func height(_ message: String, action: NoHerdrScreen.PrimaryAction? = nil) -> CGFloat {
+            fittingHeight(NoHerdrScreen(
+                theme: .tokyoNight, copy: NoHerdrScreen.machine(label: "acme-mini", message: message), primaryAction: action
+            ).content.frame(width: Self.size.width))
+        }
+        let long = "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works."
+        XCTAssertGreaterThan(height(long), height("Connecting to acme-mini\u{2026}"), "the long message wraps")
+        let removed = "acme-mini is no longer a saved herdr machine."
+        XCTAssertGreaterThan(height(removed, action: .init(title: "Switch to Default", perform: {})), height(removed))
+    }
+
+    func testRendersTheMachineScreenInEachState() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let cases: [(String, String, NoHerdrScreen.PrimaryAction?)] = [
             ("connecting", "Connecting to acme-mini\u{2026}", nil),

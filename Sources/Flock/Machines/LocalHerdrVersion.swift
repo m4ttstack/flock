@@ -20,7 +20,9 @@ final class LocalHerdrVersion {
         guard !loaded else { return }
         loaded = true
         let read = read
-        version = await Task.detached(priority: .utility) { read() }.value
+        let value = await Task.detached(priority: .utility) { read() }.value
+        guard !Task.isCancelled else { return }
+        version = value
     }
 
     nonisolated static func readInstalled() -> String? {

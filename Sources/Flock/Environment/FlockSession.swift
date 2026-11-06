@@ -63,6 +63,7 @@ final class FlockSession: ProfileSession {
     /// Nil off a machine session, which is the only one a version mismatch
     /// concerns.
     let localHerdrVersion: LocalHerdrVersion?
+    @ObservationIgnored private var localVersionLoad: Task<Void, Never>?
 
     init(
         context: ProfileSessionContext,
@@ -236,11 +237,12 @@ final class FlockSession: ProfileSession {
     /// The store's reconnect loop covers the wait for the tunnel's socket.
     func start() async {
         machineTunnel?.start()
-        if let localHerdrVersion { Task { await localHerdrVersion.loadOnce() } }
+        if let localHerdrVersion { localVersionLoad = Task { await localHerdrVersion.loadOnce() } }
         await herdrStore.start()
     }
 
     func shutdown() async {
+        localVersionLoad?.cancel()
         herdrHoldCoordinator.invalidate()
         dragCoordinator.invalidate()
         rearrangeMode.invalidate()
