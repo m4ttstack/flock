@@ -150,10 +150,15 @@ final class PasteboardPasteTextTests: XCTestCase {
         func add(_ bytes: Data, _ path: String) { uploads.append((bytes, path)) }
     }
 
+    /// Stands in for the machine, which chooses the directory.
+    private nonisolated static let remoteDirectory = "/var/acme/flock-paste-501"
+
     private func uploader(sent: Sent, failing: Bool = false) -> RemoteFileUploader {
-        RemoteFileUploader(target: "acme-mini", label: "acme-mini") { bytes, path in
+        RemoteFileUploader(target: "acme-mini", label: "acme-mini") { bytes, fileName in
             if failing { throw RemoteFileUploader.Failure(detail: "no route") }
+            let path = "\(Self.remoteDirectory)/\(fileName)"
             await sent.add(bytes, path)
+            return path
         }
     }
 
@@ -172,7 +177,7 @@ final class PasteboardPasteTextTests: XCTestCase {
         XCTAssertEqual(uploads.count, 1)
         XCTAssertEqual(uploads.first?.bytes, Data("hello".utf8))
         let remote = try XCTUnwrap(uploads.first?.path)
-        XCTAssertTrue(remote.hasPrefix("/tmp/flock-paste/"))
+        XCTAssertTrue(remote.hasPrefix("\(Self.remoteDirectory)/"))
         XCTAssertTrue(remote.hasSuffix("-\(file.lastPathComponent)"))
         XCTAssertEqual(outcome, .text(ClipboardPaste.escape(remote)))
     }

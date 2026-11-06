@@ -220,18 +220,22 @@ final class ClipboardPasteTests: XCTestCase {
         XCTAssertEqual(ClipboardPaste.remotePlan(for: [PasteboardItemDescription()]), [.nothing])
     }
 
-    func testRemotePathIsInPasteDirectory() {
-        XCTAssertEqual(ClipboardPaste.remotePath(fileName: "shot.png", token: "ab12"), "/tmp/flock-paste/ab12-shot.png")
+    func testRemoteFileNameIsPrefixedWithTheToken() {
+        XCTAssertEqual(ClipboardPaste.remoteFileName("shot.png", token: "ab12"), "ab12-shot.png")
     }
 
     // MARK: - Resolving a remote paste
 
+    /// Stands in for the machine, which chooses the directory.
+    private static let remoteDirectory = "/var/acme/flock-paste-501"
+
     private actor Uploads {
-        var sent: [(size: Int, path: String)] = []
+        var sent: [(size: Int, name: String)] = []
         var failOn: Int?
-        func record(_ data: Data, _ path: String) throws {
+        func record(_ data: Data, _ name: String) throws -> String {
             if sent.count + 1 == failOn { throw UploadFailure() }
-            sent.append((data.count, path))
+            sent.append((data.count, name))
+            return "\(ClipboardPasteTests.remoteDirectory)/\(name)"
         }
         func fail(on index: Int) { failOn = index }
     }
@@ -244,23 +248,23 @@ final class ClipboardPasteTests: XCTestCase {
             entries, label: "acme-mini",
             token: { tokens.removeFirst() },
             readFile: { _ in Data(repeating: 1, count: 7) },
-            upload: { data, path in try await uploads.record(data, path) }
+            upload: { data, name in try await uploads.record(data, name) }
         )
     }
 
-    func testAFilePastesItsEscapedRemotePathAfterUploading() async {
+    func testAFilePastesTheEscapedPathTheMachineReported() async {
         let uploads = Uploads()
         let outcome = await resolve([.file(localPath: "/Users/acme/my shot.png")], uploads: uploads)
-        XCTAssertEqual(outcome, .text("/tmp/flock-paste/t1-my\\ shot.png"))
+        XCTAssertEqual(outcome, .text("/var/acme/flock-paste-501/t1-my\\ shot.png"))
         let sent = await uploads.sent
-        XCTAssertEqual(sent.map(\.path), ["/tmp/flock-paste/t1-my shot.png"])
+        XCTAssertEqual(sent.map(\.name), ["t1-my shot.png"])
         XCTAssertEqual(sent.map(\.size), [7])
     }
 
     func testImageBytesUploadUnderAClipboardName() async {
         let uploads = Uploads()
         let outcome = await resolve([.image(Data(count: 3), fileExtension: "png")], uploads: uploads)
-        XCTAssertEqual(outcome, .text("/tmp/flock-paste/t1-clipboard.png"))
+        XCTAssertEqual(outcome, .text("/var/acme/flock-paste-501/t1-clipboard.png"))
         let sent = await uploads.sent
         XCTAssertEqual(sent.map(\.size), [3])
     }
@@ -270,7 +274,7 @@ final class ClipboardPasteTests: XCTestCase {
         let outcome = await resolve(
             [.text("cat"), .file(localPath: "/a/one.txt"), .file(localPath: "/b/two.txt")], uploads: uploads
         )
-        XCTAssertEqual(outcome, .text("cat /tmp/flock-paste/t1-one.txt /tmp/flock-paste/t2-two.txt"))
+        XCTAssertEqual(outcome, .text("cat /var/acme/flock-paste-501/t1-one.txt /var/acme/flock-paste-501/t2-two.txt"))
     }
 
     func testAFailedUploadPastesNothingEvenWhenAnEarlierOneLanded() async {
@@ -283,7 +287,7 @@ final class ClipboardPasteTests: XCTestCase {
     func testAnUnreadableFileFails() async {
         let outcome = await RemotePaste.resolve(
             [.file(localPath: "/gone")], label: "acme-mini", token: { "t1" },
-            readFile: { _ in throw UploadFailure() }, upload: { _, _ in }
+            readFile: { _ in throw UploadFailure() }, upload: { _, name in name }
         )
         XCTAssertEqual(outcome, .failed("Couldn't copy that to acme-mini."))
     }

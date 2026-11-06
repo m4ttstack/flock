@@ -49,7 +49,7 @@ extension NSPasteboard {
             label: uploader.label,
             token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
             readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
-            upload: { data, remotePath in try await uploader.upload(data, to: remotePath) }
+            upload: { data, fileName in try await uploader.upload(data, named: fileName) }
         )
     }
 

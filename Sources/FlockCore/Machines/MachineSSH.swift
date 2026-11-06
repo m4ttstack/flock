@@ -9,8 +9,6 @@ public enum MachineResolveError: Error, Equatable {
 /// ssh argument lists for a machine's tunnel. Remote commands go through
 /// `sh -c` because the remote login shell may be zsh or fish.
 public enum MachineSSH {
-    public static let remotePasteDirectory = "/tmp/flock-paste"
-
     /// Same rule as herdr's `shell_quote`.
     public static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
@@ -58,8 +56,39 @@ public enum MachineSSH {
                 "--", target]
     }
 
-    public static func uploadArguments(target: String, remotePath: String) -> [String] {
-        let script = "mkdir -p -m 700 \(remotePasteDirectory) && cat > \(shellQuote(remotePath))"
-        return ["-o", "BatchMode=yes", "--", target, shellCommand(script)]
+    /// Writes stdin to `fileName` in the remote user's own paste directory
+    /// and prints the path written. Another user on the machine may have
+    /// planted that directory's name, so an existing one is used only if it
+    /// is a real directory the remote user owns; inside it no one else can
+    /// plant a file, and noclobber refuses to write through one regardless.
+    public static func uploadScript(fileName: String) -> String {
+        [
+            "umask 077",
+            "t=${TMPDIR:-/tmp}",
+            "d=${t%/}/flock-paste-$(id -u)",
+            "if ! mkdir -m 700 \"$d\" 2>/dev/null; then "
+                + "if [ -L \"$d\" ] || [ ! -d \"$d\" ] || [ ! -O \"$d\" ]; then "
+                + "echo \"flock: $d is not a private directory\" >&2; exit 1; fi; "
+                + "chmod 700 \"$d\" || exit 1; fi",
+            "f=\"$d\"/\(shellQuote(fileName))",
+            "set -C",
+            "cat > \"$f\" || exit 1",
+            "printf '%s\\n' \"$f\"",
+        ].joined(separator: "; ")
+    }
+
+    public static func uploadArguments(target: String, fileName: String) -> [String] {
+        ["-o", "BatchMode=yes", "--", target, shellCommand(uploadScript(fileName: fileName))]
+    }
+
+    /// The path `uploadScript` printed. A login shell's startup files can
+    /// write to stdout first, so only the last line counts.
+    public static func uploadedPath(from stdout: Data) -> String? {
+        let last = String(decoding: stdout, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+            .last
+            .map(String.init)
+        guard let last, last.hasPrefix("/") else { return nil }
+        return last
     }
 }
