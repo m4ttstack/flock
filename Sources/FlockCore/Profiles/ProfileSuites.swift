@@ -4,8 +4,15 @@ import Foundation
 /// UserDefaults suite names. The default profile on the default socket keeps
 /// using the standard defaults, so existing settings carry over untouched.
 public enum ProfileSuites {
-    public static func preferencesSuiteName(bundleID: String, profileID: String) -> String? {
-        profileID == FlockProfile.defaultID ? nil : "\(bundleID).profile.\(profileID)"
+    /// Machine profiles share Default's preferences, so they have no suite of their own.
+    public static func preferencesSuiteName(bundleID: String, profile: FlockProfile) -> String? {
+        profile.id == FlockProfile.defaultID || profile.isMachine ? nil : "\(bundleID).profile.\(profile.id)"
+    }
+
+    /// What two Flocks compare to tell whether they hold one herdr session. A
+    /// machine's tunnel socket path changes per launch, its id does not.
+    public static func attachKey(for profile: FlockProfile, socketPath: String) -> String {
+        profile.machine.map { "\(FlockClientRecord.machineKeyPrefix)\($0.id)" } ?? socketPath
     }
 
     /// Both paths arrive normalized.
@@ -24,7 +31,7 @@ public enum ProfileSuites {
     }
 
     public static func allSuiteNames(for profile: FlockProfile, bundleID: String, defaultSocketPath: String) -> [String] {
-        let preferences = preferencesSuiteName(bundleID: bundleID, profileID: profile.id).map { [$0] } ?? []
+        let preferences = preferencesSuiteName(bundleID: bundleID, profile: profile).map { [$0] } ?? []
         let servers = profile.knownSockets.compactMap {
             serverSuiteName(bundleID: bundleID, profileID: profile.id, socketPath: $0, defaultSocketPath: defaultSocketPath)
         }

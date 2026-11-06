@@ -56,7 +56,8 @@ final class ProfileSessionControllerTests: XCTestCase {
             bundleID: "b",
             defaultSocketPath: home,
             home: homeDirectory,
-            removeSuite: { _ in }
+            removeSuite: { _ in },
+            machineSocketPath: { "/tmp/flock-501/dev-\($0.id.prefix(12))/herdr.sock" }
         )
         let p1 = try XCTUnwrap(store.create(name: "P1", socketPath: acme))
         return Fixture(log: Log(), gate: Gate(), store: store, p1: p1)
@@ -81,18 +82,78 @@ final class ProfileSessionControllerTests: XCTestCase {
                 addTeardownBlock { UserDefaults().removePersistentDomain(forName: full) }
                 return UserDefaults(suiteName: full)!
             },
-            confirmAttach: { socket, label in
-                log.lines.append("confirm \(socket) \(label)")
+            confirmAttach: { key, target, stay in
+                log.lines.append("confirm \(key) \(target) \(stay)")
                 return confirm
             },
             register: { log.lines.append("register \($0)") },
-            setChildSocket: { log.lines.append("child \($0)") },
+            setChildSocket: { log.lines.append("child \($0 ?? "nil")") },
             make: { context in
                 log.lines.append("make \(context.profile.id) \(context.socketPath)")
                 return FakeSession(socketPath: context.socketPath, log: log, gate: gate)
             }
         )
         return ProfileSessionController(profiles: fixture.store, environment: environment)
+    }
+
+    private let machine = HerdrMachine(
+        id: "0123456789abcdef0123456789abcdef", label: "acme-mini", target: "acme-mini", session: "default"
+    )
+
+    func testSwitchToMachineClearsChildSocketAndConfirmsByMachineKey() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        let controller = makeController(fixture)
+        let tunnel = "/tmp/flock-501/dev-0123456789ab/herdr.sock"
+        fixture.log.lines.removeAll()
+        let switched = await controller.switchTo(profileID: "machine.\(machine.id)")
+        XCTAssertTrue(switched)
+        XCTAssertEqual(fixture.log.lines, [
+            "confirm herdr-machine:\(machine.id) acme-mini Default",
+            "shutdown \(home)",
+            "child nil",
+            "suite standard",
+            "suite b.profile.machine.\(machine.id).server.\(ProfileSuites.socketKey(tunnel))",
+            "make machine.\(machine.id) \(tunnel)",
+            "register herdr-machine:\(machine.id)",
+            "start \(tunnel)",
+        ])
+        XCTAssertEqual(controller.attachKey, "herdr-machine:\(machine.id)")
+        XCTAssertEqual(controller.socketPath, tunnel)
+    }
+
+    func testSwitchingBackFromAMachineRestoresTheChildSocket() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        let controller = makeController(fixture)
+        await controller.switchTo(profileID: "machine.\(machine.id)")
+        fixture.log.lines.removeAll()
+        await controller.switchTo(profileID: "default")
+        XCTAssertTrue(fixture.log.lines.contains("child \(home)"))
+        XCTAssertEqual(controller.attachKey, home)
+    }
+
+    func testAMachineProfileCannotChangeServer() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        fixture.store.select("machine.\(machine.id)")
+        let controller = makeController(fixture)
+        fixture.log.lines.removeAll()
+        let changed = await controller.changeServer(to: acme)
+        XCTAssertFalse(changed)
+        XCTAssertEqual(fixture.log.lines, [])
+    }
+
+    func testMachineIdStateIsItsOwnSuite() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        let controller = makeController(fixture)
+        fixture.log.lines.removeAll()
+        await controller.switchTo(profileID: "machine.\(machine.id)")
+        let suites = fixture.log.lines.filter { $0.hasPrefix("suite ") }
+        XCTAssertEqual(suites.count, 2)
+        XCTAssertEqual(suites.first, "suite standard")
+        XCTAssertTrue(suites.last?.hasPrefix("suite b.profile.machine.\(machine.id).server.") == true)
     }
 
     func testLaunchBuildsTheCurrentProfileOnItsSocketAndStartsNothing() throws {
@@ -111,7 +172,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         let switched = await controller.switchTo(profileID: fixture.p1.id)
         XCTAssertTrue(switched)
         XCTAssertEqual(fixture.log.lines, [
-            "confirm \(acme) Default",
+            "confirm \(acme) acme Default",
             "shutdown \(home)",
             "child \(acme)",
             "suite b.profile.\(fixture.p1.id)",
@@ -135,7 +196,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         let changed = await controller.changeServer(to: acme)
         XCTAssertFalse(switched)
         XCTAssertFalse(changed)
-        XCTAssertEqual(fixture.log.lines, ["confirm \(acme) Default", "confirm \(acme) default"])
+        XCTAssertEqual(fixture.log.lines, ["confirm \(acme) acme Default", "confirm \(acme) acme default"])
         XCTAssertEqual(fixture.store.currentID, "default")
         XCTAssertEqual(fixture.store.profiles, before)
         XCTAssertEqual(controller.generation, 0)
@@ -148,7 +209,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         let changed = await controller.changeServer(to: acme)
         XCTAssertTrue(changed)
         XCTAssertEqual(fixture.log.lines, [
-            "confirm \(acme) default",
+            "confirm \(acme) acme default",
             "shutdown \(home)",
             "child \(acme)",
             "suite standard",
@@ -170,7 +231,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         fixture.log.lines.removeAll()
         let changed = await controller.changeServer(to: "~/.config/herdr/./herdr.sock")
         XCTAssertTrue(changed)
-        XCTAssertEqual(fixture.log.lines.first, "confirm \(home) acme")
+        XCTAssertEqual(fixture.log.lines.first, "confirm \(home) default acme")
         XCTAssertNil(fixture.store.current.socketPath)
         XCTAssertEqual(fixture.log.lines.last, "start \(home)")
     }
@@ -248,7 +309,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         while fixture.gate.waiting == nil { await Task.yield() }
         let second = Task { await controller.switchTo(profileID: p2.id) }
         for _ in 0..<50 { await Task.yield() }
-        XCTAssertEqual(fixture.log.lines, ["confirm \(acme) Default", "shutdown \(home)"])
+        XCTAssertEqual(fixture.log.lines, ["confirm \(acme) acme Default", "shutdown \(home)"])
 
         fixture.gate.waiting?.resume()
         let firstResult = await first.value
@@ -258,7 +319,7 @@ final class ProfileSessionControllerTests: XCTestCase {
 
         let lines = fixture.log.lines
         let firstStart = try XCTUnwrap(lines.firstIndex(of: "start \(acme)"))
-        let secondConfirm = try XCTUnwrap(lines.firstIndex(of: "confirm \(home) P1"))
+        let secondConfirm = try XCTUnwrap(lines.firstIndex(of: "confirm \(home) default P1"))
         XCTAssertLessThan(firstStart, secondConfirm)
         XCTAssertEqual(lines.last, "start \(home)")
         let makes = lines.indices.filter { lines[$0].hasPrefix("make ") }

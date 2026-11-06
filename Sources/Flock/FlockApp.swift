@@ -146,12 +146,13 @@ struct FlockApp: App {
                 home: home,
                 socketOverride: socketOverride,
                 defaults: { suiteName in suiteName.flatMap { UserDefaults(suiteName: $0) } ?? .standard },
-                confirmAttach: { socketPath, stayLabel in
+                confirmAttach: { attachKey, targetLabel, stayLabel in
                     await FlockClientGuard.confirmAttach(
-                        socketPath: socketPath, defaultSocketPath: defaultSocketPath, stayLabel: stayLabel
+                        attachKey: attachKey, targetLabel: targetLabel,
+                        defaultSocketPath: defaultSocketPath, stayLabel: stayLabel
                     )
                 },
-                register: { FlockClientGuard.register(socketPath: $0) },
+                register: { FlockClientGuard.register(attachKey: $0) },
                 setChildSocket: { ToolPath.setHerdrSocket($0) },
                 make: { context in
                     FlockSession(
@@ -357,7 +358,7 @@ struct FlockApp: App {
                     // A switch can land while settle waits on a quitting
                     // Flock, and it starts its own session.
                     let generation = controller.generation
-                    await FlockClientGuard.settle(socketPath: controller.socketPath, defaultSocketPath: defaultSocketPath)
+                    await FlockClientGuard.settle(attachKey: controller.attachKey, defaultSocketPath: defaultSocketPath)
                     guard controller.generation == generation else { return }
                     await controller.session.start()
                 }

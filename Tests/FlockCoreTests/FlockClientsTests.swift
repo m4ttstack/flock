@@ -21,6 +21,13 @@ final class FlockClientsTests: XCTestCase {
         ).map(\.pid)
     }
 
+    func testMachineKeySurvivesRecordNormalization() {
+        let key = "herdr-machine:0123456789abcdef0123456789abcdef"
+        XCTAssertEqual(record(200, key).socketPath, key)
+        XCTAssertEqual(others(socket: key, records: [record(200, key)], running: [running(200)]), [200])
+        XCTAssertEqual(others(socket: key, records: [record(200, home)], running: [running(200)]), [])
+    }
+
     func testAnotherFlockOnTheSameSessionConflicts() {
         XCTAssertEqual(others(socket: home, records: [record(200, home)], running: [running(100), running(200)]), [200])
     }

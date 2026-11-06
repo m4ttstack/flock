@@ -26,9 +26,13 @@ public struct FlockClientRecord: Codable, Equatable, Sendable {
         self.hidesOnRelease = hidesOnRelease
     }
 
+    public static let machineKeyPrefix = "herdr-machine:"
+
     /// One session reached by two spellings of its path is still one session.
+    /// A machine key is not a path and passes through unchanged.
     public static func normalized(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        if path.hasPrefix(machineKeyPrefix) { return path }
+        return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
 
