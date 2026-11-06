@@ -46,6 +46,10 @@ enum FlockLinkOpener {
                 session().toastCenter.show("Flock isn't connected to herdr, so \(link.label) didn't open.", kind: .info)
                 return
             }
+            guard !viewModel.isRemoteMachine else {
+                await viewModel.openLink(link, pin: nil, board: nil)
+                return
+            }
             let pins = viewModel.pins.pins
             let pin = await Task.detached {
                 FlockOpenPinMatch.pin(for: link.repo, in: pins, commonDir: FlockOpenPinMatch.gitCommonDir)

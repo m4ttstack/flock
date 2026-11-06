@@ -55,7 +55,11 @@ struct MainWindow: View {
             }
             // Below the protocol banner deliberately: a herdr too old to talk
             // to at all outranks an optional capability of one that works.
-            if let reason = herdrMousePatchStore.restartReason {
+            // The patch is for this Mac's herdr, which a machine session's
+            // panes do not run on.
+            if viewModel.isRemoteMachine {
+                EmptyView()
+            } else if let reason = herdrMousePatchStore.restartReason {
                 HerdrMousePatchRestartBanner(theme: theme, reason: reason)
             } else if herdrMousePatchStore.showsBanner {
                 HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
@@ -84,7 +88,8 @@ struct MainWindow: View {
                         } else if viewModel.showsStartScreen, let startingFolders {
                             StartScreenView(
                                 theme: theme, viewModel: viewModel, folders: startingFolders,
-                                serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel
+                                serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel,
+                                showsFolder: !viewModel.isRemoteMachine
                             )
                         } else {
                             TabStrip(
@@ -436,7 +441,13 @@ struct TitleBar: View {
 
     private var hasNotices: Bool {
         devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil || machineNotice != nil
-            || herdrUpdate?.displayedNotice != nil
+            || herdrUpdateNotice != nil
+    }
+
+    /// An update compares this Mac's herdr with the connected server and
+    /// hands off to it, which a machine's server is not.
+    private var herdrUpdateNotice: HerdrUpdateNotice? {
+        viewModel?.isRemoteMachine == true ? nil : herdrUpdate?.displayedNotice
     }
 
     var body: some View {
@@ -493,7 +504,7 @@ struct TitleBar: View {
                     } else if let devRebuild {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
-                    if let notice = herdrUpdate?.displayedNotice {
+                    if let notice = herdrUpdateNotice {
                         HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
                             settingsSelection?.tab = .herdr
                             openSettings()

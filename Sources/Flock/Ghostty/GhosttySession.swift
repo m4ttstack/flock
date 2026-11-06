@@ -84,6 +84,9 @@ final class GhosttySession {
     /// The folder a relative path printed in this pane is relative to.
     var linkFolder: (() -> String?)?
     var linkTrust: LinkTrustStore?
+    /// The pane is on a herdr machine, so a path it prints names a file
+    /// there and never opens one here.
+    var isRemoteMachine = false
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -684,7 +687,7 @@ final class GhosttySession {
         }
         let found = PaneLink.match(
             inRow: line, column: cell.column, folder: folder, home: NSHomeDirectory(),
-            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }, isRemoteMachine: isRemoteMachine
         ) {
             FileManager.default.fileExists(atPath: $0)
         }
@@ -695,7 +698,7 @@ final class GhosttySession {
     func link(for text: String?) -> PaneLink? {
         PaneLink.resolve(
             text, folder: linkFolder?(), home: NSHomeDirectory(),
-            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }, isRemoteMachine: isRemoteMachine
         ) {
             FileManager.default.fileExists(atPath: $0)
         }
@@ -713,6 +716,7 @@ final class GhosttySession {
                 askToOpen(url)
             }
         case .file(let url):
+            guard !isRemoteMachine else { return }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             let runs = isDirectory.boolValue

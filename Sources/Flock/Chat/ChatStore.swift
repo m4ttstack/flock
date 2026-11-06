@@ -126,7 +126,8 @@ final class ChatStore {
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
         loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        isRemoteMachine: Bool = false
     ) {
         self.toasts = toasts
         self.autoSignInIsOn = autoSignInIsOn
@@ -138,6 +139,10 @@ final class ChatStore {
         self.loadFace = loadFace
         self.defaults = defaults
         slackAgents = Self.savedSlackAgents(in: defaults)
+        // herdr-chat and rt run here against this Mac's herdr, which a remote
+        // machine's panes are not on: chat stays unavailable, as when it is
+        // not installed.
+        guard !isRemoteMachine else { return }
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
 

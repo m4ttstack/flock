@@ -81,8 +81,10 @@ final class FlockSession: ProfileSession {
         profile = context.profile
         self.socketPath = socketPath
         address = HerdrServerAddress(socketPath: socketPath, home: home)
-        machineTunnel = context.isRemoteMachine ? context.profile.machine.map(makeTunnel) : nil
-        self.localHerdrVersion = machineTunnel == nil ? nil : LocalHerdrVersion(read: localHerdrVersion)
+        let machineTunnel = context.isRemoteMachine ? context.profile.machine.map(makeTunnel) : nil
+        self.machineTunnel = machineTunnel
+        let isRemoteMachine = machineTunnel != nil
+        self.localHerdrVersion = isRemoteMachine ? LocalHerdrVersion(read: localHerdrVersion) : nil
 
         let themeStore = ThemeStore(userDefaults: preferences)
         self.themeStore = themeStore
@@ -126,7 +128,7 @@ final class FlockSession: ProfileSession {
         self.toastCenter = toastCenter
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
         // main actor via its `probeTask`; nothing here reads it synchronously.
-        let chatStore = ChatStore(toasts: toastCenter, loadFace: ChatFaceImage.load(handle:))
+        let chatStore = ChatStore(toasts: toastCenter, loadFace: ChatFaceImage.load(handle:), isRemoteMachine: isRemoteMachine)
         self.chatStore = chatStore
         chatSidebarStore.onChats = { await chatStore.noteSlackChats($0) }
         chatSidebarStore.owner = { chatStore.slackOwner(ofAgent: $0)?.rawValue }
@@ -149,7 +151,8 @@ final class FlockSession: ProfileSession {
                 fontSizePoints: { terminalTextSizeStore.points },
                 optionAsAlt: { optionAsAltStore.active },
                 scrollSpeed: { scrollSpeedStore.active },
-                linkTrust: linkTrustStore
+                linkTrust: linkTrustStore,
+                isRemoteMachine: isRemoteMachine
             )
         }
         self.ghosttyFactory = ghosttyFactory
@@ -197,7 +200,8 @@ final class FlockSession: ProfileSession {
             paneTitleDefaults: idState,
             pinnedWorkspaceDefaults: idState,
             identity: workspaceIdentityStore,
-            cswapAccounts: CswapList.read
+            cswapAccounts: CswapList.read,
+            isRemoteMachine: isRemoteMachine
         )
         self.viewModel = viewModel
         herdrHoldCoordinator = HerdrHoldCoordinator(viewModel: viewModel)

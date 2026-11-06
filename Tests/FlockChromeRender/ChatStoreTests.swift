@@ -171,6 +171,26 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertTrue(store.isAvailable)
     }
 
+    /// herdr-chat and rt run against this Mac's herdr, which a herdr
+    /// machine's panes are not on, so nothing is even looked for.
+    func testARemoteMachineSessionNeverProbesAndStaysUnavailable() async {
+        let probed = expectation(description: "probe")
+        probed.isInverted = true
+        let store = ChatStore(
+            toasts: ToastCenter(),
+            probe: {
+                probed.fulfill()
+                return "/usr/local/bin/herdr-chat"
+            },
+            rtProbe: { true }, deckProbe: { true },
+            makeRunner: { _ in FakeChatRunning() },
+            isRemoteMachine: true
+        )
+        await store.probeTask.value
+        await fulfillment(of: [probed], timeout: 0.2)
+        XCTAssertFalse(store.isAvailable)
+    }
+
     /// Availability is false until the probe answers, not only once it
     /// answers "no binary": a store read during launch, before the
     /// background probe has resolved at all, must still run no verbs.
