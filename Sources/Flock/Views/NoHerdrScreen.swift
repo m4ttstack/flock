@@ -70,11 +70,25 @@ struct NoHerdrScreen: View {
     let theme: Theme
     var copy: Copy = Self.missing
     var primaryAction: PrimaryAction?
+    /// A machine profile's screen keeps the profile picker where the rail
+    /// draws it, so switching away needs no menu.
+    var profilePicker: ProfilePickerContext?
+    var profileDot: ProfileConnectionDot?
+
+    @Environment(RailWidthStore.self) private var railWidth: RailWidthStore?
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(theme.chrome)
+            .overlay(alignment: .topLeading) {
+                if let profilePicker {
+                    ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
+                        .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding)
+                        .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                        .frame(width: railWidth?.width ?? RailWidth.default)
+                }
+            }
             // Must match `MainWindow`'s own floor: the window must not
             // visibly resize when herdr appears and this screen is replaced
             // by the session window.

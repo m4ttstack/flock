@@ -1,9 +1,11 @@
+import AppKit
 import FlockCore
 import SwiftUI
 
-/// What the rail's profile picker and the Flock > Profile menu share: the
-/// profiles, the switch, and whether the list is open. The menu's shortcut
-/// opens the list only while a picker is on screen to anchor it.
+/// What the profile picker and the Flock > Profile menu share: the profiles,
+/// the switch, the way to Settings, and whether the list is open. The
+/// shortcut opens the list only while a picker is on screen to anchor it and
+/// its window is key, so it never pops up behind Settings.
 @MainActor
 @Observable
 final class ProfilePickerContext {
@@ -16,24 +18,33 @@ final class ProfilePickerContext {
     let isLocked: Bool
     @ObservationIgnored private let switchProfile: (String) async -> Bool
     @ObservationIgnored private let listMachines: () async -> [HerdrMachine]?
+    @ObservationIgnored private let keyWindow: () -> NSWindow?
+    @ObservationIgnored weak var anchorWindow: NSWindow?
 
     var isOpen = false
     private var mounted = 0
 
     init(
         profiles: ProfileStore, isLocked: Bool,
-        switchProfile: @escaping (String) async -> Bool, listMachines: @escaping () async -> [HerdrMachine]?
+        switchProfile: @escaping (String) async -> Bool, listMachines: @escaping () async -> [HerdrMachine]?,
+        keyWindow: @escaping () -> NSWindow? = { NSApp.keyWindow }
     ) {
         self.profiles = profiles
         self.isLocked = isLocked
         self.switchProfile = switchProfile
         self.listMachines = listMachines
+        self.keyWindow = keyWindow
     }
 
     var canOpen: Bool { mounted > 0 && !isLocked }
 
-    func open() {
+    /// A click lands in the picker's own window, so only the shortcut needs
+    /// that window to be key.
+    func open(fromClick: Bool = false) {
         guard canOpen else { return }
+        if !fromClick {
+            guard let anchorWindow, keyWindow() === anchorWindow else { return }
+        }
         isOpen = true
     }
 
@@ -55,6 +66,36 @@ final class ProfilePickerContext {
         guard id != profiles.currentID else { return }
         Task { _ = await switchProfile(id) }
     }
+
+    func manage(opensNewProfile: Bool, selection: SettingsTabSelection?, openSettings: OpenSettingsAction) {
+        isOpen = false
+        selection?.tab = .profiles
+        selection?.opensNewProfile = opensNewProfile
+        openSettings()
+    }
+}
+
+/// Reports the window a view lands in, for `ProfilePickerContext.anchorWindow`.
+private struct WindowReporter: NSViewRepresentable {
+    let report: (NSWindow?) -> Void
+
+    final class Probe: NSView {
+        var report: (NSWindow?) -> Void = { _ in }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            report(window)
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe(frame: .zero)
+        probe.report = report
+        return probe
+    }
+
+    func updateNSView(_ nsView: Probe, context: Context) {
+        nsView.report = report
+    }
 }
 
 extension ProfileConnectionDot {
@@ -66,14 +107,17 @@ extension ProfileConnectionDot {
     }
 }
 
-/// The top of the rail: the current profile, which opens the list of
-/// profiles and herdr machines to switch to.
+/// The top of the rail, and the same spot on a machine's connection screen:
+/// the current profile, which opens the list of profiles and herdr machines
+/// to switch to.
 struct ProfilePicker: View {
     let theme: Theme
     @Bindable var context: ProfilePickerContext
     let currentDot: ProfileConnectionDot?
     var forced: ControlInteraction?
 
+    @Environment(\.openSettings) private var openSettings
+    @Environment(SettingsTabSelection.self) private var selection: SettingsTabSelection?
     @State private var isHovering = false
 
     private var model: ProfilePickerModel {
@@ -82,7 +126,7 @@ struct ProfilePicker: View {
 
     var body: some View {
         let current = model.current
-        Button { context.open() } label: {
+        Button { context.open(fromClick: true) } label: {
             ProfilePickerLabel(
                 theme: theme, title: current?.title ?? context.profiles.current.name,
                 isMachine: current?.isMachine ?? false, dot: current?.dot, showsChevron: !context.isLocked,
@@ -92,17 +136,27 @@ struct ProfilePicker: View {
         .buttonStyle(.plain)
         .disabled(context.isLocked)
         .onHover { isHovering = $0 }
-        .help(context.isLocked ? ProfilesSettingsSection.lockedNote : "Switch profile (\(ProfilePickerContext.shortcutLabel))")
+        .help(Self.tooltip(name: current?.title ?? context.profiles.current.name, isLocked: context.isLocked))
         .popover(isPresented: $context.isOpen, arrowEdge: .bottom) {
-            ProfilePickerList(theme: theme, model: model, onChoose: context.choose, onClose: { context.isOpen = false })
+            ProfilePickerList(
+                theme: theme, model: model, onChoose: context.choose,
+                onManage: { context.manage(opensNewProfile: false, selection: selection, openSettings: openSettings) },
+                onClose: { context.isOpen = false }
+            )
         }
         .onChange(of: context.isOpen) { _, open in
             guard open else { return }
             Task { await context.refreshMachines() }
         }
+        .background(WindowReporter { window in if let window { context.anchorWindow = window } })
         .onAppear { context.mount() }
         .onDisappear { context.unmount() }
         .accessibilityIdentifier("flock.rail.profilePicker")
+    }
+
+    /// The full name, which a narrow rail truncates, over what a click does.
+    static func tooltip(name: String, isLocked: Bool) -> String {
+        "\(name)\n" + (isLocked ? ProfilesSettingsSection.lockedNote : "Switch profile (\(ProfilePickerContext.shortcutLabel))")
     }
 }
 
@@ -181,18 +235,19 @@ struct ProfilePickerList: View {
     let theme: Theme
     let model: ProfilePickerModel
     let onChoose: (String) -> Void
+    let onManage: () -> Void
     let onClose: () -> Void
     /// Per row, for renders; `rows.count` is Manage Profiles.
     var forced: [Int: ControlInteraction] = [:]
-    var initialPick: Int?
 
-    @Environment(\.openSettings) private var openSettings
-    @Environment(SettingsTabSelection.self) private var selection: SettingsTabSelection?
-    @State private var picked = 0
+    /// By id, so a machine sync that reorders or drops rows while the list
+    /// is open moves the pick with its row.
+    @State private var pickedID: String?
     @State private var hovered: Int?
     @FocusState private var isFocused: Bool
 
     private var manageIndex: Int { model.rows.count }
+    private var picked: Int { model.pickIndex(for: pickedID) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ProfilePicker.listRowSpacing) {
@@ -206,7 +261,7 @@ struct ProfilePickerList: View {
                 }
             }
             rule
-            Button(action: manage) {
+            Button(action: onManage) {
                 Text("Manage Profiles\u{2026}")
                     .font(ChromeType.profilePickerRow)
                     .foregroundStyle(theme.textDim)
@@ -239,11 +294,11 @@ struct ProfilePickerList: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onKeyPress(.upArrow, phases: .down) { _ in
-            picked = ProfilePickerModel.step(from: picked, by: -1, count: manageIndex + 1)
+            pickedID = model.pickID(stepping: pickedID, by: -1)
             return .handled
         }
         .onKeyPress(.downArrow, phases: .down) { _ in
-            picked = ProfilePickerModel.step(from: picked, by: 1, count: manageIndex + 1)
+            pickedID = model.pickID(stepping: pickedID, by: 1)
             return .handled
         }
         .onKeyPress(.return, phases: .down) { _ in
@@ -254,10 +309,7 @@ struct ProfilePickerList: View {
             onClose()
             return .handled
         }
-        .onAppear {
-            picked = initialPick ?? model.currentIndex ?? 0
-            isFocused = true
-        }
+        .onAppear { isFocused = true }
         .accessibilityIdentifier("flock.profilePicker.list")
     }
 
@@ -311,17 +363,10 @@ struct ProfilePickerList: View {
 
     private func take(_ index: Int) {
         if index == manageIndex {
-            manage()
+            onManage()
         } else if model.rows.indices.contains(index) {
             onChoose(model.rows[index].id)
         }
-    }
-
-    private func manage() {
-        onClose()
-        selection?.tab = .profiles
-        selection?.opensNewProfile = false
-        openSettings()
     }
 }
 

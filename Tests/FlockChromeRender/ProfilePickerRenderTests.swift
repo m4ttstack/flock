@@ -20,6 +20,8 @@ final class ProfilePickerRenderTests: XCTestCase {
         id: "fedcba9876543210fedcba9876543210", label: "acme-mini-build-host", target: "acme-mini-build-host", session: "default"
     )
 
+    private static let pickerHeight = ChromeMetrics.WorkspaceRow.contentHeight + 2 * ChromeMetrics.ProfilePicker.verticalPadding
+
     private struct Column {
         let width: CGFloat
         let current: String
@@ -113,7 +115,7 @@ final class ProfilePickerRenderTests: XCTestCase {
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-picker-rail-\(scheme).png"))
             }
             var x = Self.gap
-            let band = (Self.gap + ChromeMetrics.Rail.verticalPadding, Self.gap + ChromeMetrics.Rail.verticalPadding + 29)
+            let band = (Self.gap + ChromeMetrics.Rail.verticalPadding, Self.gap + ChromeMetrics.Rail.verticalPadding + Self.pickerHeight)
             for (index, column) in Self.columns.enumerated() {
                 let rect = CGRect(x: x, y: band.0, width: column.width, height: band.1 - band.0)
                 let green = contains(image, rect, Color(theme.palette.green))
@@ -150,7 +152,9 @@ final class ProfilePickerRenderTests: XCTestCase {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let view = HStack(alignment: .top, spacing: 0) {
                 ForEach(models.indices, id: \.self) { index in
-                    ProfilePickerList(theme: theme, model: models[index], onChoose: { _ in }, onClose: {}, forced: states[index])
+                    ProfilePickerList(
+                        theme: theme, model: models[index], onChoose: { _ in }, onManage: {}, onClose: {}, forced: states[index]
+                    )
                         .padding(Self.gap)
                         .frame(width: column, alignment: .topLeading)
                 }
@@ -162,11 +166,53 @@ final class ProfilePickerRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-picker-list-\(scheme).png"))
             }
+            let metrics = ChromeMetrics.ProfilePicker.self
             let selection = Color(theme.palette.chromeRoles.selection)
-            let firstRow = CGRect(x: Self.gap + 9, y: Self.gap + 10, width: 6, height: 16)
-            XCTAssertTrue(contains(image, firstRow, selection), "\(scheme): the list opens picked on Default")
-            XCTAssertFalse(contains(image, firstRow.offsetBy(dx: column, dy: 0), selection), "\(scheme): Default is not picked on a machine")
+            // Past the names and short of the return glyph, clear of the
+            // fill's rounded corners.
+            let scanX = Self.gap + metrics.listWidth * 0.7
+            let localRuns = runs(image, x: scanX, color: selection)
+            let machineRuns = runs(image, x: column + scanX, color: selection)
+            XCTAssertEqual(localRuns.count, 1, "\(scheme): one picked row on a local profile")
+            XCTAssertEqual(machineRuns.count, 1, "\(scheme): one picked row on a machine")
+            guard let local = localRuns.first, let machine = machineRuns.first else { continue }
+            let listTop = Self.gap + metrics.listVerticalPadding
+            XCTAssertEqual(local.lowerBound, listTop, accuracy: 1.5, "\(scheme): Default, the current row, is picked")
+            let row = local.upperBound - local.lowerBound
+            let sectionRule = metrics.listSectionGap * 2 + ChromeMetrics.ruleWidth
+            let firstMachine = listTop + 2 * (row + metrics.listRowSpacing) + sectionRule + metrics.listRowSpacing
+            XCTAssertEqual(machine.lowerBound, firstMachine, accuracy: 1.5, "\(scheme): acme-mini, the current row, is picked")
         }
+    }
+
+    /// While a machine is connecting, unreachable, not running or removed the
+    /// rail is gone; the picker stays where the rail draws it, so it and the
+    /// shortcut still work.
+    func testTheMachineScreenKeepsThePickerWhereTheRailDrawsIt() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let picker = try picker(current: "machine.\(Self.mini.id)")
+        let size = CGSize(width: 900, height: 560)
+        let message = "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works."
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let screen = NoHerdrScreen(
+                theme: theme, copy: NoHerdrScreen.machine(label: "acme-mini", message: message),
+                profilePicker: picker, profileDot: .attention
+            )
+            let image = try await render(screen.frame(width: size.width, height: size.height), size: size)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-picker-machine-screen-\(scheme).png"))
+            }
+            let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding
+            let band = CGRect(
+                x: ChromeMetrics.Rail.horizontalPadding, y: top,
+                width: RailWidth.default - 2 * ChromeMetrics.Rail.horizontalPadding, height: Self.pickerHeight
+            )
+            XCTAssertTrue(contains(image, band, Color(theme.palette.yellow)), "\(scheme): the picker shows the machine's dot")
+        }
+        XCTAssertTrue(picker.canOpen, "the machine screen's picker lets the shortcut open it")
     }
 
     private func scratchDefaults() throws -> UserDefaults {
@@ -230,6 +276,30 @@ final class ProfilePickerRenderTests: XCTestCase {
         context.scaleBy(x: Self.scale, y: Self.scale)
         content.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
         return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+    }
+
+    /// The vertical spans, in points, where the column of pixels at `x`
+    /// matches `color`.
+    private func runs(_ image: NSBitmapImageRep, x: CGFloat, color: Color) -> [ClosedRange<CGFloat>] {
+        guard let target = NSColor(color).usingColorSpace(.sRGB), let data = image.bitmapData else { return [] }
+        let want = [target.redComponent, target.greenComponent, target.blueComponent].map { Int(($0 * 255).rounded()) }
+        let px = Int(x * Self.scale)
+        var spans: [ClosedRange<CGFloat>] = []
+        var start: Int?
+        for y in 0...image.pixelsHigh {
+            var matches = false
+            if y < image.pixelsHigh {
+                let offset = y * image.bytesPerRow + px * (image.bitsPerPixel / 8)
+                let have = [Int(data[offset]), Int(data[offset + 1]), Int(data[offset + 2])]
+                matches = zip(have, want).allSatisfy { abs($0 - $1) <= 4 }
+            }
+            if matches, start == nil { start = y }
+            if !matches, let first = start {
+                spans.append(CGFloat(first) / Self.scale...CGFloat(y) / Self.scale)
+                start = nil
+            }
+        }
+        return spans
     }
 
     /// Whether any pixel in `rect` (points, top-left origin) is within a few

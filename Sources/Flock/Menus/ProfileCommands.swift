@@ -10,11 +10,8 @@ struct ProfileMenuRow: Equatable {
 /// Flock > Profile: open the rail's picker, switch profiles, or open the
 /// Profiles tab of Settings.
 struct ProfileCommands: Commands {
-    let profiles: ProfileStore
-    let isLocked: Bool
-    let switchProfile: (String) async -> Bool
-    let selection: SettingsTabSelection
     let picker: ProfilePickerContext
+    let selection: SettingsTabSelection
 
     /// The picker's sections, each between rules: Default and the user's
     /// profiles, then the herdr machines. Empty sections are left out.
@@ -27,7 +24,7 @@ struct ProfileCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .appSettings) {
-            ProfileMenu(profiles: profiles, isLocked: isLocked, switchProfile: switchProfile, selection: selection, picker: picker)
+            ProfileMenu(picker: picker, selection: selection)
         }
     }
 }
@@ -35,11 +32,11 @@ struct ProfileCommands: Commands {
 /// A view rather than inline commands, because `openSettings` is only
 /// reachable from a view's environment.
 private struct ProfileMenu: View {
-    let profiles: ProfileStore
-    let isLocked: Bool
-    let switchProfile: (String) async -> Bool
-    let selection: SettingsTabSelection
     let picker: ProfilePickerContext
+    let selection: SettingsTabSelection
+
+    private var profiles: ProfileStore { picker.profiles }
+    private var isLocked: Bool { picker.isLocked }
 
     @Environment(\.openSettings) private var openSettings
 
@@ -55,10 +52,7 @@ private struct ProfileMenu: View {
                 ForEach(section, id: \.id) { row in
                     Toggle(row.title, isOn: Binding(
                         get: { row.isCurrent },
-                        set: { _ in
-                            guard !row.isCurrent else { return }
-                            Task { _ = await switchProfile(row.id) }
-                        }
+                        set: { _ in picker.choose(row.id) }
                     ))
                     .disabled(isLocked)
                 }
@@ -75,8 +69,6 @@ private struct ProfileMenu: View {
     }
 
     private func manage(opensNewProfile: Bool) {
-        selection.tab = .profiles
-        selection.opensNewProfile = opensNewProfile
-        openSettings()
+        picker.manage(opensNewProfile: opensNewProfile, selection: selection, openSettings: openSettings)
     }
 }

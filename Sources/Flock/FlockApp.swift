@@ -303,7 +303,9 @@ struct FlockApp: App {
         return NoHerdrScreen(
             theme: themeStore.active,
             copy: NoHerdrScreen.machine(label: label, message: notice?.text ?? "Connecting to \(label)\u{2026}"),
-            primaryAction: notice?.action.map { action in .init(title: action.title, perform: action.perform) }
+            primaryAction: notice?.action.map { action in .init(title: action.title, perform: action.perform) },
+            profilePicker: profilePicker,
+            profileDot: .attention
         )
     }
 
@@ -460,11 +462,7 @@ struct FlockApp: App {
             CheckForUpdatesCommands(updater: updater)
             #endif
             PasteboardCommands()
-            ProfileCommands(
-                profiles: controller.profiles, isLocked: controller.isLocked,
-                switchProfile: { await controller.switchTo(profileID: $0) }, selection: settingsTabSelection,
-                picker: profilePicker
-            )
+            ProfileCommands(picker: profilePicker, selection: settingsTabSelection)
             // Declared ahead of Chat: command menus take the menu bar in
             // declaration order.
             CommandMenu("Pane") {

@@ -51,6 +51,23 @@ public struct ProfilePickerModel: Equatable, Sendable {
         machines = rows.filter(\.isMachine)
     }
 
+    /// Manage Profiles' place among the picks; no profile id takes this shape.
+    public static let manageID = "flock.profilePicker.manage"
+
+    /// Every pick in keyboard order: the rows, then Manage Profiles.
+    public var pickIDs: [String] { rows.map(\.id) + [Self.manageID] }
+
+    /// Where a pick sits now. One a machine sync removed, or none yet, falls
+    /// back to the current row.
+    public func pickIndex(for id: String?) -> Int {
+        if let id, let index = pickIDs.firstIndex(of: id) { return index }
+        return currentIndex ?? 0
+    }
+
+    public func pickID(stepping id: String?, by delta: Int) -> String {
+        pickIDs[Self.step(from: pickIndex(for: id), by: delta, count: pickIDs.count)]
+    }
+
     /// Up and down stop at the ends rather than wrap, as the pin folder list does.
     public static func step(from index: Int, by delta: Int, count: Int) -> Int {
         guard count > 0 else { return 0 }

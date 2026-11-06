@@ -59,3 +59,22 @@ final class ProfilePickerModelTests: XCTestCase {
         XCTAssertEqual(ProfilePickerModel.step(from: 0, by: 1, count: 0), 0)
     }
 }
+
+extension ProfilePickerModelTests {
+    func testThePickFollowsItsRowAndFallsBackToTheCurrentOne() {
+        let model = ProfilePickerModel(profiles: profiles, currentID: "p1", currentDot: nil)
+        XCTAssertEqual(model.pickIndex(for: nil), 1, "opens on the current row")
+        XCTAssertEqual(model.pickIndex(for: "machine.\(mini.id)"), 2)
+        XCTAssertEqual(model.pickIndex(for: ProfilePickerModel.manageID), 4, "Manage Profiles follows the rows")
+        let synced = ProfilePickerModel(profiles: Array(profiles.prefix(3)), currentID: "p1", currentDot: nil)
+        XCTAssertEqual(synced.pickIndex(for: "machine.\(studio.id)"), 1, "a removed row's pick returns to the current one")
+        XCTAssertEqual(synced.pickIndex(for: ProfilePickerModel.manageID), 3, "Manage Profiles moves up with the rows")
+    }
+
+    func testSteppingThePickStopsAtManageProfiles() {
+        let model = ProfilePickerModel(profiles: profiles, currentID: "p1", currentDot: nil)
+        XCTAssertEqual(model.pickID(stepping: nil, by: 1), "machine.\(mini.id)")
+        XCTAssertEqual(model.pickID(stepping: ProfilePickerModel.manageID, by: 1), ProfilePickerModel.manageID)
+        XCTAssertEqual(model.pickID(stepping: FlockProfile.defaultID, by: -1), FlockProfile.defaultID)
+    }
+}
