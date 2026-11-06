@@ -98,7 +98,6 @@ public final class MachineTunnel {
 
     private func supervise() async {
         while !stopped {
-            state = .connecting
             await connectOnce()
             guard !stopped else { return }
             let delay = backoff(attempt)
@@ -111,7 +110,8 @@ public final class MachineTunnel {
         }
     }
 
-    /// Returns after a failure, with `state` saying why.
+    /// Returns after a failure, with `state` saying why. A retry leaves that
+    /// state showing until it reaches `.up`.
     private func connectOnce() async {
         let socket: String
         if let cached = remoteSocket {
@@ -123,7 +123,7 @@ public final class MachineTunnel {
                 if !stopped { state = .noServer }
                 return
             } catch {
-                if !stopped { state = .unreachable(reason: Self.describe(error)) }
+                if !stopped { state = .unreachable(reason: describe(error)) }
                 return
             }
             guard !stopped else { return }
@@ -136,7 +136,7 @@ public final class MachineTunnel {
             try prepareDirectory(paths.directory)
             launched = try launch(MachineSSH.forwardArguments(target: machine.target, paths: paths, remoteAPISocket: socket))
         } catch {
-            state = .unreachable(reason: Self.describe(error))
+            state = .unreachable(reason: describe(error))
             return
         }
         child = launched
@@ -155,7 +155,8 @@ public final class MachineTunnel {
     private func watch(_ launched: MachineTunnelChild) async -> String? {
         let exits = launched.exited
         let apiSocket = paths.apiSocket
-        let deadline = ContinuousClock.now + connectTimeout
+        let connectTimeout = connectTimeout
+        var answered = false
         return await withTaskGroup(of: ConnectEvent.self) { group in
             group.addTask {
                 for await line in exits {
@@ -164,16 +165,27 @@ public final class MachineTunnel {
                 return Task.isCancelled ? .cancelled : .exited("")
             }
             group.addTask {
-                await self.pollProbe(apiSocket, until: deadline)
+                await self.pollProbe(apiSocket)
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: connectTimeout)
+                } catch {
+                    return .cancelled
+                }
+                return .timedOut
             }
             while let event = await group.next() {
                 switch event {
                 case .answered:
                     guard !stopped else { continue }
+                    answered = true
                     remoteSocketAnswered = true
+                    mayReResolve = true
                     attempt = 1
                     state = .up
                 case .timedOut:
+                    guard !answered else { continue }
                     launched.terminate()
                     group.cancelAll()
                     return "Timed out connecting."
@@ -189,21 +201,39 @@ public final class MachineTunnel {
         }
     }
 
-    private func pollProbe(_ apiSocket: String, until deadline: ContinuousClock.Instant) async -> ConnectEvent {
-        while !Task.isCancelled {
-            if await probe(apiSocket) { return .answered }
-            if ContinuousClock.now >= deadline { return .timedOut }
+    private func pollProbe(_ apiSocket: String) async -> ConnectEvent {
+        while true {
+            guard let answer = await probeOnce(apiSocket) else { return .cancelled }
+            if answer { return .answered }
             do {
                 try await Task.sleep(for: probeInterval)
             } catch {
                 return .cancelled
             }
         }
-        return .cancelled
     }
 
-    private static func describe(_ error: Error) -> String {
+    /// nil when cancelled. The probe runs outside the task group because the
+    /// group cannot finish until every child returns, and a hung probe must
+    /// not hold up the timeout or an exit.
+    private func probeOnce(_ apiSocket: String) async -> Bool? {
+        let (answers, continuation) = AsyncStream<Bool>.makeStream()
+        let probing = Task {
+            continuation.yield(await self.probe(apiSocket))
+            continuation.finish()
+        }
+        for await answer in answers {
+            return answer
+        }
+        probing.cancel()
+        return nil
+    }
+
+    private func describe(_ error: Error) -> String {
         if case MachineResolveError.failed(let message) = error { return message }
+        if case MachineResolveError.unknownSession = error {
+            return "herdr has no session named \(machine.session) on \(machine.label)."
+        }
         if let localized = (error as? LocalizedError)?.errorDescription { return localized }
         return String(describing: error)
     }

@@ -30,6 +30,10 @@ final class MachineTunnelTests: XCTestCase {
 
         var resolveError: Error?
         var resolveCount = 0
+        var holdsResolve = false
+        var heldResolve: CheckedContinuation<Void, Never>?
+        var holdsProbe = false
+        var heldProbes: [CheckedContinuation<Void, Never>] = []
         var launches: [[String]] = []
         var children: [FakeChild] = []
         var probeAnswer = false
@@ -46,6 +50,9 @@ final class MachineTunnelTests: XCTestCase {
                 paths: paths,
                 resolve: { _ in
                     self.resolveCount += 1
+                    if self.holdsResolve {
+                        await withCheckedContinuation { self.heldResolve = $0 }
+                    }
                     if let error = self.resolveError { throw error }
                     return Rig.remoteSocket
                 },
@@ -57,6 +64,9 @@ final class MachineTunnelTests: XCTestCase {
                 },
                 probe: { path in
                     self.probed.append(path)
+                    if self.holdsProbe {
+                        await withCheckedContinuation { self.heldProbes.append($0) }
+                    }
                     return self.probeAnswer
                 },
                 prepareDirectory: { self.prepared.append($0) },
@@ -117,8 +127,36 @@ final class MachineTunnelTests: XCTestCase {
         await waitUntil { rig.launches.count == 2 }
         XCTAssertEqual(rig.backoffs.map(\.attempt), [1])
         XCTAssertEqual(rig.backoffs.first?.state, .unreachable(reason: "Connection refused"))
-        XCTAssertEqual(tunnel.state, .connecting)
         await tunnel.stop()
+    }
+
+    func testRetryKeepsShowingTheLastFailure() async {
+        let rig = Rig()
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+        await waitUntil { rig.children.count == 1 }
+
+        rig.children[0].exit("Connection refused")
+        await waitUntil { rig.launches.count == 2 }
+        XCTAssertEqual(tunnel.state, .unreachable(reason: "Connection refused"))
+
+        rig.probeAnswer = true
+        await waitUntil { tunnel.state == .up }
+        await tunnel.stop()
+    }
+
+    func testRetryResolvingAfterNoServerStillShowsNoServer() async {
+        let rig = Rig()
+        rig.resolveError = MachineResolveError.noServer
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+        await waitUntil { tunnel.state == .noServer }
+
+        rig.holdsResolve = true
+        await waitUntil { rig.heldResolve != nil }
+        XCTAssertEqual(tunnel.state, .noServer)
+        await tunnel.stop()
+        rig.heldResolve?.resume()
     }
 
     func testEmptyStderrReadsAsGenericExit() async {
@@ -145,6 +183,34 @@ final class MachineTunnelTests: XCTestCase {
         XCTAssertEqual(rig.launches, [])
         XCTAssertEqual(rig.prepared, [])
         await tunnel.stop()
+    }
+
+    func testUnknownSessionNamesTheSessionAndMachine() async {
+        let rig = Rig()
+        rig.delay = .seconds(60)
+        rig.resolveError = MachineResolveError.unknownSession
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+
+        await waitUntil { rig.backoffs.count == 1 }
+        XCTAssertEqual(tunnel.state, .unreachable(reason: "herdr has no session named default on acme-mini."))
+        await tunnel.stop()
+    }
+
+    func testStopDuringResolveNeverLaunches() async {
+        let rig = Rig()
+        rig.holdsResolve = true
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+        await waitUntil { rig.heldResolve != nil }
+
+        await tunnel.stop()
+        rig.heldResolve?.resume()
+        await settle()
+        XCTAssertEqual(rig.prepared, [])
+        XCTAssertEqual(rig.launches, [])
+        XCTAssertEqual(rig.backoffs.count, 0)
+        XCTAssertEqual(tunnel.state, .stopped)
     }
 
     func testNoRemoteServerIsNoServerState() async {
@@ -264,6 +330,35 @@ final class MachineTunnelTests: XCTestCase {
         XCTAssertTrue(rig.children[0].terminated)
         XCTAssertEqual(tunnel.state, .unreachable(reason: "Timed out connecting."))
         await tunnel.stop()
+    }
+
+    func testHungProbeStillTimesOut() async {
+        let rig = Rig()
+        rig.delay = .seconds(60)
+        rig.holdsProbe = true
+        let tunnel = rig.makeTunnel(connectTimeout: .milliseconds(20))
+        tunnel.start()
+
+        await waitUntil { rig.backoffs.count == 1 }
+        XCTAssertTrue(rig.children[0].terminated)
+        XCTAssertEqual(tunnel.state, .unreachable(reason: "Timed out connecting."))
+        await tunnel.stop()
+        rig.heldProbes.forEach { $0.resume() }
+    }
+
+    func testHungProbeDoesNotHoldUpAnExit() async {
+        let rig = Rig()
+        rig.delay = .seconds(60)
+        rig.holdsProbe = true
+        let tunnel = rig.makeTunnel()
+        tunnel.start()
+        await waitUntil { rig.heldProbes.count == 1 }
+
+        rig.children[0].exit("Connection refused")
+        await waitUntil { rig.backoffs.count == 1 }
+        XCTAssertEqual(tunnel.state, .unreachable(reason: "Connection refused"))
+        await tunnel.stop()
+        rig.heldProbes.forEach { $0.resume() }
     }
 
     func testBackoffSchedule() {
