@@ -253,9 +253,10 @@ final class HerdrStoreTests: XCTestCase {
         defer { store.stop() }
 
         try await waitUntil { store.connection == .live }
+        XCTAssertFalse(store.isInBackoffForTesting)
         store.reconnectNow()
-        try await Task.sleep(nanoseconds: 100_000_000)
 
+        XCTAssertFalse(store.isInBackoffForTesting)
         XCTAssertEqual(store.connection, .live)
         XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1)
         XCTAssertEqual(fake.subscriberCount, 1)
@@ -265,11 +266,15 @@ final class HerdrStoreTests: XCTestCase {
     func testReconnectNowBeforeStartOrAfterStopDoesNothing() async throws {
         let store = HerdrStore(socketPath: "/tmp/pdhs-no-such.sock", backoffSchedule: { _ in .seconds(600) })
         store.reconnectNow()
+        XCTAssertEqual(store.connection, .connecting)
+        XCTAssertFalse(store.isInBackoffForTesting)
+
         await store.start()
-        try await waitUntil { store.connection == .notRunning(attempt: 1) }
+        try await waitUntil { store.isInBackoffForTesting }
         store.stop()
+        try await waitUntil { !store.isInBackoffForTesting }
         store.reconnectNow()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(store.isInBackoffForTesting)
         XCTAssertEqual(store.connection, .notRunning(attempt: 1))
     }
 

@@ -9,18 +9,28 @@ final class MachineConnectionWatchTests: XCTestCase {
         func terminate() {}
     }
 
-    /// A sleep that returns only when the test lets it.
+    /// A sleep that returns only when the test lets it, or throws when its
+    /// task is cancelled.
     private final class GatedSleep: @unchecked Sendable {
         private let lock = NSLock()
-        private var waiters: [CheckedContinuation<Void, Error>] = []
+        private var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
         private var storedRequested: [Duration] = []
 
         func sleep(_ duration: Duration) async throws {
-            try await withCheckedThrowingContinuation { continuation in
-                lock.withLock {
-                    storedRequested.append(duration)
-                    waiters.append(continuation)
+            let id = UUID()
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    let cancelled = lock.withLock { () -> Bool in
+                        storedRequested.append(duration)
+                        if Task.isCancelled { return true }
+                        waiters[id] = continuation
+                        return false
+                    }
+                    if cancelled { continuation.resume(throwing: CancellationError()) }
                 }
+            } onCancel: {
+                let waiter = lock.withLock { waiters.removeValue(forKey: id) }
+                waiter?.resume(throwing: CancellationError())
             }
         }
 
@@ -28,8 +38,8 @@ final class MachineConnectionWatchTests: XCTestCase {
 
         func release() {
             let all = lock.withLock { () -> [CheckedContinuation<Void, Error>] in
-                defer { waiters = [] }
-                return waiters
+                defer { waiters = [:] }
+                return Array(waiters.values)
             }
             all.forEach { $0.resume() }
         }
@@ -78,6 +88,26 @@ final class MachineConnectionWatchTests: XCTestCase {
 
         gate.release()
         await waitUntil { !watch.graceActive }
+    }
+
+    func testTheTunnelComingUpCutsTheStoresBackoffShort() async throws {
+        let store = makeStore()
+        await store.start()
+        defer { store.stop() }
+        await waitUntil { store.connection == .notRunning(attempt: 1) }
+
+        let watch = MachineConnectionWatch(
+            tunnel: makeTunnel(probeAnswer: false), store: store, grace: .seconds(5), sleep: GatedSleep().sleep
+        )
+        watch.handle(tunnel: .up, store: store.connection)
+
+        await waitUntil { store.connection == .notRunning(attempt: 2) }
+    }
+
+    func testNoGraceWhenTheTunnelComesUpUnderALiveStore() {
+        let watch = makeWatch(GatedSleep())
+        watch.handle(tunnel: .up, store: .live)
+        XCTAssertFalse(watch.graceActive)
     }
 
     func testGraceEndsWhenTheStoreGoesLive() {

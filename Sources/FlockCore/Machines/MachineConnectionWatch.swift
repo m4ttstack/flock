@@ -16,6 +16,7 @@ public final class MachineConnectionWatch {
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var tunnelUp = false
     @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored private var started = false
     @ObservationIgnored private var stopped = false
 
     public init(
@@ -29,6 +30,8 @@ public final class MachineConnectionWatch {
     }
 
     public func start() {
+        guard !started else { return }
+        started = true
         observe()
     }
 
@@ -51,12 +54,11 @@ public final class MachineConnectionWatch {
         let wasUp = tunnelUp
         tunnelUp = tunnelState == .up
         if tunnelUp, !wasUp {
-            beginGrace()
+            if storeState != .live { beginGrace() }
             store.reconnectNow()
-        } else if !tunnelUp {
+        } else if !tunnelUp || storeState == .live {
             endGrace()
         }
-        if storeState == .live { endGrace() }
     }
 
     private func beginGrace() {

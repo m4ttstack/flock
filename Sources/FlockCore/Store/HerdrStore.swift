@@ -679,6 +679,9 @@ public final class HerdrStore {
         backoffWait?.cancel()
     }
 
+    /// Test seam only: whether the run loop is mid-backoff.
+    var isInBackoffForTesting: Bool { backoffWait != nil }
+
     /// No socket file, or one nothing listens on (a server that exited
     /// without removing it).
     public nonisolated static func meansNoServer(_ error: Error) -> Bool {
