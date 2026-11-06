@@ -49,7 +49,9 @@ public enum RepoBranchReader {
                     ? URL(fileURLWithPath: raw, isDirectory: true).standardized
                     : directory.appendingPathComponent(raw, isDirectory: true).standardized
             }
-            let parent = directory.deletingLastPathComponent()
+            // macOS 15 answers "/.." for the parent of "/".
+            guard directory.path != "/" else { return nil }
+            let parent = directory.deletingLastPathComponent().standardized
             guard parent.path != directory.path else { return nil }
             directory = parent
         }

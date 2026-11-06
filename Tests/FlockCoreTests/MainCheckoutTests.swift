@@ -87,6 +87,14 @@ final class MainCheckoutTests: XCTestCase {
         XCTAssertNil(MainCheckout.resolve(from: plain.path))
     }
 
+    /// macOS 15 gives "/.." as the parent of "/"; a walk that waited for the
+    /// parent to repeat never ended there.
+    func testTheRootAndPathsThatClimbPastItHaveNoMainCheckout() {
+        XCTAssertNil(MainCheckout.resolve(from: "/"))
+        XCTAssertNil(MainCheckout.resolve(from: "/.."))
+        XCTAssertNil(MainCheckout.resolve(from: "/../.."))
+    }
+
     /// rt moves a removed worktree to a trash folder and git prunes its
     /// gitdir; a pane can still sit in what is left.
     func testAPrunedWorktreeResolvesToItsRepoNotTheLeftoverFolder() throws {

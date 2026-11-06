@@ -51,6 +51,11 @@ final class RepoBranchTests: XCTestCase {
         XCTAssertEqual(read.text, "notes")
     }
 
+    /// macOS 15 gives "/.." as the parent of "/"; the walk must still end.
+    func testTheRootHasNoBranch() {
+        XCTAssertNil(RepoBranchReader.read(folder: "/").branch)
+    }
+
     @MainActor
     func testTheCacheReadsAFolderOnceUntilInvalidated() {
         var reads = 0
