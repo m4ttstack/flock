@@ -49,6 +49,7 @@
   - `ProfileStore.syncMachines(_ machines: [HerdrMachine])`
   - `ProfileStore.socketPath(of:)` returns `machineSocketPath(machine)` for machine profiles
   - Machine profile id: `"machine.\(machine.id)"`
+  - `ProfileStore.currentMachineMissing: Bool` (observable; true when the last `syncMachines` list lacked the current machine profile's machine; false otherwise and before any sync)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -69,6 +70,7 @@ func testStoredMachineStaysCurrentBeforeAnySync()        // relaunch: currentID 
 func testMachineSocketPathComesFromInjectedClosure()     // socketPath(of:) == "/tmp/flock-501/dev-0123456789ab/herdr.sock"
 func testMachineProfilesCannotBeRenamedOrDeleted()       // rename no-op, delete returns false
 func testProfilesStoredBeforeMachinesStillDecode()       // old JSON without "machine" key loads
+func testSyncFlagsCurrentMachineMissing()                // current machine absent from list -> currentMachineMissing == true
 ```
 
 - [ ] **Step 2: Run, expect FAIL** (`-only-testing:FlockCoreTests/HerdrMachineTests -only-testing:FlockCoreTests/ProfileStoreTests`): types undefined.
@@ -241,7 +243,7 @@ XCTAssertNil(MachineConnectionCopy.versionWarning(label: "acme-mini", local: "0.
 XCTAssertEqual(MachineConnectionCopy.removed(label: "acme-mini"), "acme-mini is no longer a saved herdr machine.")
 ```
 
-The removed banner shows when a non-nil machine list (launch, picker or Settings open) no longer has the current machine, with a "Switch to Default" button calling `controller.switchTo(profileID: FlockProfile.defaultID)`. `ProfileStore` exposes `var currentMachineMissing: Bool`, set by `syncMachines` (add `testSyncFlagsCurrentMachineMissing` to Task 1).
+The removed banner shows when a non-nil machine list (launch, picker or Settings open) no longer has the current machine, with a "Switch to Default" button calling `controller.switchTo(profileID: FlockProfile.defaultID)`. `ProfileStore.currentMachineMissing` (Task 1) drives it. A brief "herdr isn't running" flash during a transient store reconnect with the remote herdr still up is accepted, not a bug.
 
 (Host-key failures get "…then add its host key to known_hosts." in place of the ssh-add sentence. The tunnel state wins over the store state except when the tunnel is `.up`.)
 - [ ] **Step 2: Run, expect FAIL.**  - [ ] **Step 3: Implement and wire;** no Start button for machine profiles; local version from `herdr --version` once per session.
@@ -270,7 +272,7 @@ func testRemoteSessionLinksNoBoardCards()        // mission board matches no pan
 ```
 
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement the gates.** Remote sessions: no repo/branch reads, no board or rt pane linking by cwd (`MissionBoard`, `RtCoordinator`), chat button unavailable, `PaneLink.file` never resolved (web links still open), herdr update and mouse patch rows hidden, Settings > Server shows "Managed by herdr machine" in place of the picker, machine rows in Settings > Profiles read-only with that note (opening the tab runs `MachineSources.list()` and `syncMachines`), Custom starting folder shows "Ignored on herdr machines."
+- [ ] **Step 3: Implement the gates.** Remote sessions: no repo/branch reads, no board or rt pane linking by cwd (`MissionBoard`, `RtCoordinator`), chat button unavailable, `PaneLink.file` never resolved (web links still open), herdr update and mouse patch rows hidden, Settings > Server shows "Managed by herdr machine" in place of the picker, machine rows in Settings > Profiles read-only with that note (opening the tab runs `if let machines = await MachineSources.list() { profiles.syncMachines(machines) }`; a nil list changes nothing, never `?? []`), Custom starting folder shows "Ignored on herdr machines."
 - [ ] **Step 4: Run tests, expect PASS; render Settings dark and light and look at it.**
 - [ ] **Step 5: Commit** `machines: keep local-only features off machine sessions`
 
@@ -306,7 +308,7 @@ func testRemotePathIsInPasteDirectory() {
 - [ ] **Step 2: Run, expect FAIL.**
 - [ ] **Step 3: Implement.** Both paste entry points branch on `session.isRemoteMachine`: await `remotePasteText`, then `session.paste(text)` with the escaped remote paths. Upload is ssh with stdin = file bytes, 15 s deadline. On `.failed`, show the session's info toast "Couldn't copy that to acme-mini." and paste nothing (Review Focus 5). Local sessions are untouched.
 - [ ] **Step 4: Run tests, expect PASS.**
-- [ ] **Step 5: Commit** `machines: paste and dropped files upload to the machine`
+- [ ] **Step 5: Commit** `machines: pasted images and files upload to the machine`
 
 ### Task 9: Sidebar profile picker and shortcut
 
@@ -319,7 +321,7 @@ func testRemotePathIsInPasteDirectory() {
 - Consumes: `ProfileStore.profiles`, `FlockProfile.isMachine`, `MachineTunnelState` of the current session, `controller.switchTo(profileID:)`
 - Produces: `ProfilePicker(profiles:currentState:switchProfile:)`; one shortcut that opens the picker's list (builder picks the key; check `Sources/Flock/Menus` and libghostty's default bindings for conflicts)
 
-- [ ] **Step 1: Build the picker.** Current profile name at the rail's top; the list shows Default and user profiles, a divider, then machines with a small remote marker and the current one's connection dot. Opening it calls `MachineSources.list()` and `syncMachines`. The Flock > Profile menu lists machines the same way.
+- [ ] **Step 1: Build the picker.** Current profile name at the rail's top; the list shows Default and user profiles, a divider, then machines with a small remote marker and the current one's connection dot. Opening it runs `if let machines = await MachineSources.list() { profiles.syncMachines(machines) }`; a nil list changes nothing, never `?? []`. The Flock > Profile menu lists machines the same way.
 - [ ] **Step 2: Render dark and light** (`TEST_RUNNER_FLOCK_CHROME_RENDER_DIR`), open the PNGs, fix what reads wrong.
 - [ ] **Step 3: Run `Scripts/checks.sh` after `git add`.**
 - [ ] **Step 4: Commit** `machines: profile picker in the sidebar`
