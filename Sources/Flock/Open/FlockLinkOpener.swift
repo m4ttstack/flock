@@ -9,11 +9,21 @@ enum FlockLinkOpener {
     /// A link can arrive on a cold launch, before herdr's first snapshot.
     private static let snapshotWait: Duration = .seconds(15)
     private static let snapshotPoll: Duration = .milliseconds(200)
+    private static let launchPoll: Duration = .milliseconds(50)
 
     static func open(_ url: URL, session: @escaping @MainActor () -> FlockSession, board: BoardStore) {
         guard FlockOpenLink.isOpenLink(url) else { return }
         NSApp.activate()
-        NSApp.windows.first { FlockWindow.isContent($0) }?.makeKeyAndOrderFront(nil)
+        if FlockAppDelegate.launchFinished {
+            showMainWindow()
+        } else {
+            // A reopen sent while the app is still launching can race the
+            // launch into a second window, so it waits the launch out.
+            Task {
+                while !FlockAppDelegate.launchFinished { try? await Task.sleep(for: launchPoll) }
+                showMainWindow()
+            }
+        }
         Task {
             let home = NSHomeDirectory()
             let token = await Task.detached { FlockOpenToken.readOrCreate(home: home) }.value
@@ -37,6 +47,20 @@ enum FlockLinkOpener {
                 FlockOpenPinMatch.pin(for: link.repo, in: pins, commonDir: FlockOpenPinMatch.gitCommonDir)
             }.value
             await viewModel.openLink(link, pin: pin, board: board.names)
+        }
+    }
+
+    /// The scene claims no URL (see `FlockApp`), so a link that finds no
+    /// window, closed or never made because the link started the app, has
+    /// to ask for it the way a Dock click does: opening the running app's
+    /// own bundle sends it a reopen, and SwiftUI answers with its window. A
+    /// closed window can still sit in `FlockWindow.content`, so being there
+    /// is not being open.
+    private static func showMainWindow() {
+        if let window = FlockWindow.content, window.isVisible || window.isMiniaturized {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: NSWorkspace.OpenConfiguration())
         }
     }
 }

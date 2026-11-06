@@ -44,7 +44,12 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
         let home = NSHomeDirectory()
         DispatchQueue.global(qos: .utility).async { _ = FlockOpenToken.readOrCreate(home: home) }
         windowFrame.start()
+        Self.launchFinished = true
     }
+
+    /// False until the launch is over. A link that started the app arrives
+    /// in that stretch.
+    private(set) static var launchFinished = false
 
     /// Set by `FlockApp.init`, which runs before Launch Services delivers a
     /// link, cold launch included.
@@ -393,6 +398,13 @@ struct FlockApp: App {
         // Declarative opt-out of SwiftUI's own scene-restoration bookkeeping
         // for this scene, alongside the two lower-level opt-outs above.
         .restorationBehavior(.disabled)
+        // flock runs one main window: each GhosttySession's surface view can
+        // live in only one window, and a second window pulls them out of the
+        // first. A scene that claims a URL opens a window for it, even with
+        // one already open, so `flock://` goes to
+        // `FlockAppDelegate.application(_:open:)` alone. The price: a launch
+        // by a link presents no window, and `FlockLinkOpener` asks for it.
+        .handlesExternalEvents(matching: [])
         .commands {
             #if FLOCK_SPARKLE
             CheckForUpdatesCommands(updater: updater)
