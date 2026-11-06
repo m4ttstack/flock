@@ -88,7 +88,9 @@ public struct FlockOpenLink: Equatable, Sendable {
 }
 
 /// The shared secret behind `flock://open`. The board reads the same file,
-/// and whichever side gets there first creates it.
+/// and whichever side gets there first creates it: written whole to a
+/// private temp file, then hard linked into place, which never replaces a
+/// token the other side made first.
 public enum FlockOpenToken {
     public static func path(home: String) -> String {
         (home as NSString).appendingPathComponent(".mattstack/flock/open-token")
@@ -104,14 +106,16 @@ public enum FlockOpenToken {
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
         let token = bytes.map { String(format: "%02x", $0) }.joined()
-        let created = FileManager.default.createFile(
-            atPath: path, contents: Data("\(token)\n".utf8), attributes: [.posixPermissions: 0o600]
-        )
-        // Lost a race with the board, which wrote its own between the read and the create.
-        return created ? read(path) ?? token : read(path)
+        let temp = "\(path).\(ProcessInfo.processInfo.processIdentifier).\(UUID().uuidString)"
+        guard FileManager.default.createFile(
+            atPath: temp, contents: Data("\(token)\n".utf8), attributes: [.posixPermissions: 0o600]
+        ) else { return read(path) }
+        defer { unlink(temp) }
+        return link(temp, path) == 0 ? token : read(path)
     }
 
     private static func read(_ path: String) -> String? {
+        chmod(path, 0o600)
         guard let data = FileManager.default.contents(atPath: path),
               let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !token.isEmpty

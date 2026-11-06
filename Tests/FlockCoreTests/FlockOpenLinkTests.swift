@@ -95,4 +95,19 @@ final class FlockOpenLinkTests: XCTestCase {
         let attributes = try FileManager.default.attributesOfItem(atPath: FlockOpenToken.path(home: home))
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
+
+    func testATokenAlreadyThereIsNeverReplacedAndNoTempFileStays() throws {
+        let home = NSTemporaryDirectory() + "flock-token-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let path = FlockOpenToken.path(home: home)
+        try FileManager.default.createDirectory(
+            atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
+        )
+        try Data("board-made\n".utf8).write(to: URL(fileURLWithPath: path))
+        XCTAssertEqual(FlockOpenToken.readOrCreate(home: home), "board-made")
+        let folder = (path as NSString).deletingLastPathComponent
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder), ["open-token"])
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
 }
