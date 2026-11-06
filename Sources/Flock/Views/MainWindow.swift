@@ -80,7 +80,8 @@ struct MainWindow: View {
                     WorkspaceRail(
                         theme: theme,
                         viewModel: viewModel,
-                        onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
+                        onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } },
+                        profileDot: viewModel.isRemoteMachine ? .forMachine(hasNotice: machineNotice != nil) : nil
                     )
                     VStack(spacing: 0) {
                         if let pin = viewModel.shownEmptyPin.flatMap(viewModel.pins.pin) {
@@ -531,7 +532,9 @@ struct TitleBar: View {
     private var connectionNotice: some View {
         if let machineNotice {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                Circle().fill(theme.yellow).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
+                Circle()
+                    .fill(ProfileConnectionDot.attention.color(in: theme))
+                    .frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
                 Button { showsMachineNoticeDetail.toggle() } label: {
                     Text(MachineConnectionCopy.short(machineNotice.text))
                         .font(ChromeType.connectionNotice)

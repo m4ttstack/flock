@@ -37,7 +37,7 @@ struct PinFolderPopover: View {
                 Button { onChoose(choice.folder) } label: {
                     row(choice, isPicked: index == picked)
                 }
-                .buttonStyle(PinFolderRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
+                .buttonStyle(PickedRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
                 .onHover { hovered = $0 ? index : (hovered == index ? nil : hovered) }
             }
             if let onOther {
@@ -53,7 +53,7 @@ struct PinFolderPopover: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(PinFolderRowStyle(
+                .buttonStyle(PickedRowStyle(
                     theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
                 ))
                 .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
@@ -131,7 +131,7 @@ struct PinFolderPopover: View {
 /// A row's states: the keyboard's pick as the selection fill, and hover and
 /// press as the chrome's one wash over it, so the pick never moves under the
 /// pointer.
-private struct PinFolderRowStyle: ButtonStyle {
+struct PickedRowStyle: ButtonStyle {
     let theme: Theme
     let isPicked: Bool
     let hovering: Bool

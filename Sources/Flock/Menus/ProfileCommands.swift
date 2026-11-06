@@ -7,20 +7,27 @@ struct ProfileMenuRow: Equatable {
     let isCurrent: Bool
 }
 
-/// Flock > Profile: switch profiles, or open the Profiles tab of Settings.
+/// Flock > Profile: open the rail's picker, switch profiles, or open the
+/// Profiles tab of Settings.
 struct ProfileCommands: Commands {
     let profiles: ProfileStore
     let isLocked: Bool
     let switchProfile: (String) async -> Bool
     let selection: SettingsTabSelection
+    let picker: ProfilePickerContext
 
-    static func rows(profiles: [FlockProfile], currentID: String) -> [ProfileMenuRow] {
-        profiles.map { ProfileMenuRow(id: $0.id, title: $0.name, isCurrent: $0.id == currentID) }
+    /// The picker's sections, each between rules: Default and the user's
+    /// profiles, then the herdr machines. Empty sections are left out.
+    static func sections(profiles: [FlockProfile], currentID: String) -> [[ProfileMenuRow]] {
+        let model = ProfilePickerModel(profiles: profiles, currentID: currentID, currentDot: nil)
+        return [model.local, model.machines]
+            .filter { !$0.isEmpty }
+            .map { section in section.map { ProfileMenuRow(id: $0.id, title: $0.title, isCurrent: $0.isCurrent) } }
     }
 
     var body: some Commands {
         CommandGroup(after: .appSettings) {
-            ProfileMenu(profiles: profiles, isLocked: isLocked, switchProfile: switchProfile, selection: selection)
+            ProfileMenu(profiles: profiles, isLocked: isLocked, switchProfile: switchProfile, selection: selection, picker: picker)
         }
     }
 }
@@ -32,20 +39,29 @@ private struct ProfileMenu: View {
     let isLocked: Bool
     let switchProfile: (String) async -> Bool
     let selection: SettingsTabSelection
+    let picker: ProfilePickerContext
 
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Menu("Profile") {
-            ForEach(ProfileCommands.rows(profiles: profiles.profiles, currentID: profiles.currentID), id: \.id) { row in
-                Toggle(row.title, isOn: Binding(
-                    get: { row.isCurrent },
-                    set: { _ in
-                        guard !row.isCurrent else { return }
-                        Task { _ = await switchProfile(row.id) }
-                    }
-                ))
-                .disabled(isLocked)
+            Button("Switch Profile\u{2026}") { picker.open() }
+                .keyboardShortcut(ProfilePickerContext.shortcut)
+                .disabled(!picker.canOpen)
+                .accessibilityIdentifier("flock.profile.switch")
+            let sections = ProfileCommands.sections(profiles: profiles.profiles, currentID: profiles.currentID)
+            ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                Divider()
+                ForEach(section, id: \.id) { row in
+                    Toggle(row.title, isOn: Binding(
+                        get: { row.isCurrent },
+                        set: { _ in
+                            guard !row.isCurrent else { return }
+                            Task { _ = await switchProfile(row.id) }
+                        }
+                    ))
+                    .disabled(isLocked)
+                }
             }
             Divider()
             Button("New Profile…") { manage(opensNewProfile: true) }

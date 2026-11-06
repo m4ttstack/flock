@@ -77,6 +77,7 @@ struct FlockApp: App {
     @State private var herdrMousePatchStore: HerdrMousePatchStore
     @State private var herdrUpdateStore: HerdrUpdateStore
     @State private var serverPicker: ServerPicker
+    @State private var profilePicker: ProfilePickerContext
     @State private var settingsTabSelection = SettingsTabSelection()
     /// The window's content is rebuilt on every switch, which reruns its
     /// tasks; the launch guard and first start belong to launch alone, since
@@ -170,6 +171,11 @@ struct FlockApp: App {
             )
         )
         _controller = State(initialValue: controller)
+        _profilePicker = State(initialValue: ProfilePickerContext(
+            profiles: controller.profiles, isLocked: controller.isLocked,
+            switchProfile: { await controller.switchTo(profileID: $0) },
+            listMachines: { await MachineSources.list() }
+        ))
         // These read the session through the controller each time, so none of
         // them holds on to one a switch has replaced.
         ghosttyHost?.onClipboardWrite = { text, paneID in
@@ -373,6 +379,7 @@ struct FlockApp: App {
                 .environment(devBuildWatcher)
                 .environment(herdrUpdateStore)
                 .environment(settingsTabSelection)
+                .environment(profilePicker)
                 .environment(devRebuild)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
@@ -455,7 +462,8 @@ struct FlockApp: App {
             PasteboardCommands()
             ProfileCommands(
                 profiles: controller.profiles, isLocked: controller.isLocked,
-                switchProfile: { await controller.switchTo(profileID: $0) }, selection: settingsTabSelection
+                switchProfile: { await controller.switchTo(profileID: $0) }, selection: settingsTabSelection,
+                picker: profilePicker
             )
             // Declared ahead of Chat: command menus take the menu bar in
             // declaration order.

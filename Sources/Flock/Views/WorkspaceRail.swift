@@ -9,6 +9,8 @@ struct WorkspaceRail: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let onSelect: (WorkspaceID) -> Void
+    /// The current machine profile's connection; nil on a local profile.
+    var profileDot: ProfileConnectionDot? = nil
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(RailWidthStore.self) private var railWidth
@@ -16,6 +18,7 @@ struct WorkspaceRail: View {
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
+    @Environment(ProfilePickerContext.self) private var profilePicker: ProfilePickerContext?
     @State private var scrollPosition = ScrollPosition()
     @State private var isNewWorkspaceRowHovered = false
     @State private var symbolPickerRow: WorkspaceID?
@@ -44,6 +47,15 @@ struct WorkspaceRail: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Above the lists rather than inside them: `railFrame` is every
+            // rail drop target's bounds, and the picker takes no drop.
+            if let profilePicker {
+                ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
+                    .padding(.top, ChromeMetrics.Rail.verticalPadding)
+                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                    .frame(width: railWidth.width)
+                    .padding(.trailing, ChromeMetrics.ruleWidth)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 // The headings are scroll content, so PINNED and WORKSPACES
                 // scroll alike, and so is the horizontal padding, so the
