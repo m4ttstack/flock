@@ -161,7 +161,8 @@ public enum RemotePaste {
         label: String,
         token: () -> String,
         readFile: @escaping @Sendable (String) throws -> Data,
-        upload: (Data, String) async throws -> Void
+        upload: (Data, String) async throws -> Void,
+        isolation: isolated (any Actor)? = #isolation
     ) async -> RemotePasteOutcome {
         var pieces: [String] = []
         for entry in entries {

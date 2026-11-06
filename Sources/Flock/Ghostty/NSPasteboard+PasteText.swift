@@ -21,6 +21,36 @@ extension NSPasteboard {
         ClipboardPaste.plan(for: (pasteboardItems ?? []).map(Self.described)).contains { $0 != .nothing }
     }
 
+    /// The paste for a pane on a herdr machine: files and images are uploaded
+    /// and their path there is pasted, since a path on this Mac names nothing
+    /// on the machine. Never stages a local copy and never touches the local
+    /// paste memo.
+    @MainActor
+    func remotePasteText(uploader: RemoteFileUploader) async -> RemotePasteOutcome {
+        let items = pasteboardItems ?? []
+        var entries: [RemotePasteEntry] = []
+        for (item, contribution) in zip(items, ClipboardPaste.remotePlan(for: items.map(Self.described))) {
+            switch contribution {
+            case .text(let text):
+                entries.append(.text(text))
+            case .uploadFile(let localPath):
+                entries.append(.file(localPath: localPath))
+            case .uploadImage(let typeIdentifier, let fileExtension):
+                guard let data = item.data(forType: .init(typeIdentifier)) else { continue }
+                entries.append(.image(data, fileExtension: fileExtension))
+            case .nothing:
+                continue
+            }
+        }
+        return await RemotePaste.resolve(
+            entries,
+            label: uploader.label,
+            token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
+            readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
+            upload: { data, remotePath in try await uploader.upload(data, to: remotePath) }
+        )
+    }
+
     private func buildPasteText() -> BuiltPasteText {
         let items = pasteboardItems ?? []
         var pieces: [String] = []

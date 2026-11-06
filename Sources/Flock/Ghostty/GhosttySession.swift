@@ -86,7 +86,10 @@ final class GhosttySession {
     var linkTrust: LinkTrustStore?
     /// The pane is on a herdr machine, so a path it prints names a file
     /// there and never opens one here.
-    var isRemoteMachine = false
+    nonisolated(unsafe) var isRemoteMachine = false
+    /// Where this pane's pastes are uploaded. Set once at creation and read
+    /// from libghostty's own threads by the clipboard read, like `surface`.
+    nonisolated(unsafe) var remotePaste: RemotePasteTarget?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -519,6 +522,24 @@ final class GhosttySession {
             return
         }
         controlChannel.paste(text)
+    }
+
+    /// The clipboard as a paste into this pane. A machine session uploads
+    /// files and images and pastes their path there; a failed upload pastes
+    /// nothing and says so.
+    func pasteClipboard() {
+        guard isRemoteMachine else {
+            if let text = NSPasteboard.general.pasteText() { paste(text) }
+            return
+        }
+        guard let remote = remotePaste, NSPasteboard.general.offersPasteText else { return }
+        Task { [weak self] in
+            switch await NSPasteboard.general.remotePasteText(uploader: remote.uploader) {
+            case .text(let text): self?.paste(text)
+            case .failed(let message): remote.notify(message)
+            case .nothing: break
+            }
+        }
     }
 
     /// Records the pane app's mouse-reporting state as reported by the bridge

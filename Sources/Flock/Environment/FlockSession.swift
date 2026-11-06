@@ -152,7 +152,15 @@ final class FlockSession: ProfileSession {
                 optionAsAlt: { optionAsAltStore.active },
                 scrollSpeed: { scrollSpeedStore.active },
                 linkTrust: linkTrustStore,
-                isRemoteMachine: isRemoteMachine
+                isRemoteMachine: isRemoteMachine,
+                remotePaste: isRemoteMachine
+                    ? context.profile.machine.map { machine in
+                        RemotePasteTarget(
+                            uploader: RemoteFileUploader(target: machine.target, label: machine.label),
+                            notify: { message in toastCenter.show(message, kind: .info) }
+                        )
+                    }
+                    : nil
             )
         }
         self.ghosttyFactory = ghosttyFactory
