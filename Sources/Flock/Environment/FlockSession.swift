@@ -68,7 +68,7 @@ final class FlockSession: ProfileSession {
         herdProgress: HerdProgressStore,
         resnapshotInterval: Duration?,
         home: String = NSHomeDirectory(),
-        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel = MachineSources.tunnel(for:)
+        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel
     ) {
         let preferences = context.preferences
         let idState = context.idState

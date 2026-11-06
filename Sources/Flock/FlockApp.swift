@@ -139,11 +139,12 @@ struct FlockApp: App {
         _boardStore = State(initialValue: boardStore)
         let herdProgressStore = HerdProgressStore()
         _herdProgressStore = State(initialValue: herdProgressStore)
-        MachineSources.sweepStaleDirectories(bundleTag: MachineSources.bundleTag)
+        let bundleTag = MachineTunnelPaths.bundleTag(for: bundleID)
+        MachineSources.sweepStaleDirectories(bundleTag: bundleTag)
         let controller = ProfileSessionController<FlockSession>(
             profiles: ProfileStore(
                 bundleID: bundleID, defaultSocketPath: defaultSocketPath,
-                machineSocketPath: { MachineSources.paths(for: $0).apiSocket }
+                machineSocketPath: { MachineSources.paths(for: $0, bundleTag: bundleTag).apiSocket }
             ),
             environment: ProfileSessionEnvironment(
                 bundleID: bundleID,
@@ -162,7 +163,8 @@ struct FlockApp: App {
                 make: { context in
                     FlockSession(
                         context: context, ghosttyHost: ghosttyHost, board: boardStore,
-                        herdProgress: herdProgressStore, resnapshotInterval: resnapshotInterval
+                        herdProgress: herdProgressStore, resnapshotInterval: resnapshotInterval,
+                        makeTunnel: { MachineSources.tunnel(for: $0, bundleTag: bundleTag) }
                     )
                 }
             )
@@ -371,9 +373,9 @@ struct FlockApp: App {
                     await controller.session.start()
                 }
                 .task {
-                    guard !machinesSynced else { return }
+                    guard !machinesSynced, let machines = await MachineSources.list() else { return }
                     machinesSynced = true
-                    if let machines = await MachineSources.list() { controller.profiles.syncMachines(machines) }
+                    controller.profiles.syncMachines(machines)
                 }
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }

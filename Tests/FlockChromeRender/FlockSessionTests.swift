@@ -24,13 +24,57 @@ final class FlockSessionTests: XCTestCase {
             ghosttyHost: nil,
             board: BoardStore(sources: BoardSources(readSetting: { nil }, fetchLogo: { nil }), userDefaults: idState),
             herdProgress: HerdProgressStore(sources: HerdProgressSources(listHerds: { nil }, readStatus: { _ in nil })),
-            resnapshotInterval: nil, home: "/Users/someone"
+            resnapshotInterval: nil, home: "/Users/someone",
+            makeTunnel: { MachineSources.tunnel(for: $0, bundleTag: "test") }
         )
         XCTAssertEqual(session.address, .named("acme"))
         XCTAssertEqual(session.themeStore.active.id, "one-light")
         session.workspaceIdentityStore.setOverride(WorkspaceSymbols.all[0].name, for: "w1")
         XCTAssertNotNil(idState.data(forKey: WorkspaceIdentityStore.defaultsKey))
         XCTAssertNil(preferences.data(forKey: WorkspaceIdentityStore.defaultsKey))
+    }
+
+    func testOnlyARemoteMachineSessionRunsATunnelAndShutdownStopsIt() async {
+        let suite = "fs-tunnel-\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let machine = HerdrMachine(id: "0123456789abcdef0123456789abcdef", label: "acme-mini", target: "acme-mini", session: "default")
+        let paths = MachineTunnelPaths(uid: 501, bundleTag: "test", machineID: machine.id)
+        let profile = FlockProfile(id: "machine.\(machine.id)", name: "acme-mini", socketPath: nil, knownSockets: [], machine: machine)
+        var removed: [String] = []
+        func session(remote: Bool) -> FlockSession {
+            FlockSession(
+                context: ProfileSessionContext(
+                    profile: profile, socketPath: paths.apiSocket, preferences: defaults, idState: defaults,
+                    isRemoteMachine: remote
+                ),
+                ghosttyHost: nil,
+                board: BoardStore(sources: BoardSources(readSetting: { nil }, fetchLogo: { nil }), userDefaults: defaults),
+                herdProgress: HerdProgressStore(sources: HerdProgressSources(listHerds: { nil }, readStatus: { _ in nil })),
+                resnapshotInterval: nil, home: "/Users/someone",
+                makeTunnel: { machine in
+                    MachineTunnel(
+                        machine: machine, paths: paths,
+                        resolve: { _ in throw MachineResolveError.failed("offline") },
+                        launch: { _ in throw MachineResolveError.failed("offline") },
+                        probe: { _ in false },
+                        prepareDirectory: { _ in },
+                        removeDirectory: { removed.append($0) }
+                    )
+                }
+            )
+        }
+
+        let plain = session(remote: false)
+        XCTAssertNil(plain.machineTunnel)
+        XCTAssertFalse(plain.isRemoteMachine)
+        await plain.shutdown()
+
+        let remote = session(remote: true)
+        XCTAssertTrue(remote.isRemoteMachine)
+        await remote.shutdown()
+        XCTAssertEqual(remote.machineTunnel?.state, .stopped)
+        XCTAssertEqual(removed, [paths.directory])
     }
 
     func testShutdownRemovesAppWideMonitorsAndLetsTheSessionGo() async {
@@ -46,7 +90,8 @@ final class FlockSessionTests: XCTestCase {
             ghosttyHost: nil,
             board: BoardStore(sources: BoardSources(readSetting: { nil }, fetchLogo: { nil }), userDefaults: defaults),
             herdProgress: HerdProgressStore(sources: HerdProgressSources(listHerds: { nil }, readStatus: { _ in nil })),
-            resnapshotInterval: nil, home: "/Users/someone"
+            resnapshotInterval: nil, home: "/Users/someone",
+            makeTunnel: { MachineSources.tunnel(for: $0, bundleTag: "test") }
         )
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

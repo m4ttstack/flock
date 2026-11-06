@@ -10,17 +10,15 @@ enum MachineSources {
         var errorDescription: String? { "\(path) is not a private folder Flock owns." }
     }
 
-    static let bundleTag = MachineTunnelPaths.bundleTag(for: Bundle.main.bundleIdentifier ?? "dev.mattstack.Flock")
-
-    static func paths(for machine: HerdrMachine) -> MachineTunnelPaths {
+    static func paths(for machine: HerdrMachine, bundleTag: String) -> MachineTunnelPaths {
         MachineTunnelPaths(uid: getuid(), bundleTag: bundleTag, machineID: machine.id)
     }
 
     @MainActor
-    static func tunnel(for machine: HerdrMachine) -> MachineTunnel {
+    static func tunnel(for machine: HerdrMachine, bundleTag: String) -> MachineTunnel {
         MachineTunnel(
             machine: machine,
-            paths: paths(for: machine),
+            paths: paths(for: machine, bundleTag: bundleTag),
             resolve: { try await resolve($0) },
             launch: { try SSHTunnelProcess(arguments: $0, environment: ToolPath.childEnvironment()) },
             probe: { await probe($0) },
@@ -53,7 +51,11 @@ enum MachineSources {
         } catch ToolRunner.Failure.timedOut {
             throw MachineResolveError.failed("Timed out.")
         } catch ToolRunner.Failure.didNotStart(let message) {
-            throw MachineResolveError.failed(message)
+            throw MachineResolveError.failed("ssh didn't start: \(message)")
+        } catch is CancellationError {
+            throw MachineResolveError.failed("Cancelled.")
+        } catch {
+            throw MachineResolveError.failed("ssh to \(machine.label) failed.")
         }
         guard result.exitCode == 0 else {
             throw MachineResolveError.failed(MachineSSH.lastLine(of: result.stderr) ?? "ssh exited with status \(result.exitCode).")
