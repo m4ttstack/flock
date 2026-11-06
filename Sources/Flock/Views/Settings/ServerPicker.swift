@@ -31,8 +31,12 @@ final class ServerPicker {
     @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored let home: String
     @ObservationIgnored private let now: () -> Double
-    @ObservationIgnored private var inFlight: Task<Bool, Never>?
+    @ObservationIgnored private var inFlight: Task<[HerdrSessionEntry]?, Never>?
     @ObservationIgnored private var lastRefreshEnded: Double?
+    /// Listings can finish out of order; one started before the listing
+    /// already shown is dropped rather than shown over it.
+    @ObservationIgnored private var listingsStarted = 0
+    @ObservationIgnored private var listingShown = 0
 
     /// How long a finished listing answers `refreshIfStale` without another.
     static let freshness: Double = 1
@@ -85,11 +89,7 @@ final class ServerPicker {
     /// Always lists anew, for callers about to act on what is listed.
     @discardableResult
     func refresh() async -> Bool {
-        let task = Task { await self.performRefresh() }
-        inFlight = task
-        let listed = await task.value
-        if inFlight == task { inFlight = nil }
-        return listed
+        await freshListing() != nil
     }
 
     /// For readers that only want a recent list, such as ⌥`, whose key
@@ -97,15 +97,28 @@ final class ServerPicker {
     /// within `freshness`.
     @discardableResult
     func refreshIfStale() async -> Bool {
-        if let inFlight { return await inFlight.value }
+        if let inFlight { return await inFlight.value != nil }
         if let ended = lastRefreshEnded, now() - ended < Self.freshness { return hasListed }
         return await refresh()
     }
 
-    private func performRefresh() async -> Bool {
+    /// This call's own listing, which `entries` may not show if a newer one
+    /// finished first.
+    private func freshListing() async -> [HerdrSessionEntry]? {
+        let task = Task { await self.performRefresh() }
+        inFlight = task
+        let listed = await task.value
+        if inFlight == task { inFlight = nil }
+        return listed
+    }
+
+    private func performRefresh() async -> [HerdrSessionEntry]? {
+        listingsStarted += 1
+        let listing = listingsStarted
         defer { lastRefreshEnded = now() }
         let listed = await list()
-        if let listed {
+        if let listed, listing > listingShown {
+            listingShown = listing
             entries = listed
             hasListed = true
         }
@@ -114,7 +127,7 @@ final class ServerPicker {
             if let app = heldBy(entry.socketPath) { held[entry.socketPath] = app }
         }
         holders = held
-        return listed != nil
+        return listed
     }
 
     func choose(_ entry: HerdrSessionEntry) async {
@@ -175,19 +188,21 @@ final class ServerPicker {
         name: String, expecting expected: HerdrServerAction,
         with run: (String) async -> Result<Void, HerdrSessionControl.Failure>
     ) async {
-        if !(await refresh()) {
+        if let listing = await freshListing() {
+            if let refusal = refusal(name: name, expecting: expected, in: listing) {
+                failure = refusal
+            } else if case .failure(let error) = await run(name) {
+                failure = error.message
+            }
+        } else {
             failure = "Couldn't check herdr's servers, so \"\(name)\" wasn't \(expected == .stop ? "stopped" : "deleted")."
-        } else if let refusal = refusal(name: name, expecting: expected) {
-            failure = refusal
-        } else if case .failure(let error) = await run(name) {
-            failure = error.message
         }
         failureIsFromServerList = failure != nil
         await refresh()
     }
 
-    private func refusal(name: String, expecting expected: HerdrServerAction) -> String? {
-        guard let entry = entries.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
+    private func refusal(name: String, expecting expected: HerdrServerAction, in listing: [HerdrSessionEntry]) -> String? {
+        guard let entry = listing.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
         let verb = expected == .stop ? "stop" : "delete"
         if let target = switchingTo(),
            case .unavailable(let reason) = HerdrServerActions.action(for: entry, currentSocket: target, home: home, heldBy: heldBy) {
