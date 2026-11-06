@@ -5,9 +5,9 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers. Keeps what was most recently selected
-/// across launches, and, while the trigger is held, the rows on offer and
-/// which one letting go will open.
+/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers. Keeps what was
+/// most recently selected across launches, and, while the trigger is held,
+/// the rows on offer and which one letting go will open.
 @MainActor
 @Observable
 public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<String>> {
@@ -47,13 +47,18 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Selects the item before this one, or with `reverse` the last row.
-    /// Returns false, and starts nothing, when there is nowhere to go.
+    /// Returns false, and starts nothing, when there is nowhere to go. Items
+    /// in `last` follow every other row, recent ones first among them, so a
+    /// quick tap reaches one only when nothing else is on offer; the current
+    /// item stays first whatever it is.
     @discardableResult
-    public func begin(items: [ID], current: ID?, reverse: Bool = false) -> Bool {
-        let known = Set(items)
-        var rows = recents.filter { known.contains($0) && $0 != current }
-        if let current, known.contains(current) { rows.insert(current, at: 0) }
-        rows += items.filter { !rows.contains($0) }
+    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) -> Bool {
+        var rows: [ID] = []
+        if let current, items.contains(current) { rows.append(current) }
+        for group in [items.filter { !last.contains($0) }, items.filter { last.contains($0) }] {
+            let known = Set(group)
+            for id in recents.filter(known.contains) + group where !rows.contains(id) { rows.append(id) }
+        }
         guard rows.count > 1 else { return false }
         session += 1
         order = rows

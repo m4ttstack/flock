@@ -83,6 +83,43 @@ final class ServerSwitcherTests: XCTestCase {
         XCTAssertEqual(switcher.finish(), id(Self.defaultSocket), "a second tap goes back")
     }
 
+    func testRunningServersComeAheadOfStoppedOnes() {
+        let docsSocket = "/Users/acme/.config/herdr/sessions/acme-docs/herdr.sock"
+        let entries = Self.entries + [HerdrSessionEntry(name: "acme-docs", isRunning: true, socketPath: docsSocket, isDefault: false)]
+        let switcher = makeSwitcher()
+        switcher.note(currentSocket: Self.workSocket, home: Self.home)
+        switcher.note(currentSocket: Self.buildSocket, home: Self.home)
+        switcher.note(currentSocket: Self.defaultSocket, home: Self.home)
+        let items = ServerSwitcher.candidates(entries, currentSocket: Self.defaultSocket, home: Self.home, canChangeServer: true)
+        let stopped = ServerSwitcher.stopped(entries, home: Self.home)
+        XCTAssertEqual(stopped, [id(Self.buildSocket)])
+        XCTAssertTrue(switcher.begin(items: items, current: id(Self.defaultSocket), last: stopped))
+        XCTAssertEqual(
+            switcher.order, [id(Self.defaultSocket), id(Self.workSocket), id(docsSocket), id(Self.buildSocket)],
+            "current, recent running, other running, then stopped"
+        )
+        XCTAssertEqual(switcher.finish(), id(Self.workSocket), "a tap skips the more recent stopped server")
+    }
+
+    func testAStoppedServerIsReachedWhenNothingElseRuns() {
+        let entries = [Self.entries[0], Self.entries[2]]
+        let switcher = makeSwitcher()
+        XCTAssertTrue(switcher.begin(
+            items: ServerSwitcher.candidates(entries, currentSocket: Self.defaultSocket, home: Self.home, canChangeServer: true),
+            current: id(Self.defaultSocket), last: ServerSwitcher.stopped(entries, home: Self.home)
+        ))
+        XCTAssertEqual(switcher.finish(), id(Self.buildSocket))
+    }
+
+    func testAStoppedCurrentServerStaysFirst() {
+        let switcher = makeSwitcher()
+        XCTAssertTrue(switcher.begin(
+            items: candidates(current: Self.buildSocket), current: id(Self.buildSocket),
+            last: ServerSwitcher.stopped(Self.entries, home: Self.home)
+        ))
+        XCTAssertEqual(switcher.order.first, id(Self.buildSocket))
+    }
+
     func testRecentsBelongToTheProfileTheyWereUsedIn() {
         let defaultProfile = makeSwitcher()
         defaultProfile.note(currentSocket: Self.buildSocket, home: Self.home)

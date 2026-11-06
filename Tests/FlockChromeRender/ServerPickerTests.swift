@@ -33,6 +33,45 @@ final class ServerPickerTests: XCTestCase {
         )
     }
 
+    func testRefreshIfStaleJoinsOneInFlightAndSkipsAFreshList() async {
+        var calls = 0
+        var waiting: CheckedContinuation<Void, Never>?
+        var clock: Double = 100
+        let picker = ServerPicker(
+            list: {
+                calls += 1
+                await withCheckedContinuation { waiting = $0 }
+                return [Self.defaultEntry, Self.acmeEntry]
+            },
+            start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" }, isLocked: false, home: Self.home,
+            now: { clock }
+        )
+        let first = Task { await picker.refreshIfStale() }
+        while waiting == nil { await Task.yield() }
+        let second = Task { await picker.refreshIfStale() }
+        let third = Task { await picker.refreshIfStale() }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 1, "presses while a listing runs join it")
+        waiting?.resume()
+        waiting = nil
+        let results = [await first.value, await second.value, await third.value]
+        XCTAssertEqual(results, [true, true, true])
+        XCTAssertEqual(picker.entries, [Self.defaultEntry, Self.acmeEntry])
+
+        clock += ServerPicker.freshness / 2
+        let fresh = await picker.refreshIfStale()
+        XCTAssertTrue(fresh)
+        XCTAssertEqual(calls, 1, "a list that just ended answers without another")
+
+        clock += ServerPicker.freshness
+        let stale = Task { await picker.refreshIfStale() }
+        while waiting == nil { await Task.yield() }
+        XCTAssertEqual(calls, 2, "a stale list is read again")
+        waiting?.resume()
+        _ = await stale.value
+    }
+
     func testChoosingDefaultPassesNil() async {
         let picker = makePicker()
         await picker.choose(Self.defaultEntry)

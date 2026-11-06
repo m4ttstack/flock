@@ -30,6 +30,12 @@ final class ServerPicker {
     @ObservationIgnored private let stop: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored let home: String
+    @ObservationIgnored private let now: () -> Double
+    @ObservationIgnored private var inFlight: Task<Bool, Never>?
+    @ObservationIgnored private var lastRefreshEnded: Double?
+
+    /// How long a finished listing answers `refreshIfStale` without another.
+    static let freshness: Double = 1
 
     init(
         list: @escaping () async -> [HerdrSessionEntry]?,
@@ -41,7 +47,8 @@ final class ServerPicker {
         heldBy: @escaping @MainActor (String) -> String? = { _ in nil },
         switchingTo: @escaping () -> String? = { nil },
         stop: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
-        delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) }
+        delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
+        now: @escaping () -> Double = { Date().timeIntervalSinceReferenceDate }
     ) {
         self.list = list
         self.start = start
@@ -53,6 +60,7 @@ final class ServerPicker {
         self.switchingTo = switchingTo
         self.stop = stop
         self.delete = delete
+        self.now = now
     }
 
     /// What the Servers list offers for `entry`, from the last refresh's
@@ -74,8 +82,28 @@ final class ServerPicker {
     }
 
     /// A failed listing keeps the entries already shown and returns false.
+    /// Always lists anew, for callers about to act on what is listed.
     @discardableResult
     func refresh() async -> Bool {
+        let task = Task { await self.performRefresh() }
+        inFlight = task
+        let listed = await task.value
+        if inFlight == task { inFlight = nil }
+        return listed
+    }
+
+    /// For readers that only want a recent list, such as ⌥`, whose key
+    /// repeats: joins a listing in flight, and skips one when the last ended
+    /// within `freshness`.
+    @discardableResult
+    func refreshIfStale() async -> Bool {
+        if let inFlight { return await inFlight.value }
+        if let ended = lastRefreshEnded, now() - ended < Self.freshness { return hasListed }
+        return await refresh()
+    }
+
+    private func performRefresh() async -> Bool {
+        defer { lastRefreshEnded = now() }
         let listed = await list()
         if let listed {
             entries = listed

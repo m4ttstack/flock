@@ -40,6 +40,12 @@ extension RecentsSwitcher where ID == ServerID {
         return ids
     }
 
+    /// The listed servers that are not running, which `begin` offers after
+    /// the running ones.
+    public static func stopped(_ entries: [HerdrSessionEntry], home: String) -> Set<ServerID> {
+        Set(entries.filter { !$0.isRunning }.map { ServerID(socketPath: $0.socketPath, home: home) })
+    }
+
     /// Called for every change of the current server, whatever made it, so
     /// the first tap goes back to the one before.
     public func note(currentSocket: String, home: String) {

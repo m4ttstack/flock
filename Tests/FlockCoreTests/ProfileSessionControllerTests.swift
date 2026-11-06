@@ -69,6 +69,14 @@ final class ProfileSessionControllerTests: XCTestCase {
         socketOverride: String? = nil,
         confirm: Bool = true
     ) -> ProfileSessionController<FakeSession> {
+        makeController(fixture, socketOverride: socketOverride, confirm: { confirm })
+    }
+
+    private func makeController(
+        _ fixture: Fixture,
+        socketOverride: String? = nil,
+        confirm: @escaping () -> Bool
+    ) -> ProfileSessionController<FakeSession> {
         let log = fixture.log
         let gate = fixture.gate
         let runID = runID
@@ -85,7 +93,7 @@ final class ProfileSessionControllerTests: XCTestCase {
             },
             confirmAttach: { key, target, stay in
                 log.lines.append("confirm \(key) \(target) \(stay)")
-                return confirm
+                return confirm()
             },
             register: { log.lines.append("register \($0)") },
             setChildSocket: { log.lines.append("child \($0 ?? "nil")") },
@@ -337,11 +345,23 @@ final class ProfileSessionControllerTests: XCTestCase {
         _ = await switched.value
     }
 
-    func testARefusedServerChangeKeepsTheLastChangesKind() async throws {
+    func testARefusedChangeKeepsTheLastChangesKind() async throws {
         let fixture = try makeFixture()
-        let controller = makeController(fixture, confirm: false)
-        await controller.changeServer(to: acme)
-        XCTAssertFalse(controller.lastChangeWasServer)
+        let refusing = makeController(fixture, confirm: false)
+        await refusing.changeServer(to: acme)
+        XCTAssertFalse(refusing.lastChangeWasServer, "a refused server change is not one")
+
+        var confirm = true
+        let controller = makeController(fixture, confirm: { confirm })
+        let changed = await controller.changeServer(to: acme)
+        XCTAssertTrue(changed)
+        XCTAssertTrue(controller.lastChangeWasServer)
+        confirm = false
+        let refusedServer = await controller.changeServer(to: home)
+        let refusedProfile = await controller.switchTo(profileID: fixture.p1.id)
+        XCTAssertFalse(refusedServer)
+        XCTAssertFalse(refusedProfile)
+        XCTAssertTrue(controller.lastChangeWasServer, "refusals leave the last confirmed change's kind")
     }
 
     func testARefusedSwitchLeavesNothingInFlight() async throws {

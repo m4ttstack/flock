@@ -164,6 +164,8 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     /// Runs as the trigger first goes down, before the box shows.
     var onBegin: () -> Void = {}
     let candidates: () -> [ID]
+    /// Candidates offered after all the others; see `RecentsSwitcher.begin`.
+    var last: () -> Set<ID> = { [] }
     let current: () -> ID?
     let blocked: () -> Bool
     let go: (ID) -> Void
@@ -205,7 +207,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     @discardableResult
     func begin(reverse: Bool) -> Bool {
         let items = candidates().filter { row($0) != nil }
-        guard switcher.begin(items: items, current: current(), reverse: reverse) else { return false }
+        guard switcher.begin(items: items, current: current(), reverse: reverse, last: last()) else { return false }
         onBegin()
         let session = switcher.session
         Task {

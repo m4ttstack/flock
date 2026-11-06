@@ -42,7 +42,8 @@ final class ServerSwitcherRenderTests: XCTestCase {
                 switcher.note(currentSocket: item.current, home: Self.home)
                 XCTAssertTrue(switcher.begin(
                     items: ServerSwitcher.candidates(picker.entries, currentSocket: item.current, home: Self.home, canChangeServer: true),
-                    current: ServerID(socketPath: item.current, home: Self.home)
+                    current: ServerID(socketPath: item.current, home: Self.home),
+                    last: ServerSwitcher.stopped(picker.entries, home: Self.home)
                 ))
                 switcher.show(session: switcher.session)
                 pickers.append(picker)

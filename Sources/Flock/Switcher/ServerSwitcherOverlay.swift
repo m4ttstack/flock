@@ -25,12 +25,13 @@ struct ServerSwitcherOverlay: View {
             candidates: { [picker, canChangeServer, currentSocket] in
                 // The press is answered from the last listing; this one is
                 // for the rows' state and the next press.
-                if canChangeServer { Task { await picker.refresh() } }
+                if canChangeServer { Task { await picker.refreshIfStale() } }
                 return ServerSwitcher.candidates(
                     picker.hasListed ? picker.entries : nil, currentSocket: currentSocket(), home: picker.home,
                     canChangeServer: canChangeServer
                 )
             },
+            last: { [picker] in ServerSwitcher.stopped(picker.entries, home: picker.home) },
             current: { [picker, currentSocket] in ServerID(socketPath: currentSocket(), home: picker.home) },
             blocked: blocked,
             go: { [picker] id in
@@ -44,7 +45,7 @@ struct ServerSwitcherOverlay: View {
         // is read ahead of it.
         .task {
             guard canChangeServer, !picker.hasListed else { return }
-            await picker.refresh()
+            await picker.refreshIfStale()
         }
     }
 }
