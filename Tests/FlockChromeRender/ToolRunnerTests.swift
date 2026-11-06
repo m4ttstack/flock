@@ -12,4 +12,10 @@ final class ToolRunnerTests: XCTestCase {
         XCTAssertEqual(String(decoding: plain.stdout, as: UTF8.self), "out\n")
         XCTAssertEqual(plain.exitCode, 3)
     }
+
+    func testChildRunsFromTheHomeDirectory() async throws {
+        let result = try await ToolRunner(binaryPath: "/bin/pwd", deadline: .seconds(5)).run(["-P"])
+        let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().path
+        XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .newlines), home)
+    }
 }

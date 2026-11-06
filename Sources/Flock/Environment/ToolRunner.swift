@@ -120,6 +120,9 @@ private final class Child: @unchecked Sendable {
     init(binaryPath: String, arguments: [String], environment: [String: String]?, capturesStderr: Bool) {
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
+        // An app opened by launchd runs from `/`, and rt chat refuses to
+        // name a caller from a directory that yields no handle.
+        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         if let environment { process.environment = environment }
         process.standardOutput = stdoutPipe
         stderrPipe = capturesStderr ? Pipe() : nil
