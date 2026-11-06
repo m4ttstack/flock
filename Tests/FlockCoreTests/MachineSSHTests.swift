@@ -15,7 +15,7 @@ final class MachineSSHTests: XCTestCase {
             "-o", "StreamLocalBindUnlink=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"])
         XCTAssertTrue(args.contains("/tmp/flock-501/dev-0123456789ab/herdr.sock:/Users/acme/.config/herdr/herdr.sock"))
         XCTAssertTrue(args.contains("/tmp/flock-501/dev-0123456789ab/herdr-client.sock:/Users/acme/.config/herdr/herdr-client.sock"))
-        XCTAssertEqual(args.last, "acme-mini")
+        XCTAssertEqual(args.suffix(2), ["--", "acme-mini"])
     }
 
     func testResolveScriptFallsBackToLocalBin() {
@@ -25,6 +25,7 @@ final class MachineSSHTests: XCTestCase {
         XCTAssertTrue(joined.contains("$HOME/.local/bin/herdr"))
         XCTAssertTrue(joined.contains("session list --json"))
         XCTAssertTrue(args.contains("BatchMode=yes"))
+        XCTAssertEqual(args[args.count - 3], "--")
         XCTAssertEqual(args[args.count - 2], "acme-mini")
         XCTAssertTrue(args.last!.hasPrefix("sh -c '"))
     }
@@ -58,10 +59,11 @@ final class MachineSSHTests: XCTestCase {
         let args = MachineSSH.uploadArguments(target: "acme-mini", remotePath: "/tmp/flock-paste/x.png")
         XCTAssertEqual(MachineSSH.remotePasteDirectory, "/tmp/flock-paste")
         XCTAssertTrue(args.contains("BatchMode=yes"))
+        XCTAssertEqual(args[args.count - 3], "--")
         XCTAssertEqual(args[args.count - 2], "acme-mini")
         let cmd = args.last!
         XCTAssertTrue(cmd.hasPrefix("sh -c '"))
-        XCTAssertTrue(cmd.contains("mkdir -p /tmp/flock-paste"))
+        XCTAssertTrue(cmd.contains("mkdir -p -m 700 /tmp/flock-paste"))
         XCTAssertTrue(cmd.contains("cat > "))
         XCTAssertTrue(cmd.contains("x.png"))
     }

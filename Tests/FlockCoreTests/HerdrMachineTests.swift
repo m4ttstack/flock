@@ -10,6 +10,11 @@ final class HerdrMachineTests: XCTestCase {
         )
     }
 
+    func testAnEntryWithoutASessionDefaultsAndKeepsTheRest() {
+        let json = #"[{"id":"0123456789abcdef0123456789abcdef","label":"acme-mini","target":"acme-mini","enabled":true},{"id":"fedcba9876543210fedcba9876543210","label":"b","target":"b","session":"work","enabled":true}]"#
+        XCTAssertEqual(HerdrMachineList.parse(Data(json.utf8))?.map(\.session), ["default", "work"])
+    }
+
     func testParseRejectsOtherOutput() {
         XCTAssertNil(HerdrMachineList.parse(Data("nope".utf8)))
     }

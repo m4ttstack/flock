@@ -36,7 +36,9 @@ extension NSPasteboard {
             case .uploadFile(let localPath):
                 entries.append(.file(localPath: localPath))
             case .uploadImage(let typeIdentifier, let fileExtension):
-                guard let data = item.data(forType: .init(typeIdentifier)) else { continue }
+                guard let data = item.data(forType: .init(typeIdentifier)) else {
+                    return .failed(RemotePaste.failureMessage(uploader.label))
+                }
                 entries.append(.image(data, fileExtension: fileExtension))
             case .nothing:
                 continue

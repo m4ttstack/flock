@@ -39,7 +39,8 @@ final class SessionViewModelRemoteMachineTests: XCTestCase {
     private func makeViewModel(
         client: RecordingClient, remote: Bool = true,
         startingFolder: StartingFolderChoice = StartingFolderChoice(folder: .home),
-        repoBranches: RepoBranchCache = RepoBranchCache()
+        repoBranches: RepoBranchCache = RepoBranchCache(),
+        herdLabel: String? = nil
     ) -> SessionViewModel {
         let viewModel = SessionViewModel(
             client: client,
@@ -50,9 +51,12 @@ final class SessionViewModelRemoteMachineTests: XCTestCase {
             isRemoteMachine: remote
         )
         let json = #"""
-        {"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"reviews","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"}],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"1","number":1,"pane_count":1,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/Users/acme/src/app","terminal_id":"term-1"},{"pane_id":"w2:p1","workspace_id":"w2","tab_id":"w2:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/Users/acme/src/app"}],"layouts":[]}
+        {"version":"0.9.0","protocol":22,"focused_workspace_id":"w1","focused_tab_id":"w1:t1","focused_pane_id":"w1:p1","workspaces":[{"workspace_id":"w1","label":"seed","number":1,"active_tab_id":"w1:t1","agent_status":"unknown"},{"workspace_id":"w2","label":"reviews","number":2,"active_tab_id":"w2:t1","agent_status":"unknown"}__HERD__],"tabs":[{"tab_id":"w1:t1","workspace_id":"w1","label":"1","number":1,"pane_count":1,"agent_status":"unknown"},{"tab_id":"w2:t1","workspace_id":"w2","label":"1","number":1,"pane_count":1,"agent_status":"unknown"}],"panes":[{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","focused":true,"agent_status":"unknown","revision":0,"cwd":"/Users/acme/src/app","terminal_id":"term-1"},{"pane_id":"w2:p1","workspace_id":"w2","tab_id":"w2:t1","focused":false,"agent_status":"unknown","revision":0,"cwd":"/Users/acme/src/app"}],"layouts":[]}
         """#
-        let snapshot = try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+        let herd = herdLabel.map {
+            #",{"workspace_id":"w3","label":"\#($0)","number":3,"active_tab_id":"w1:t1","agent_status":"unknown"}"#
+        } ?? ""
+        let snapshot = try! JSONDecoder().decode(SessionSnapshot.self, from: Data(json.replacingOccurrences(of: "__HERD__", with: herd).utf8))
         viewModel.update(model: SessionModel(snapshot: snapshot), connection: .live)
         return viewModel
     }
@@ -86,6 +90,15 @@ final class SessionViewModelRemoteMachineTests: XCTestCase {
         let methods = await client.methods
         XCTAssertFalse(methods.contains("tab.create"))
         XCTAssertFalse(methods.contains("workspace.create"))
+    }
+
+    @MainActor
+    func testRemoteSessionAsksRtAboutNoHerds() async {
+        let remote = makeViewModel(client: RecordingClient(), herdLabel: "herd: acme")
+        let local = makeViewModel(client: RecordingClient(), remote: false, herdLabel: "herd: acme")
+
+        XCTAssertEqual(remote.herdLabels, [])
+        XCTAssertEqual(local.herdLabels, ["herd: acme"])
     }
 
     @MainActor

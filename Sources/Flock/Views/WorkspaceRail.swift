@@ -34,9 +34,7 @@ struct WorkspaceRail: View {
     private var sections: RailSections? {
         viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
     }
-    private var herdLabels: Set<String> {
-        Set(viewModel.model?.workspaces.map(\.label).filter(HerdWorkspace.isHerd(label:)) ?? [])
-    }
+    private var herdLabels: Set<String> { viewModel.herdLabels }
     /// The rows this rail lists, drags and reorders. Board's workspaces and
     /// herds are not among them: they sit in their own sections below.
     private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }

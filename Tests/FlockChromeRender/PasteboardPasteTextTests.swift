@@ -215,6 +215,27 @@ final class PasteboardPasteTextTests: XCTestCase {
         XCTAssertEqual(outcome, .failed("Couldn't copy that to acme-mini."))
     }
 
+    /// Declares an image flavor and never supplies its bytes.
+    private final class EmptyProvider: NSObject, NSPasteboardItemDataProvider {
+        func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {}
+    }
+
+    @MainActor
+    func testAnImageWhoseBytesCannotBeReadPastesNothingAndSaysSo() async {
+        let provider = EmptyProvider()
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.png])
+        write([item])
+        let sent = Sent()
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: sent))
+        withExtendedLifetime(provider) {}
+
+        XCTAssertEqual(outcome, .failed("Couldn't copy that to acme-mini."))
+        let uploads = await sent.uploads
+        XCTAssertTrue(uploads.isEmpty)
+    }
+
     private func stagedFileCount() throws -> Int {
         let directory = ClipboardImageStaging.directory
         guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }

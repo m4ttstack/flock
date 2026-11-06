@@ -99,6 +99,7 @@ final class MachineConnectionWatchTests: XCTestCase {
         let watch = MachineConnectionWatch(
             tunnel: makeTunnel(probeAnswer: false), store: store, grace: .seconds(5), sleep: GatedSleep().sleep
         )
+        defer { watch.stop() }
         watch.handle(tunnel: .up, store: store.connection)
 
         await waitUntil { store.connection == .notRunning(attempt: 2) }

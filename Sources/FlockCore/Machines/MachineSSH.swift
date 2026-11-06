@@ -22,7 +22,7 @@ public enum MachineSSH {
 
     public static func resolveArguments(target: String) -> [String] {
         let script = "H=$(command -v herdr 2>/dev/null || echo \"$HOME/.local/bin/herdr\"); \"$H\" session list --json"
-        return ["-o", "BatchMode=yes", target, shellCommand(script)]
+        return ["-o", "BatchMode=yes", "--", target, shellCommand(script)]
     }
 
     public static func remoteAPISocket(from entries: [HerdrSessionEntry], session: String) throws -> String {
@@ -55,11 +55,11 @@ public enum MachineSSH {
                 "-o", "ServerAliveCountMax=3",
                 "-L", "\(paths.apiSocket):\(remoteAPISocket)",
                 "-L", "\(paths.clientSocket):\(remoteClient)",
-                target]
+                "--", target]
     }
 
     public static func uploadArguments(target: String, remotePath: String) -> [String] {
-        let script = "mkdir -p \(remotePasteDirectory) && cat > \(shellQuote(remotePath))"
-        return ["-o", "BatchMode=yes", target, shellCommand(script)]
+        let script = "mkdir -p -m 700 \(remotePasteDirectory) && cat > \(shellQuote(remotePath))"
+        return ["-o", "BatchMode=yes", "--", target, shellCommand(script)]
     }
 }

@@ -186,7 +186,6 @@ public final class MachineTunnel {
                     guard !stopped else { continue }
                     answered = true
                     remoteSocketAnswered = true
-                    mayReResolve = true
                     attempt = 1
                     state = .up
                 case .timedOut:

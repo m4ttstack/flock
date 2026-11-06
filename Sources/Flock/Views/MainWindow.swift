@@ -524,6 +524,7 @@ struct TitleBar: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
         }
         .background(theme.chrome)
+        .onChange(of: machineNotice?.text) { showsMachineNoticeDetail = false }
     }
 
     /// Only while the session is not live, so a connected window's bar carries

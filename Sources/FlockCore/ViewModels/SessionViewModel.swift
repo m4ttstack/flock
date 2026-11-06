@@ -2227,6 +2227,13 @@ public final class SessionViewModel {
         }
     }
 
+    /// The herds whose progress the rail asks rt about. rt reads this Mac's
+    /// own herds, so a remote machine's workspaces never count.
+    public var herdLabels: Set<String> {
+        guard !isRemoteMachine else { return [] }
+        return Set(model?.workspaces.map(\.label).filter(HerdWorkspace.isHerd(label:)) ?? [])
+    }
+
     /// Board and rt read this Mac's own herdr and repos, so a remote
     /// machine's workspaces are never theirs, whatever they are called.
     private func localBoard(_ board: BoardWorkspaceNames?) -> BoardWorkspaceNames? {

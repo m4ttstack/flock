@@ -44,7 +44,7 @@ private struct ProfileMenu: View {
         Menu("Profile") {
             Button("Switch Profile\u{2026}") { picker.open() }
                 .keyboardShortcut(ProfilePickerContext.shortcut)
-                .disabled(!picker.canOpen)
+                .disabled(!picker.canOpenFromShortcut)
                 .accessibilityIdentifier("flock.profile.switch")
             let sections = ProfileCommands.sections(profiles: profiles.profiles, currentID: profiles.currentID)
             ForEach(Array(sections.enumerated()), id: \.offset) { _, section in

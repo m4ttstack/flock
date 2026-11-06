@@ -21,7 +21,7 @@ public enum HerdrMachineList {
         let id: String
         let label: String
         let target: String
-        let session: String
+        let session: String?
         let enabled: Bool
     }
 
@@ -29,7 +29,7 @@ public enum HerdrMachineList {
     public static func parse(_ stdout: Data) -> [HerdrMachine]? {
         guard let entries = try? JSONDecoder().decode([Entry].self, from: stdout) else { return nil }
         return entries.filter(\.enabled).map {
-            HerdrMachine(id: $0.id, label: $0.label, target: $0.target, session: $0.session)
+            HerdrMachine(id: $0.id, label: $0.label, target: $0.target, session: $0.session ?? "default")
         }
     }
 }

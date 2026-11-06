@@ -85,6 +85,7 @@ final class ProfilePickerContextTests: XCTestCase {
         unmounted.open()
         XCTAssertFalse(unmounted.isOpen, "no picker on screen")
         XCTAssertFalse(unmounted.canOpen)
+        XCTAssertFalse(unmounted.canOpenFromShortcut)
 
         let locked = context(try store(), isLocked: true, keyWindow: window)
         locked.anchorWindow = window
@@ -98,12 +99,14 @@ final class ProfilePickerContextTests: XCTestCase {
         behindSettings.mount()
         behindSettings.open()
         XCTAssertFalse(behindSettings.isOpen, "another window is key")
+        XCTAssertFalse(behindSettings.canOpenFromShortcut, "the menu item is disabled while another window is key")
         behindSettings.open(fromClick: true)
         XCTAssertTrue(behindSettings.isOpen, "a click is in the picker's own window")
 
         let key = context(try store(), keyWindow: window)
         key.anchorWindow = window
         key.mount()
+        XCTAssertTrue(key.canOpenFromShortcut)
         key.open()
         XCTAssertTrue(key.isOpen)
         key.unmount()

@@ -23,6 +23,8 @@ final class ProfilePickerContext {
 
     var isOpen = false
     private var mounted = 0
+    private var keyChanges = 0
+    @ObservationIgnored private var keyObservers = NotificationObservers()
 
     init(
         profiles: ProfileStore, isLocked: Bool,
@@ -34,17 +36,27 @@ final class ProfilePickerContext {
         self.switchProfile = switchProfile
         self.listMachines = listMachines
         self.keyWindow = keyWindow
+        keyObservers.tokens = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keyChanges += 1 }
+            }
+        }
     }
 
     var canOpen: Bool { mounted > 0 && !isLocked }
 
+    /// What the menu item and shortcut need: a mounted picker whose window is
+    /// key. Reading `keyChanges` is what re-evaluates the menu when another
+    /// window takes key.
+    var canOpenFromShortcut: Bool {
+        _ = keyChanges
+        return canOpen && anchorWindow != nil && keyWindow() === anchorWindow
+    }
+
     /// A click lands in the picker's own window, so only the shortcut needs
     /// that window to be key.
     func open(fromClick: Bool = false) {
-        guard canOpen else { return }
-        if !fromClick {
-            guard let anchorWindow, keyWindow() === anchorWindow else { return }
-        }
+        guard fromClick ? canOpen : canOpenFromShortcut else { return }
         isOpen = true
     }
 
@@ -73,6 +85,12 @@ final class ProfilePickerContext {
         selection?.opensNewProfile = opensNewProfile
         openSettings()
     }
+}
+
+/// Removes its observers when the owner goes away.
+private final class NotificationObservers {
+    var tokens: [NSObjectProtocol] = []
+    deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
 }
 
 /// Reports the window a view lands in, for `ProfilePickerContext.anchorWindow`.

@@ -193,7 +193,7 @@ public enum RemotePaste {
         return .text(text)
     }
 
-    static func failureMessage(_ label: String) -> String {
+    public static func failureMessage(_ label: String) -> String {
         "Couldn't copy that to \(label)."
     }
 }
