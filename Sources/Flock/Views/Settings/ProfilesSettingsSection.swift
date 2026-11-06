@@ -7,6 +7,7 @@ import SwiftUI
 /// attached to it.
 struct ProfilesSettingsSection: View {
     static let lockedNote = "Profiles are off while HERDR_SOCKET_PATH is set."
+    static let machineNote = "Managed by herdr machine"
 
     let profiles: ProfileStore
     let picker: ServerPicker?
@@ -15,6 +16,9 @@ struct ProfilesSettingsSection: View {
     let changeServer: (String?) async -> Bool
     let selection: SettingsTabSelection
     let home: String
+    /// `herdr machine list`, read each time the tab opens; nil when it could
+    /// not be read, which leaves the machine rows as they are.
+    let listMachines: () async -> [HerdrMachine]?
 
     struct Draft {
         var customServer = false
@@ -45,7 +49,8 @@ struct ProfilesSettingsSection: View {
     init(
         profiles: ProfileStore, picker: ServerPicker?, isLocked: Bool,
         switchProfile: @escaping (String) async -> Bool, changeServer: @escaping (String?) async -> Bool,
-        selection: SettingsTabSelection, home: String = NSHomeDirectory(), draftName: String = "", draft: Draft? = nil
+        selection: SettingsTabSelection, home: String = NSHomeDirectory(), draftName: String = "", draft: Draft? = nil,
+        listMachines: @escaping () async -> [HerdrMachine]? = { nil }
     ) {
         self.profiles = profiles
         self.picker = picker
@@ -54,6 +59,7 @@ struct ProfilesSettingsSection: View {
         self.changeServer = changeServer
         self.selection = selection
         self.home = home
+        self.listMachines = listMachines
         _newName = State(initialValue: draftName)
         if draft?.customServer == true { _newServer = State(initialValue: .custom) }
         if let id = draft?.customPathProfile { _field = State(initialValue: .customPath(id)) }
@@ -92,6 +98,9 @@ struct ProfilesSettingsSection: View {
                 Text("Its settings and pins are removed. Its herdr server keeps running.")
             }
             .task { await picker?.refresh() }
+            .task {
+                if let machines = await listMachines() { profiles.syncMachines(machines) }
+            }
             .onDisappear { closeForm() }
             newProfileSection
         }
@@ -102,19 +111,32 @@ struct ProfilesSettingsSection: View {
     private func row(_ profile: FlockProfile) -> some View {
         let isCurrent = profile.id == profiles.currentID
         return HStack(spacing: 8) {
-            Text(profile.name)
-                .lineLimit(1)
-            if isCurrent {
-                Text("Current")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(.quaternary))
-                    .accessibilityIdentifier("flock.settings.profiles.current")
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text(profile.name)
+                        .lineLimit(1)
+                    if isCurrent {
+                        Text("Current")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.quaternary))
+                            .accessibilityIdentifier("flock.settings.profiles.current")
+                    }
+                }
+                if profile.isMachine {
+                    Text(Self.machineNote)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("flock.settings.profiles.machine")
+                }
             }
             Spacer(minLength: 8)
-            serverMenu(for: profile)
+            if !profile.isMachine {
+                serverMenu(for: profile)
+            }
             Button("Switch") { Task { _ = await switchProfile(profile.id) } }
                 .hiddenKeepingSpace(isCurrent)
                 .accessibilityIdentifier("flock.settings.profiles.switch")
@@ -122,6 +144,7 @@ struct ProfilesSettingsSection: View {
                 fieldText = profile.name
                 field = .rename(profile.id)
             }
+            .hiddenKeepingSpace(profile.isMachine)
             .accessibilityIdentifier("flock.settings.profiles.rename")
             Button {
                 pendingDelete = profile
@@ -130,6 +153,7 @@ struct ProfilesSettingsSection: View {
             }
             .help("Delete")
             .disabled(profile.id == FlockProfile.defaultID || isCurrent)
+            .hiddenKeepingSpace(profile.isMachine)
             .accessibilityLabel("Delete")
             .accessibilityIdentifier("flock.settings.profiles.delete")
         }

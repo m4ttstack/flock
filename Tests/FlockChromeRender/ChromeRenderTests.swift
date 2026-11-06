@@ -2863,6 +2863,31 @@ final class ChromeRenderTests: XCTestCase {
                 nil, failingProfilesPicker, (makeProfileStore(), false, "Default")
             ))
         }
+        var remoteCases: Set<String> = []
+        let machineProfiles = makeProfileStore()
+        machineProfiles.syncMachines([
+            HerdrMachine(id: "acme-mini-0001", label: "acme-mini", target: "acme-mini", session: "default"),
+            HerdrMachine(id: "acme-studio-0002", label: "acme-studio", target: "acme-studio", session: "default"),
+        ])
+        machineProfiles.select("machine.acme-mini-0001")
+        let machineFoldersSuite = "\(ChromeRenderTests.defaultsSuite).machineFolders"
+        defer { UserDefaults().removePersistentDomain(forName: machineFoldersSuite) }
+        let machineFolders = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: machineFoldersSuite)))
+        machineFolders.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
+        machineFolders.select(.mainCheckout, for: .pane)
+        for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let stores = try makeHerdrUpdateStores(patchInstalled: false)
+            await stores.update.checkIfDue()
+            let machineCases: [(String, StartingFolderStore, SettingsTab, (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?)] = [
+                ("herdr-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .herdr, stores),
+                ("profiles-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .profiles, nil),
+                ("general-machine-\(scheme)", machineFolders, .general, nil),
+            ]
+            for (name, folders, tab, caseStores) in machineCases {
+                remoteCases.insert(name)
+                cases.append((name, appearance, folders, tab, caseStores, profilesPicker, (machineProfiles, false, nil)))
+            }
+        }
         defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
@@ -2899,6 +2924,7 @@ final class ChromeRenderTests: XCTestCase {
                 profilesDraft: name.hasPrefix("profiles-new-custom-empty")
                     ? .init(customServer: true)
                     : name.hasPrefix("profiles-row-custom-empty") ? .init(customPathProfile: demo.id) : nil,
+                isRemoteMachine: remoteCases.contains(name),
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {

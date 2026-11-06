@@ -2,9 +2,14 @@ import FlockCore
 import SwiftUI
 
 /// Which herdr server the current profile talks to. New Server and Custom
-/// Socket Path open their field inline under the row.
+/// Socket Path open their field inline under the row. A herdr machine's
+/// server is fixed by herdr, so its session shows the machine instead.
 struct ServerSettingsSection: View {
+    static let machineNote = "Managed by herdr machine"
+
     let picker: ServerPicker
+    /// The machine profile's name on a machine session, else nil.
+    let machineName: String?
 
     enum Field { case newServer, customPath }
 
@@ -18,14 +23,31 @@ struct ServerSettingsSection: View {
     @State private var name: String
     @State private var path: String
 
-    init(picker: ServerPicker, draft: Draft? = nil) {
+    init(picker: ServerPicker, draft: Draft? = nil, machineName: String? = nil) {
         self.picker = picker
+        self.machineName = machineName
         _field = State(initialValue: draft?.field)
         _name = State(initialValue: draft?.field == .newServer ? draft?.text ?? "" : "")
         _path = State(initialValue: draft?.field == .customPath ? draft?.text ?? "" : "")
     }
 
     var body: some View {
+        if let machineName {
+            Section {
+                LabeledContent {
+                    Text(machineName)
+                        .accessibilityIdentifier("flock.settings.server.machine")
+                } label: {
+                    Text("Server")
+                    Text(Self.machineNote)
+                }
+            }
+        } else {
+            pickerSection
+        }
+    }
+
+    private var pickerSection: some View {
         Section {
             LabeledContent {
                 Menu(picker.currentLabel) {

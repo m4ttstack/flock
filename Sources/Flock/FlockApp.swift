@@ -803,6 +803,8 @@ struct FlockApp: App {
                 isLocked: controller.isLocked,
                 switchProfile: { await controller.switchTo(profileID: $0) },
                 changeServer: { await controller.changeServer(to: $0) },
+                isRemoteMachine: session.isRemoteMachine,
+                listMachines: { await MachineSources.list() },
                 selection: settingsTabSelection
             )
         }
