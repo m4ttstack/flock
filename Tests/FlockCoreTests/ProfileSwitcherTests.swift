@@ -63,6 +63,41 @@ final class ProfileSwitcherTests: XCTestCase {
         XCTAssertEqual(switcher.finish(), nil, "stepping back round to the current profile goes nowhere")
     }
 
+    func testNeverUsedProfilesFollowThePickerLocalThenMachines() {
+        let switcher = makeSwitcher()
+        let shuffled = [Self.profiles[2], Self.profiles[1], Self.profiles[0]]
+        XCTAssertEqual(
+            ProfileSwitcher.candidates(shuffled, isLocked: false), ids("acme-work", FlockProfile.defaultID, Self.miniID)
+        )
+        XCTAssertTrue(switcher.begin(
+            items: ProfileSwitcher.candidates(shuffled, isLocked: false), current: ProfileID(rawValue: Self.miniID)
+        ))
+        XCTAssertEqual(switcher.order, ids(Self.miniID, "acme-work", FlockProfile.defaultID))
+    }
+
+    func testATriggerThatStartsNothingReachesThePane() {
+        let switcher = makeSwitcher()
+        let one = ProfileSwitcher.candidates(Array(Self.profiles.prefix(1)), isLocked: false)
+        let current = ProfileID(rawValue: FlockProfile.defaultID)
+        let begin = { (reverse: Bool) in switcher.begin(items: one, current: current, reverse: reverse) }
+        XCTAssertFalse(switcher.apply(.next, begin: begin, open: {}), "one profile: ⌃` goes to the terminal")
+        XCTAssertFalse(switcher.apply(.previous, begin: begin, open: {}))
+        XCTAssertFalse(switcher.apply(.pass, begin: begin, open: {}))
+        XCTAssertFalse(switcher.isActive)
+
+        let all = ProfileSwitcher.candidates(Self.profiles, isLocked: false)
+        XCTAssertTrue(switcher.apply(.next, begin: { switcher.begin(items: all, current: current, reverse: $0) }, open: {}))
+        XCTAssertTrue(switcher.isActive)
+        XCTAssertTrue(switcher.apply(.next, begin: { _ in XCTFail("an open switcher steps"); return false }, open: {}))
+        XCTAssertEqual(switcher.selection, 2)
+        XCTAssertTrue(switcher.apply(.swallow, begin: { _ in false }, open: {}))
+        var opened = false
+        XCTAssertTrue(switcher.apply(.commit, begin: { _ in false }, open: { opened = true }))
+        XCTAssertTrue(opened)
+        XCTAssertTrue(switcher.apply(.cancel, begin: { _ in false }, open: {}))
+        XCTAssertFalse(switcher.isActive)
+    }
+
     func testARemovedMachineIsLeftOut() {
         let switcher = makeSwitcher()
         switcher.note(currentProfile: "machine.gone")

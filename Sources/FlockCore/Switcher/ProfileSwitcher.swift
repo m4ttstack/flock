@@ -18,10 +18,11 @@ extension RecentsSwitcher where ID == ProfileID {
         self.init(defaultsKey: Self.defaultsKey, userDefaults: userDefaults)
     }
 
-    /// Every profile in the store's order, or none while a socket override
-    /// pins the window to one server.
+    /// Every profile in the picker's order, local ones then machines, or none
+    /// while a socket override pins the window to one server.
     public static func candidates(_ profiles: [FlockProfile], isLocked: Bool) -> [ProfileID] {
-        isLocked ? [] : profiles.map { ProfileID(rawValue: $0.id) }
+        guard !isLocked else { return [] }
+        return (profiles.filter { !$0.isMachine } + profiles.filter(\.isMachine)).map { ProfileID(rawValue: $0.id) }
     }
 
     /// Called for every change of the current profile, whatever made it, so

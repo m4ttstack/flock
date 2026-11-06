@@ -5,9 +5,9 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs, ⌃` over profiles. Keeps what was most recently selected across launches,
-/// and, while the trigger is held, the rows on offer and which one letting go
-/// will open.
+/// workspace's tabs, ⌃` over profiles. Keeps what was most recently selected
+/// across launches, and, while the trigger is held, the rows on offer and
+/// which one letting go will open.
 @MainActor
 @Observable
 public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<String>> {
@@ -87,6 +87,26 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
         order = []
         selection = 0
         isShown = false
+    }
+
+    /// Acts on a key's decision and says whether the key was used. A trigger
+    /// press that starts nothing (one item, a locked window) is not, so it
+    /// reaches the pane behind.
+    public func apply(_ decision: SwitcherKey.Decision, begin: (_ reverse: Bool) -> Bool, open: () -> Void) -> Bool {
+        switch decision {
+        case .pass:
+            return false
+        case .next, .previous:
+            guard isActive else { return begin(decision == .previous) }
+            step(decision == .next ? 1 : -1)
+        case .commit:
+            open()
+        case .cancel:
+            cancel()
+        case .swallow:
+            break
+        }
+        return true
     }
 }
 
@@ -173,7 +193,8 @@ public enum SwitcherKey {
     public enum Decision: Equatable, Sendable { case next, previous, commit, cancel, swallow, pass }
 
     static let tab: UInt16 = 48
-    /// The ANSI grave key, which keeps its place whatever the layout types on it.
+    /// The ANSI grave key, which keeps its place whatever the layout types
+    /// on it.
     static let grave: UInt16 = 50
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76

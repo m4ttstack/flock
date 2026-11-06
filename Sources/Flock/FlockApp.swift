@@ -389,7 +389,10 @@ struct FlockApp: App {
                         choose: { [profilePicker] in profilePicker.choose($0) }
                     )
                 }
+                // Inside the `.id` below, so a rebuild runs it too: a switch
+                // made from anywhere ends a switcher still up.
                 .onChange(of: controller.profiles.currentID, initial: true) { _, id in
+                    profileSwitcher.cancel()
                     profileSwitcher.note(currentProfile: id)
                 }
                 .environment(themeStore)

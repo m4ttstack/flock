@@ -181,20 +181,27 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 open: { if let target = switcher.finish() { go(target) } }
             )
         }
-        .onDisappear { monitor.remove() }
+        // A switcher held open by a monitor that is gone would block the
+        // others until the app next resigns.
+        .onDisappear {
+            monitor.remove()
+            switcher.cancel()
+        }
     }
 
     /// Only items that draw a row are offered, so `selection`, which counts
     /// `order`, counts the rows as drawn.
-    func begin(reverse: Bool) {
+    @discardableResult
+    func begin(reverse: Bool) -> Bool {
         let items = candidates().filter { row($0) != nil }
-        guard switcher.begin(items: items, current: current(), reverse: reverse) else { return }
+        guard switcher.begin(items: items, current: current(), reverse: reverse) else { return false }
         onBegin()
         let session = switcher.session
         Task {
             try? await Task.sleep(for: ChromeMetrics.Switcher.showDelay)
             switcher.show(session: session)
         }
+        return true
     }
 
     private var scrim: some View {

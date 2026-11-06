@@ -16,12 +16,12 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
         switcher: RecentsSwitcher<ID>,
         trigger: SwitcherTrigger,
         blocked: @escaping () -> Bool,
-        begin: @escaping (_ reverse: Bool) -> Void,
+        begin: @escaping (_ reverse: Bool) -> Bool,
         open: @escaping () -> Void
     ) {
         remove()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
-            guard event.window?.isMainWindow == true else { return event }
+            guard FlockWindow.isContent(event.window) else { return event }
             return Self.handle(event, switcher: switcher, trigger: trigger, blocked: blocked, begin: begin, open: open)
         }
         // A trigger let go in another app never reaches this one.
@@ -41,7 +41,7 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
 
     private static func handle(
         _ event: NSEvent, switcher: RecentsSwitcher<ID>, trigger: SwitcherTrigger, blocked: () -> Bool,
-        begin: (Bool) -> Void, open: () -> Void
+        begin: (Bool) -> Bool, open: () -> Void
     ) -> NSEvent? {
         let flags = event.modifierFlags
         if event.type == .flagsChanged {
@@ -55,18 +55,6 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
             trigger: trigger, keyCode: event.keyCode, control: flags.contains(.control), shift: flags.contains(.shift),
             command: flags.contains(.command), option: flags.contains(.option), active: switcher.isActive
         )
-        switch decision {
-        case .pass: return event
-        case .next, .previous:
-            if switcher.isActive {
-                switcher.step(decision == .next ? 1 : -1)
-            } else {
-                begin(decision == .previous)
-            }
-        case .commit: open()
-        case .cancel: switcher.cancel()
-        case .swallow: break
-        }
-        return nil
+        return switcher.apply(decision, begin: begin, open: open) ? nil : event
     }
 }
