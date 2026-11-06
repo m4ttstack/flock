@@ -133,6 +133,53 @@ final class ProfileSessionControllerTests: XCTestCase {
         XCTAssertEqual(fixture.log.remote, [false, true])
     }
 
+    func testAMachineListDroppingTheTargetMidSwitchStillLandsOnIt() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        let controller = makeController(fixture)
+        let tunnel = "/tmp/flock-501/dev-0123456789ab/herdr.sock"
+        let id = "machine.\(machine.id)"
+        fixture.gate.armed = true
+
+        let switched = Task { await controller.switchTo(profileID: id) }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        fixture.store.syncMachines([])
+        XCTAssertTrue(fixture.store.profiles.contains { $0.id == id }, "held while the switch is in flight")
+        fixture.gate.waiting?.resume()
+        let result = await switched.value
+
+        XCTAssertTrue(result)
+        XCTAssertEqual(fixture.store.currentID, id)
+        XCTAssertEqual(controller.session.socketPath, tunnel)
+        XCTAssertEqual(fixture.log.lines.last(where: { $0.hasPrefix("make ") }), "make \(id) \(tunnel)")
+        XCTAssertEqual(controller.attachKey, "herdr-machine:\(machine.id)")
+        XCTAssertTrue(fixture.store.currentMachineMissing)
+    }
+
+    func testARefusedSwitchReleasesItsTarget() async throws {
+        let fixture = try makeFixture()
+        fixture.store.syncMachines([machine])
+        let controller = makeController(fixture, confirm: false)
+        await controller.switchTo(profileID: "machine.\(machine.id)")
+        fixture.store.syncMachines([])
+        XCTAssertFalse(fixture.store.profiles.contains { $0.isMachine })
+    }
+
+    func testAProfileCannotBeDeletedWhileASwitchMovesOntoIt() async throws {
+        let fixture = try makeFixture()
+        let controller = makeController(fixture)
+        fixture.gate.armed = true
+
+        let switched = Task { await controller.switchTo(profileID: fixture.p1.id) }
+        while fixture.gate.waiting == nil { await Task.yield() }
+        XCTAssertFalse(fixture.store.delete(fixture.p1.id))
+        fixture.gate.waiting?.resume()
+        _ = await switched.value
+
+        XCTAssertEqual(fixture.store.currentID, fixture.p1.id)
+        XCTAssertEqual(controller.socketPath, acme)
+    }
+
     func testAnOverrideRunsAMachineProfileAsAPlainSocketSession() throws {
         let fixture = try makeFixture()
         fixture.store.syncMachines([machine])

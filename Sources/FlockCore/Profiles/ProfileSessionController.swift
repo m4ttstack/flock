@@ -137,6 +137,8 @@ public final class ProfileSessionController<Session: ProfileSession> {
     private func performSwitch(to profileID: String) async -> Bool {
         guard !isLocked, profileID != profiles.currentID,
               let target = profiles.profiles.first(where: { $0.id == profileID }) else { return false }
+        profiles.hold(profileID)
+        defer { profiles.hold(nil) }
         let newSocket = normalize(profiles.socketPath(of: target))
         let targetLabel = target.isMachine
             ? target.name

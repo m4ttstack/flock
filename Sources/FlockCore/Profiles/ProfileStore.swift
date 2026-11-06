@@ -11,6 +11,10 @@ public final class ProfileStore {
     public private(set) var profiles: [FlockProfile]
     public private(set) var currentID: String
     private var syncedMachineIDs: Set<String>?
+    /// A profile a switch is moving onto: kept like the current one, so a
+    /// machine list or a delete landing mid-switch cannot remove it before
+    /// it is selected.
+    @ObservationIgnored private var heldID: String?
 
     @ObservationIgnored private let userDefaults: UserDefaults
     @ObservationIgnored private let bundleID: String
@@ -65,8 +69,13 @@ public final class ProfileStore {
         return profile.socketPath ?? defaultSocketPath
     }
 
+    /// nil releases the profile held.
+    public func hold(_ id: String?) {
+        heldID = id
+    }
+
     /// Upserts one profile per machine, after the user's profiles. A machine
-    /// missing from the list is dropped unless its profile is current.
+    /// missing from the list is dropped unless its profile is current or held.
     public func syncMachines(_ machines: [HerdrMachine]) {
         let byID = Dictionary(machines.map { ("machine.\($0.id)", $0) }, uniquingKeysWith: { _, last in last })
         var kept: [FlockProfile] = []
@@ -79,7 +88,7 @@ public final class ProfileStore {
                 profile.name = machine.label
                 profile.machine = machine
                 kept.append(profile)
-            } else if profile.id == currentID {
+            } else if profile.id == currentID || profile.id == heldID {
                 kept.append(profile)
             } else if let gone = profile.machine {
                 dropIDState(of: gone, profileID: profile.id)
@@ -137,7 +146,7 @@ public final class ProfileStore {
     }
 
     public func delete(_ id: String) -> Bool {
-        guard id != FlockProfile.defaultID, id != currentID,
+        guard id != FlockProfile.defaultID, id != currentID, id != heldID,
               let index = profiles.firstIndex(where: { $0.id == id }),
               !profiles[index].isMachine else { return false }
         let profile = profiles.remove(at: index)
