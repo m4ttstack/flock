@@ -33,14 +33,20 @@ struct ProfileSwitcherOverlay: View {
             .rows.first { $0.id == id.rawValue }
             .map(SwitcherRow.profile)
     }
+}
 
-    static func blocked(
-        session: FlockSession, profilePicker: ProfilePickerContext, profiles: ProfileSwitcher
-    ) -> Bool {
+extension SwitcherBlockers {
+    /// What the window-wide switchers, ⌃`'s profiles and ⌥`'s servers, read
+    /// as their key lands.
+    @MainActor
+    static func window(session: FlockSession, profilePicker: ProfilePickerContext, profiles: ProfileSwitcher) -> SwitcherBlockers {
         SwitcherBlockers(
             paletteOpen: session.commandPalette.isOpen, renaming: session.viewModel.renameEditorIsOnScreen,
             rtModal: session.viewModel.rt.modal != nil, profilePickerOpen: profilePicker.isOpen,
-            active: SwitcherKind.active(workspaces: session.workspaceSwitcher, tabs: session.tabSwitcher, profiles: profiles)
-        ).blocks(.profiles)
+            active: SwitcherKind.active(
+                workspaces: session.workspaceSwitcher, tabs: session.tabSwitcher, profiles: profiles,
+                servers: session.serverSwitcher
+            )
+        )
     }
 }

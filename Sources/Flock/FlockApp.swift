@@ -308,9 +308,25 @@ struct FlockApp: App {
         return .forMachine(hasNotice: machineNotice != nil)
     }
 
+    /// A machine's server is fixed by herdr, and an override pins the window
+    /// to its socket.
+    private var canChangeServer: Bool {
+        !controller.isLocked && !controller.profiles.current.isMachine
+    }
+
     /// What the switch loader reads: the target while a switch tears the old
-    /// session down, the current session otherwise.
+    /// session down, the current session otherwise. A server change names the
+    /// server throughout, a profile switch the profile.
     private var switchLoaderSnapshot: SwitchLoaderPresenter.Snapshot {
+        if let target = controller.switchingToServer {
+            return SwitchLoaderPresenter.Snapshot(
+                input: SwitchLoaderInput(
+                    label: HerdrServerAddress(socketPath: target, home: NSHomeDirectory()).label, isMachine: false,
+                    isDefaultProfile: session.profile.id == FlockProfile.defaultID, store: .connecting
+                ),
+                switchPending: true, generation: controller.generation
+            )
+        }
         if let target = controller.switchingToProfile {
             return SwitchLoaderPresenter.Snapshot(
                 input: SwitchLoaderInput(
@@ -323,7 +339,9 @@ struct FlockApp: App {
         let profile = session.profile
         return SwitchLoaderPresenter.Snapshot(
             input: SwitchLoaderInput(
-                label: session.isRemoteMachine ? profile.machine?.label ?? session.address.label : profile.name,
+                label: session.isRemoteMachine
+                    ? profile.machine?.label ?? session.address.label
+                    : controller.lastChangeWasServer ? session.address.label : profile.name,
                 isMachine: session.isRemoteMachine,
                 isDefaultProfile: profile.id == FlockProfile.defaultID,
                 tunnel: session.machineTunnel?.state ?? .stopped,
@@ -415,11 +433,23 @@ struct FlockApp: App {
                         theme: themeStore.active, switcher: profileSwitcher, profiles: controller.profiles,
                         isLocked: controller.isLocked, currentDot: currentProfileDot,
                         blocked: { [controller, profilePicker, profileSwitcher] in
-                            ProfileSwitcherOverlay.blocked(
+                            SwitcherBlockers.window(
                                 session: controller.session, profilePicker: profilePicker, profiles: profileSwitcher
-                            )
+                            ).blocks(.profiles)
                         },
                         choose: { [profilePicker] in profilePicker.choose($0) }
+                    )
+                }
+                .overlay {
+                    ServerSwitcherOverlay(
+                        theme: themeStore.active, switcher: session.serverSwitcher, picker: serverPicker,
+                        canChangeServer: canChangeServer,
+                        currentSocket: { [controller] in controller.socketPath },
+                        blocked: { [controller, profilePicker, profileSwitcher] in
+                            SwitcherBlockers.window(
+                                session: controller.session, profilePicker: profilePicker, profiles: profileSwitcher
+                            ).blocks(.servers)
+                        }
                     )
                 }
                 // Inside the `.id` below, so a rebuild runs it too: a switch
@@ -427,6 +457,10 @@ struct FlockApp: App {
                 .onChange(of: controller.profiles.currentID, initial: true) { _, id in
                     profileSwitcher.cancel()
                     profileSwitcher.note(currentProfile: id)
+                }
+                .onChange(of: controller.socketPath, initial: true) { _, socket in
+                    guard canChangeServer else { return }
+                    session.serverSwitcher.note(currentSocket: socket, home: NSHomeDirectory())
                 }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
@@ -462,6 +496,7 @@ struct FlockApp: App {
                 .environment(workspaceSwitcher)
                 .environment(tabSwitcher)
                 .environment(profileSwitcher)
+                .environment(session.serverSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .id(controller.generation)
                 .task {

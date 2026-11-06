@@ -1132,6 +1132,9 @@ enum ChromeMetrics {
         /// A backtick sits at the top of its line; this brings it to the
         /// cap's middle.
         static let backtickDrop: CGFloat = 5
+        /// The server switcher's leading slot, which holds the current
+        /// server's check.
+        static let checkWidth: CGFloat = 10
 
         /// The header, the footer and a rule under or over each.
         static var chromeHeight: CGFloat {

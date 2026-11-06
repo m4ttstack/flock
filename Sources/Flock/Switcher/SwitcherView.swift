@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Both hold-and-tap switchers over the tab area: ⌃Tab's workspaces and ⌥Tab's
 /// tabs in the selected workspace. Each blocks the other, and ⌃`'s profiles
-/// blocks both, while it is up.
+/// and ⌥`'s servers block both, while either is up.
 struct SwitcherOverlay: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -13,15 +13,16 @@ struct SwitcherOverlay: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(ChatStore.self) private var chatStore
     @Environment(ProfileSwitcher.self) private var profiles: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var servers: ServerSwitcher?
     @Environment(ProfilePickerContext.self) private var profilePicker: ProfilePickerContext?
 
     var body: some View {
         let palette = commandPalette
-        let blockers = { [viewModel, workspaces, tabs, profiles, profilePicker] in
+        let blockers = { [viewModel, workspaces, tabs, profiles, servers, profilePicker] in
             SwitcherBlockers(
                 paletteOpen: palette.isOpen, renaming: viewModel.renameEditorIsOnScreen, rtModal: viewModel.rt.modal != nil,
                 profilePickerOpen: profilePicker?.isOpen ?? false,
-                active: SwitcherKind.active(workspaces: workspaces, tabs: tabs, profiles: profiles)
+                active: SwitcherKind.active(workspaces: workspaces, tabs: tabs, profiles: profiles, servers: servers)
             )
         }
         ZStack {
@@ -91,11 +92,14 @@ struct SwitcherOverlay: View {
 
 extension SwitcherKind {
     @MainActor
-    static func active(workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?) -> Set<SwitcherKind> {
+    static func active(
+        workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?, servers: ServerSwitcher?
+    ) -> Set<SwitcherKind> {
         var active: Set<SwitcherKind> = []
         if workspaces?.isActive == true { active.insert(.workspaces) }
         if tabs?.isActive == true { active.insert(.tabs) }
         if profiles?.isActive == true { active.insert(.profiles) }
+        if servers?.isActive == true { active.insert(.servers) }
         return active
     }
 }
@@ -113,6 +117,9 @@ struct SwitcherRow {
     /// the status dot goes, the current machine's connection dot after the
     /// name, no count.
     var profile: Profile? = nil
+    /// Drawn as Settings' Server menu draws a server: a check on the current
+    /// one where the status dot goes, its running state where the count goes.
+    var server: ServerSwitcherRow? = nil
 
     struct Profile {
         let isMachine: Bool
@@ -121,6 +128,10 @@ struct SwitcherRow {
 
     static func emptyPin(label: String) -> SwitcherRow {
         SwitcherRow(status: .unknown, label: label, count: 0, isEmptyPin: true)
+    }
+
+    static func server(_ row: ServerSwitcherRow) -> SwitcherRow {
+        SwitcherRow(status: .unknown, label: row.label, count: 0, server: row)
     }
 
     static func profile(_ row: ProfilePickerRow) -> SwitcherRow {
@@ -251,7 +262,13 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func rowView(_ id: ID, _ item: SwitcherRow, selected: Bool) -> some View {
         HStack(spacing: Metrics.rowGap) {
-            if let profile = item.profile {
+            if let server = item.server {
+                Image(systemName: "checkmark")
+                    .font(ChromeType.switcherCheck)
+                    .foregroundStyle(theme.textStrong)
+                    .frame(width: ChromeMetrics.Switcher.checkWidth)
+                    .opacity(server.isCurrent ? 1 : 0)
+            } else if let profile = item.profile {
                 if profile.isMachine {
                     ProfileMachineMarker(theme: theme)
                 } else {
@@ -282,7 +299,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .foregroundStyle(theme.textLabel)
                 .padding(.trailing, ChromeMetrics.Switcher.chatCountGap)
             }
-            if !item.isEmptyPin, item.profile == nil {
+            if let status = item.server?.status {
+                Text(status)
+                    .font(ChromeType.paletteShortcut)
+                    .foregroundStyle(theme.textLabel)
+            } else if !item.isEmptyPin, item.profile == nil, item.server == nil {
                 Text("\(item.count)")
                     .font(ChromeType.paletteShortcut)
                     .foregroundStyle(theme.textLabel)

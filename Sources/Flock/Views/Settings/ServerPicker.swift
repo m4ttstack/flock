@@ -9,6 +9,9 @@ import Observation
 @Observable
 final class ServerPicker {
     private(set) var entries: [HerdrSessionEntry] = []
+    /// False until a listing has succeeded, so an empty `entries` can be told
+    /// from a list never read.
+    private(set) var hasListed = false
     private(set) var failure: String?
     /// True when `failure` came from stopping or deleting a listed server,
     /// so it shows under that list rather than under the Server row.
@@ -74,7 +77,10 @@ final class ServerPicker {
     @discardableResult
     func refresh() async -> Bool {
         let listed = await list()
-        if let listed { entries = listed }
+        if let listed {
+            entries = listed
+            hasListed = true
+        }
         var held: [String: String] = [:]
         for entry in entries {
             if let app = heldBy(entry.socketPath) { held[entry.socketPath] = app }

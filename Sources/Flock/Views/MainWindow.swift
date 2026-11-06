@@ -12,6 +12,7 @@ struct MainWindow: View {
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
     @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
     @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
     @Environment(BoardStore.self) private var boardStore
     @Environment(HerdProgressStore.self) private var herdProgress
@@ -187,7 +188,13 @@ struct MainWindow: View {
             }
         }
         .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
-            if renaming { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel(); profileSwitcher?.cancel() }
+            if renaming {
+                commandPalette.close()
+                switcher.cancel()
+                tabSwitcher.cancel()
+                profileSwitcher?.cancel()
+                serverSwitcher?.cancel()
+            }
         }
         .onChange(of: viewModel.selectedWorkspaceID, initial: true) { _, id in
             if let id { switcher.note(id) }
@@ -376,6 +383,7 @@ private struct TopBarOverlayExclusion: ViewModifier {
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
     @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
 
     func body(content: Content) -> some View {
         content
@@ -385,11 +393,14 @@ private struct TopBarOverlayExclusion: ViewModifier {
                 switcher.cancel()
                 tabSwitcher.cancel()
                 profileSwitcher?.cancel()
+                serverSwitcher?.cancel()
                 if viewModel.rt.modal != nil { Task { await viewModel.rt.closeModal() } }
             }
             .onChange(of: viewModel.rt.modal != nil) { _, shown in if shown { viewModel.topBarOverlay.close() } }
             .onChange(of: commandPalette.isOpen) { _, open in if open { viewModel.topBarOverlay.close() } }
-            .onChange(of: switcher.isShown || tabSwitcher.isShown || profileSwitcher?.isShown == true) { _, shown in
+            .onChange(
+                of: switcher.isShown || tabSwitcher.isShown || profileSwitcher?.isShown == true || serverSwitcher?.isShown == true
+            ) { _, shown in
                 if shown { viewModel.topBarOverlay.close() }
             }
     }
