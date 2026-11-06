@@ -133,9 +133,12 @@ extension ClipboardPaste {
         }
     }
 
-    /// The machine picks the directory, so only the name is chosen here.
+    /// The machine picks the directory, so only the name is chosen here. It
+    /// travels inside a remote login shell's quoting, which may be fish's,
+    /// so anything but a few plain characters becomes `_`.
     public static func remoteFileName(_ fileName: String, token: String) -> String {
-        "\(token)-\(fileName)"
+        let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-")
+        return "\(token)-" + String(fileName.map { plain.contains($0) ? $0 : "_" })
     }
 }
 

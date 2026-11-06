@@ -221,13 +221,20 @@ final class ClipboardPasteTests: XCTestCase {
     }
 
     func testRemoteFileNameIsPrefixedWithTheToken() {
-        XCTAssertEqual(ClipboardPaste.remoteFileName("shot.png", token: "ab12"), "ab12-shot.png")
+        XCTAssertEqual(ClipboardPaste.remoteFileName("shot-1_v2+final.png", token: "ab12"), "ab12-shot-1_v2+final.png")
+    }
+
+    /// fish reads `\'` inside single quotes as a quote, so a name carrying
+    /// one could close the remote script's quoting.
+    func testRemoteFileNameKeepsOnlyShellNeutralCharacters() {
+        XCTAssertEqual(ClipboardPaste.remoteFileName("a\\'; touch pwn; #\nb é.png", token: "ab12"),
+                       "ab12-a____touch_pwn____b__.png")
     }
 
     // MARK: - Resolving a remote paste
 
     /// Stands in for the machine, which chooses the directory.
-    private static let remoteDirectory = "/var/acme/flock-paste-501"
+    private static let remoteDirectory = "/var/acme/paste dir"
 
     private actor Uploads {
         var sent: [(size: Int, name: String)] = []
@@ -255,16 +262,16 @@ final class ClipboardPasteTests: XCTestCase {
     func testAFilePastesTheEscapedPathTheMachineReported() async {
         let uploads = Uploads()
         let outcome = await resolve([.file(localPath: "/Users/acme/my shot.png")], uploads: uploads)
-        XCTAssertEqual(outcome, .text("/var/acme/flock-paste-501/t1-my\\ shot.png"))
+        XCTAssertEqual(outcome, .text("/var/acme/paste\\ dir/t1-my_shot.png"))
         let sent = await uploads.sent
-        XCTAssertEqual(sent.map(\.name), ["t1-my shot.png"])
+        XCTAssertEqual(sent.map(\.name), ["t1-my_shot.png"])
         XCTAssertEqual(sent.map(\.size), [7])
     }
 
     func testImageBytesUploadUnderAClipboardName() async {
         let uploads = Uploads()
         let outcome = await resolve([.image(Data(count: 3), fileExtension: "png")], uploads: uploads)
-        XCTAssertEqual(outcome, .text("/var/acme/flock-paste-501/t1-clipboard.png"))
+        XCTAssertEqual(outcome, .text("/var/acme/paste\\ dir/t1-clipboard.png"))
         let sent = await uploads.sent
         XCTAssertEqual(sent.map(\.size), [3])
     }
@@ -274,7 +281,7 @@ final class ClipboardPasteTests: XCTestCase {
         let outcome = await resolve(
             [.text("cat"), .file(localPath: "/a/one.txt"), .file(localPath: "/b/two.txt")], uploads: uploads
         )
-        XCTAssertEqual(outcome, .text("cat /var/acme/flock-paste-501/t1-one.txt /var/acme/flock-paste-501/t2-two.txt"))
+        XCTAssertEqual(outcome, .text("cat /var/acme/paste\\ dir/t1-one.txt /var/acme/paste\\ dir/t2-two.txt"))
     }
 
     func testAFailedUploadPastesNothingEvenWhenAnEarlierOneLanded() async {

@@ -178,7 +178,7 @@ final class PasteboardPasteTextTests: XCTestCase {
         XCTAssertEqual(uploads.first?.bytes, Data("hello".utf8))
         let remote = try XCTUnwrap(uploads.first?.path)
         XCTAssertTrue(remote.hasPrefix("\(Self.remoteDirectory)/"))
-        XCTAssertTrue(remote.hasSuffix("-\(file.lastPathComponent)"))
+        XCTAssertTrue(remote.hasSuffix("-acme_remote_\(file.lastPathComponent.dropFirst("acme remote ".count))"))
         XCTAssertEqual(outcome, .text(ClipboardPaste.escape(remote)))
     }
 

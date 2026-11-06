@@ -56,24 +56,22 @@ public enum MachineSSH {
                 "--", target]
     }
 
-    /// Writes stdin to `fileName` in the remote user's own paste directory
-    /// and prints the path written. Another user on the machine may have
-    /// planted that directory's name, so an existing one is used only if it
-    /// is a real directory the remote user owns; inside it no one else can
-    /// plant a file, and noclobber refuses to write through one regardless.
+    static let uploadedPathMarker = "flock-paste:"
+
+    /// Writes stdin to `fileName` in a new directory and prints the path
+    /// after `uploadedPathMarker`. Any fixed name in a shared temp directory
+    /// can be planted or swapped by another user, so every upload gets its
+    /// own from mktemp, which creates it atomically with mode 0700.
+    /// `fileName` must already be shell-neutral (`ClipboardPaste.remoteFileName`):
+    /// fish reads backslashes inside single quotes, so quoting alone is not.
     public static func uploadScript(fileName: String) -> String {
         [
             "umask 077",
             "t=${TMPDIR:-/tmp}",
-            "d=${t%/}/flock-paste-$(id -u)",
-            "if ! mkdir -m 700 \"$d\" 2>/dev/null; then "
-                + "if [ -L \"$d\" ] || [ ! -d \"$d\" ] || [ ! -O \"$d\" ]; then "
-                + "echo \"flock: $d is not a private directory\" >&2; exit 1; fi; "
-                + "chmod 700 \"$d\" || exit 1; fi",
+            "d=$(mktemp -d \"${t%/}/flock-paste.XXXXXXXX\") || exit 1",
             "f=\"$d\"/\(shellQuote(fileName))",
-            "set -C",
             "cat > \"$f\" || exit 1",
-            "printf '%s\\n' \"$f\"",
+            "printf '\(uploadedPathMarker)%s\\n' \"$f\"",
         ].joined(separator: "; ")
     }
 
@@ -82,13 +80,14 @@ public enum MachineSSH {
     }
 
     /// The path `uploadScript` printed. A login shell's startup files can
-    /// write to stdout first, so only the last line counts.
+    /// write to stdout first, without a trailing newline, so the path is
+    /// what follows the marker on the last line that has one.
     public static func uploadedPath(from stdout: Data) -> String? {
-        let last = String(decoding: stdout, as: UTF8.self)
+        let line = String(decoding: stdout, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .last
-            .map(String.init)
-        guard let last, last.hasPrefix("/") else { return nil }
-        return last
+            .last { $0.contains(uploadedPathMarker) }
+        guard let line, let marker = line.range(of: uploadedPathMarker) else { return nil }
+        let path = String(line[marker.upperBound...])
+        return path.hasPrefix("/") ? path : nil
     }
 }

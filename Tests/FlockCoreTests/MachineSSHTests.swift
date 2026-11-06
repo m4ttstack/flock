@@ -89,73 +89,53 @@ final class MachineSSHTests: XCTestCase {
         return url.path
     }
 
-    private var pasteDirectoryName: String { "flock-paste-\(getuid())" }
+    private func pasteDirectories(in tmp: String) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: tmp).filter { $0.hasPrefix("flock-paste.") }
+    }
 
-    func testTheUploadScriptWritesPrivatelyAndPrintsThePath() throws {
+    func testTheUploadScriptWritesIntoANewPrivateDirectoryAndPrintsThePath() throws {
         let tmp = try scratchDirectory()
-        let result = try runUploadScript(fileName: "t1-it's a shot.png", tmpdir: tmp, input: Data("hello".utf8))
+        let result = try runUploadScript(fileName: "t1-shot.png", tmpdir: tmp, input: Data("hello".utf8))
 
         XCTAssertEqual(result.status, 0)
-        let expected = "\(tmp)/\(pasteDirectoryName)/t1-it's a shot.png"
+        let directories = try pasteDirectories(in: tmp)
+        XCTAssertEqual(directories.count, 1)
+        let directory = "\(tmp)/\(try XCTUnwrap(directories.first))"
+        let expected = "\(directory)/t1-shot.png"
         XCTAssertEqual(MachineSSH.uploadedPath(from: result.stdout), expected)
         XCTAssertEqual(FileManager.default.contents(atPath: expected), Data("hello".utf8))
-        let dirMode = try FileManager.default.attributesOfItem(atPath: "\(tmp)/\(pasteDirectoryName)")[.posixPermissions] as? Int
+        let dirMode = try FileManager.default.attributesOfItem(atPath: directory)[.posixPermissions] as? Int
         let fileMode = try FileManager.default.attributesOfItem(atPath: expected)[.posixPermissions] as? Int
         XCTAssertEqual(dirMode, 0o700)
         XCTAssertEqual(fileMode, 0o600)
     }
 
-    func testTheUploadScriptReusesItsOwnDirectoryAndTightensIt() throws {
+    func testEveryUploadGetsItsOwnDirectorySoNoneOverwritesAnother() throws {
         let tmp = try scratchDirectory()
-        let dir = "\(tmp)/\(pasteDirectoryName)"
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o755])
+        let first = try runUploadScript(fileName: "t2-a.txt", tmpdir: tmp, input: Data("one".utf8))
+        let second = try runUploadScript(fileName: "t2-a.txt", tmpdir: tmp, input: Data("two".utf8))
 
-        let result = try runUploadScript(fileName: "t2-a.txt", tmpdir: tmp, input: Data("x".utf8))
-
-        XCTAssertEqual(result.status, 0)
-        XCTAssertEqual(MachineSSH.uploadedPath(from: result.stdout), "\(dir)/t2-a.txt")
-        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: dir)[.posixPermissions] as? Int, 0o700)
+        let firstPath = try XCTUnwrap(MachineSSH.uploadedPath(from: first.stdout))
+        let secondPath = try XCTUnwrap(MachineSSH.uploadedPath(from: second.stdout))
+        XCTAssertNotEqual(firstPath, secondPath)
+        XCTAssertEqual(FileManager.default.contents(atPath: firstPath), Data("one".utf8))
+        XCTAssertEqual(FileManager.default.contents(atPath: secondPath), Data("two".utf8))
+        XCTAssertEqual(try pasteDirectories(in: tmp).count, 2)
     }
 
-    func testTheUploadScriptRefusesASymlinkedDirectory() throws {
+    func testTheUploadScriptFailsWithoutAPathWhenItCannotMakeADirectory() throws {
         let tmp = try scratchDirectory()
-        let elsewhere = "\(tmp)/elsewhere"
-        try FileManager.default.createDirectory(atPath: elsewhere, withIntermediateDirectories: false)
-        try FileManager.default.createSymbolicLink(atPath: "\(tmp)/\(pasteDirectoryName)", withDestinationPath: elsewhere)
-
-        let result = try runUploadScript(fileName: "t3-a.txt", tmpdir: tmp, input: Data("x".utf8))
-
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertNil(MachineSSH.uploadedPath(from: result.stdout))
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere), [])
-    }
-
-    func testTheUploadScriptRefusesAFileInTheDirectorysPlace() throws {
-        let tmp = try scratchDirectory()
-        FileManager.default.createFile(atPath: "\(tmp)/\(pasteDirectoryName)", contents: Data())
-
-        let result = try runUploadScript(fileName: "t4-a.txt", tmpdir: tmp, input: Data("x".utf8))
+        let result = try runUploadScript(fileName: "t3-a.txt", tmpdir: "\(tmp)/missing", input: Data("x".utf8))
 
         XCTAssertNotEqual(result.status, 0)
         XCTAssertNil(MachineSSH.uploadedPath(from: result.stdout))
     }
 
-    func testTheUploadScriptNeverOverwritesAnExistingFile() throws {
-        let tmp = try scratchDirectory()
-        let dir = "\(tmp)/\(pasteDirectoryName)"
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        FileManager.default.createFile(atPath: "\(dir)/t5-a.txt", contents: Data("old".utf8))
-
-        let result = try runUploadScript(fileName: "t5-a.txt", tmpdir: tmp, input: Data("new".utf8))
-
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertEqual(FileManager.default.contents(atPath: "\(dir)/t5-a.txt"), Data("old".utf8))
-    }
-
-    func testUploadedPathIsTheLastLineAfterAnyStartupNoise() {
-        XCTAssertEqual(MachineSSH.uploadedPath(from: Data("welcome\r\n/tmp/flock-paste-501/t1-a b.png\n".utf8)),
-                       "/tmp/flock-paste-501/t1-a b.png")
-        XCTAssertNil(MachineSSH.uploadedPath(from: Data("welcome\n".utf8)))
+    func testUploadedPathFollowsTheMarkerAfterAnyStartupNoise() {
+        let noisy = Data("welcome\r\nlast login, no newlineflock-paste:/tmp/flock-paste.ab12/t1-a.png\n".utf8)
+        XCTAssertEqual(MachineSSH.uploadedPath(from: noisy), "/tmp/flock-paste.ab12/t1-a.png")
+        XCTAssertEqual(MachineSSH.uploadedPath(from: Data("flock-paste:/x/t1-a.png".utf8)), "/x/t1-a.png")
+        XCTAssertNil(MachineSSH.uploadedPath(from: Data("welcome\n/tmp/t1-a.png\n".utf8)))
         XCTAssertNil(MachineSSH.uploadedPath(from: Data()))
     }
 

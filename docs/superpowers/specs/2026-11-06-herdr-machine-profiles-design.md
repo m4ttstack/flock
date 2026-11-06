@@ -215,9 +215,9 @@ in the connection banner; do not block. (My call.)
   onto panes today, so "file drop" means files copied in Finder and
   pasted) copy the file to mini over the
   machine's SSH connection (a short `ssh <target> 'cat > <path>'` or
-  equivalent) into a temp directory on mini that only the remote user
-  owns (an existing one is used only if it is a real directory that user
-  owns), then paste the path mini reports. Upload failures show a short
+  equivalent) into a new private temp directory on mini, one per upload
+  (`mktemp -d`), under a name reduced to plain characters, then paste the
+  path mini reports. Upload failures show a short
   note in the pane chrome; nothing local is pasted instead. (Matt's call.)
 - **Starting folder** on a machine profile: Home or Custom resolve on mini,
   not here. Flock omits the local cwd so herdr opens in mini's home, and

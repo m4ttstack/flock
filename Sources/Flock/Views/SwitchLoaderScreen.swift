@@ -235,17 +235,24 @@ struct SwitchLoaderFrameView: View {
     }
 }
 
-/// Swallows typing aimed at this view's window while active: the window
+/// Swallows key-downs aimed at this view's window while active: the window
 /// under a fading-in loader is still mounted and must not take keystrokes.
-/// Menu shortcuts and control chords pass, so ⌃⌘P and ⌃` keep working.
+/// A key-down held with ⌘, ⌃ or ⌥ passes, so ⌃⌘P, ⌃` and ⌥` keep working;
+/// key-ups always pass, so no view is left thinking a key is still down.
 struct WindowKeySink: NSViewRepresentable {
     let isActive: Bool
 
     final class SinkView: NSView {
-        private var monitor: Any?
+        /// Read in deinit, which is not main-actor isolated; written only on
+        /// the main actor.
+        private nonisolated(unsafe) var monitor: Any?
 
         var isActive = false {
             didSet { if isActive != oldValue { refresh() } }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
 
         override func viewDidMoveToWindow() {
@@ -256,9 +263,9 @@ struct WindowKeySink: NSViewRepresentable {
         private func refresh() {
             if isActive, window != nil {
                 guard monitor == nil else { return }
-                monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                     guard let self, event.window === self.window,
-                          event.modifierFlags.isDisjoint(with: [.command, .control]) else { return event }
+                          event.modifierFlags.isDisjoint(with: Self.passingModifiers) else { return event }
                     return nil
                 }
             } else if let monitor {
@@ -268,6 +275,8 @@ struct WindowKeySink: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        private static let passingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
     }
 
     func makeNSView(context: Context) -> SinkView {
