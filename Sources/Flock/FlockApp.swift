@@ -44,12 +44,8 @@ final class FlockAppDelegate: NSObject, NSApplicationDelegate {
         let home = NSHomeDirectory()
         DispatchQueue.global(qos: .utility).async { _ = FlockOpenToken.readOrCreate(home: home) }
         windowFrame.start()
-        Self.launchFinished = true
+        FlockLinkOpener.launchFinished = true
     }
-
-    /// False until the launch is over. A link that started the app arrives
-    /// in that stretch.
-    private(set) static var launchFinished = false
 
     /// Set by `FlockApp.init`, which runs before Launch Services delivers a
     /// link, cold launch included.

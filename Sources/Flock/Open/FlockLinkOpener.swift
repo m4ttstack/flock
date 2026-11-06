@@ -11,16 +11,20 @@ enum FlockLinkOpener {
     private static let snapshotPoll: Duration = .milliseconds(200)
     private static let launchPoll: Duration = .milliseconds(50)
 
+    /// False until the app delegate's launch is over. A link that started the
+    /// app arrives in that stretch.
+    static var launchFinished = false
+
     static func open(_ url: URL, session: @escaping @MainActor () -> FlockSession, board: BoardStore) {
         guard FlockOpenLink.isOpenLink(url) else { return }
         NSApp.activate()
-        if FlockAppDelegate.launchFinished {
+        if launchFinished {
             showMainWindow()
         } else {
             // A reopen sent while the app is still launching can race the
             // launch into a second window, so it waits the launch out.
             Task {
-                while !FlockAppDelegate.launchFinished { try? await Task.sleep(for: launchPoll) }
+                while !launchFinished { try? await Task.sleep(for: launchPoll) }
                 showMainWindow()
             }
         }
