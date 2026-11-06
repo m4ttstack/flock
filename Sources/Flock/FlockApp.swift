@@ -273,6 +273,33 @@ struct FlockApp: App {
         return NoHerdrScreen.Copy(headline: copy.headline, body: copy.body, hint: herdrStartFailure)
     }
 
+    /// Nil off a machine session. A machine profile's window says only this
+    /// about its connection, and never offers to start a local server.
+    private var machineNotice: MachineNotice? {
+        guard session.isRemoteMachine, let tunnel = session.machineTunnel,
+              let label = session.profile.machine?.label else { return nil }
+        let removed = controller.profiles.currentMachineMissing
+        guard let text = MachineConnectionCopy.notice(
+            label: label, tunnel: tunnel.state, store: viewModel.connectionState,
+            local: session.localHerdrVersion?.version, remote: viewModel.model?.herdrVersion, removed: removed
+        ) else { return nil }
+        guard removed else { return MachineNotice(text: text) }
+        return MachineNotice(text: text, action: .init(title: "Switch to Default") {
+            Task { await controller.switchTo(profileID: FlockProfile.defaultID) }
+        })
+    }
+
+    /// The not-running screen of a machine session. A tunnel that has not
+    /// reported yet reads as connecting.
+    private func machineScreen(_ notice: MachineNotice?) -> NoHerdrScreen {
+        let label = session.profile.machine?.label ?? session.address.label
+        return NoHerdrScreen(
+            theme: themeStore.active,
+            copy: NoHerdrScreen.machine(label: label, message: notice?.text ?? "Connecting to \(label)\u{2026}"),
+            primaryAction: notice?.action.map { action in .init(title: action.title, perform: action.perform) }
+        )
+    }
+
     /// Nil for a picked custom path: herdr only attaches to a custom socket,
     /// so only an override (which binds `herdr server` to its path) starts one.
     /// Nil for a machine, whose server is not this Mac's to start.
@@ -311,6 +338,8 @@ struct FlockApp: App {
             Group {
                 if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
                     NoHerdrScreen(theme: themeStore.active)
+                } else if case .notRunning = viewModel.connectionState, session.isRemoteMachine {
+                    machineScreen(machineNotice)
                 } else if case .notRunning = viewModel.connectionState {
                     NoHerdrScreen(
                         theme: themeStore.active, copy: notRunningCopy,
@@ -324,7 +353,8 @@ struct FlockApp: App {
                     MainWindow(
                         viewModel: viewModel,
                         sessionLabel: session.address.label,
-                        herdrMousePatchStore: herdrMousePatchStore
+                        herdrMousePatchStore: herdrMousePatchStore,
+                        machineNotice: machineNotice
                     )
                 }
             }

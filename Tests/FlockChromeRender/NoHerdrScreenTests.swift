@@ -69,6 +69,39 @@ final class NoHerdrScreenTests: XCTestCase {
         }
     }
 
+    func testTheMachineScreenCarriesTheMessageAndNoStartHint() {
+        let copy = NoHerdrScreen.machine(label: "acme-mini", message: "herdr isn't running on acme-mini.")
+        XCTAssertEqual(copy.headline, "herdr on acme-mini")
+        XCTAssertEqual(copy.body, "herdr isn't running on acme-mini.")
+        XCTAssertTrue(copy.hint.isEmpty)
+    }
+
+    func testTheMachineScreenInEachState() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let cases: [(String, String, NoHerdrScreen.PrimaryAction?)] = [
+            ("connecting", "Connecting to acme-mini\u{2026}", nil),
+            ("unreachable", "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works.", nil),
+            ("hostkey", "Can't reach acme-mini. Host key verification failed. Run ssh acme-mini once in Terminal, then add its host key to known_hosts.", nil),
+            ("no-server", "herdr isn't running on acme-mini.", nil),
+            ("removed", "acme-mini is no longer a saved herdr machine.", .init(title: "Switch to Default", perform: {})),
+        ]
+        for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {
+            for (kind, message, action) in cases {
+                let window = hostWindow(NoHerdrScreen(
+                    theme: theme, copy: NoHerdrScreen.machine(label: "acme-mini", message: message), primaryAction: action
+                ))
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("no-herdr-machine-\(kind)-\(theme.id).png")
+                    try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+                }
+                XCTAssertEqual(hex(image, CGPoint(x: 10, y: 10)), theme.palette.chromeRoles.chrome.hex)
+                window.close()
+            }
+        }
+    }
+
     /// The server's environment is every pane shell's, so rt's batch flag
     /// (set for flock's own children) must not reach it.
     func testTheServerStartsWithoutRtsBatchFlag() {

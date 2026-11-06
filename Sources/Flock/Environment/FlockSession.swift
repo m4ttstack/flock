@@ -60,6 +60,9 @@ final class FlockSession: ProfileSession {
     /// session is dropped.
     let machineTunnel: MachineTunnel?
     var isRemoteMachine: Bool { machineTunnel != nil }
+    /// Nil off a machine session, which is the only one a version mismatch
+    /// concerns.
+    let localHerdrVersion: LocalHerdrVersion?
 
     init(
         context: ProfileSessionContext,
@@ -68,7 +71,8 @@ final class FlockSession: ProfileSession {
         herdProgress: HerdProgressStore,
         resnapshotInterval: Duration?,
         home: String = NSHomeDirectory(),
-        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel
+        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel,
+        localHerdrVersion: @escaping @Sendable () -> String? = LocalHerdrVersion.readInstalled
     ) {
         let preferences = context.preferences
         let idState = context.idState
@@ -77,6 +81,7 @@ final class FlockSession: ProfileSession {
         self.socketPath = socketPath
         address = HerdrServerAddress(socketPath: socketPath, home: home)
         machineTunnel = context.isRemoteMachine ? context.profile.machine.map(makeTunnel) : nil
+        self.localHerdrVersion = machineTunnel == nil ? nil : LocalHerdrVersion(read: localHerdrVersion)
 
         let themeStore = ThemeStore(userDefaults: preferences)
         self.themeStore = themeStore
@@ -231,6 +236,7 @@ final class FlockSession: ProfileSession {
     /// The store's reconnect loop covers the wait for the tunnel's socket.
     func start() async {
         machineTunnel?.start()
+        if let localHerdrVersion { Task { await localHerdrVersion.loadOnce() } }
         await herdrStore.start()
     }
 

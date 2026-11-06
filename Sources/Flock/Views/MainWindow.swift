@@ -21,6 +21,7 @@ struct MainWindow: View {
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
     var isDevBuild = BuildFlavor.isDev
+    var machineNotice: MachineNotice? = nil
 
     private var theme: Theme { themeStore.active }
 
@@ -131,7 +132,8 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel
+                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel,
+                machineNotice: machineNotice
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -395,6 +397,8 @@ struct TitleBar: View {
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
     /// Draws the top-bar workspaces; none without it.
     var viewModel: SessionViewModel? = nil
+    /// A machine profile's connection line, which replaces "herdr · label".
+    var machineNotice: MachineNotice? = nil
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
@@ -430,7 +434,7 @@ struct TitleBar: View {
     }
 
     private var hasNotices: Bool {
-        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
+        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil || machineNotice != nil
             || herdrUpdate?.displayedNotice != nil
     }
 
@@ -513,7 +517,26 @@ struct TitleBar: View {
     /// nothing but its title.
     @ViewBuilder
     private var connectionNotice: some View {
-        if let color = noticeColor {
+        if let machineNotice {
+            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                Circle().fill(theme.yellow).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
+                Text(machineNotice.text)
+                    .font(ChromeType.connectionNotice)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: ChromeMetrics.TitleBar.machineNoticeMaxWidth, alignment: .leading)
+                    .help(machineNotice.text)
+                    .accessibilityIdentifier("flock.titleBar.machineNotice")
+                if let action = machineNotice.action {
+                    Button(action.title, action: action.perform)
+                        .buttonStyle(.plain)
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.accent)
+                        .accessibilityIdentifier("flock.titleBar.machineNoticeAction")
+                }
+            }
+        } else if let color = noticeColor {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                 Circle().fill(color).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
                 Text("herdr · \(sessionLabel)")

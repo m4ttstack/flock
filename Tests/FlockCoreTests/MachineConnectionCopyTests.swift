@@ -76,6 +76,22 @@ final class MachineConnectionCopyTests: XCTestCase {
         XCTAssertNil(MachineConnectionCopy.versionWarning(label: label, local: "0.9.5", remote: nil))
     }
 
+    func testNoticePrefersRemovedThenBannerThenAVersionWarningWhileLive() {
+        func notice(_ tunnel: MachineTunnelState, _ store: ConnectionState, removed: Bool = false, remote: String? = "0.9.6") -> String? {
+            MachineConnectionCopy.notice(
+                label: label, tunnel: tunnel, store: store, local: "0.9.5", remote: remote, removed: removed
+            )
+        }
+        XCTAssertEqual(notice(.up, .live, removed: true), "acme-mini is no longer a saved herdr machine.")
+        XCTAssertEqual(notice(.noServer, .notRunning(attempt: 1)), "herdr isn't running on acme-mini.")
+        XCTAssertEqual(
+            notice(.up, .live),
+            "acme-mini runs herdr 0.9.6 and this Mac has 0.9.5. Panes may misbehave until they match."
+        )
+        XCTAssertNil(notice(.up, .live, remote: "0.9.5"))
+        XCTAssertNil(notice(.up, .unsupported(.timedOut(method: "x"))), "the version warning only shows while live")
+    }
+
     func testRemoved() {
         XCTAssertEqual(MachineConnectionCopy.removed(label: label), "acme-mini is no longer a saved herdr machine.")
     }

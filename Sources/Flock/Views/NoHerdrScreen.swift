@@ -50,6 +50,12 @@ struct NoHerdrScreen: View {
         }
     }
 
+    /// A machine profile's server is not this Mac's to start, so the screen
+    /// carries the connection message and no hint about starting one.
+    static func machine(label: String, message: String) -> Copy {
+        Copy(headline: "herdr on \(label)", body: message, hint: "")
+    }
+
     /// Nil means no button: flock starts a custom path's server only under
     /// an override.
     static func startTitle(for address: HerdrServerAddress, isOverride: Bool, isStarting: Bool) -> String? {
@@ -94,10 +100,12 @@ struct NoHerdrScreen: View {
                 .font(ChromeType.noHerdrBody)
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
-            Text(copy.hint)
-                .font(ChromeType.noHerdrHint)
-                .foregroundStyle(theme.textLabel)
-                .multilineTextAlignment(.center)
+            if !copy.hint.isEmpty {
+                Text(copy.hint)
+                    .font(ChromeType.noHerdrHint)
+                    .foregroundStyle(theme.textLabel)
+                    .multilineTextAlignment(.center)
+            }
             if let primaryAction {
                 Button(primaryAction.title, action: primaryAction.perform)
                     .buttonStyle(PrimaryActionStyle(theme: theme))

@@ -24,6 +24,18 @@ public enum MachineConnectionCopy {
         }
     }
 
+    /// A removed machine outranks the connection, which outranks a version
+    /// mismatch; the mismatch shows only once panes are being served.
+    public static func notice(
+        label: String, tunnel: MachineTunnelState, store: ConnectionState,
+        local: String?, remote: String?, removed: Bool
+    ) -> String? {
+        if removed { return Self.removed(label: label) }
+        if let banner = banner(label: label, tunnel: tunnel, store: store) { return banner }
+        guard store == .live else { return nil }
+        return versionWarning(label: label, local: local, remote: remote)
+    }
+
     public static func versionWarning(label: String, local: String?, remote: String?) -> String? {
         guard let local, let remote, local != remote else { return nil }
         return "\(label) runs herdr \(remote) and this Mac has \(local). Panes may misbehave until they match."
