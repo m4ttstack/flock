@@ -64,12 +64,16 @@ public enum RepoBranchReader {
 public final class RepoBranchCache {
     private var entries: [String: RepoBranch] = [:]
     private let read: (String) -> RepoBranch
+    /// A remote machine's folders are not on this disk: each is its name and
+    /// no branch.
+    public var isRemoteMachine = false
 
     public init(read: @escaping (String) -> RepoBranch = RepoBranchReader.read(folder:)) {
         self.read = read
     }
 
     public func repoBranch(for folder: String) -> RepoBranch {
+        if isRemoteMachine { return RepoBranch(repo: URL(fileURLWithPath: folder).lastPathComponent, branch: nil) }
         if let hit = entries[folder] { return hit }
         let value = read(folder)
         entries[folder] = value

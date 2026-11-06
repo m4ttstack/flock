@@ -78,6 +78,9 @@ public final class SessionViewModel {
         }
     }
     public let repoBranches: RepoBranchCache
+    /// The session's panes are on another Mac: their folders name nothing on
+    /// this one's disk, and its local tools must not be pointed at them.
+    public let isRemoteMachine: Bool
 
     /// Written from inside view bodies, which must not invalidate the views
     /// reading it; `lastLines` is what they observe.
@@ -267,8 +270,10 @@ public final class SessionViewModel {
         pinnedWorkspaceDefaults: UserDefaults? = nil,
         identity: WorkspaceIdentityStore? = nil,
         folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists,
-        cswapAccounts: @escaping @Sendable () async -> [CswapAccount]? = { nil }
+        cswapAccounts: @escaping @Sendable () async -> [CswapAccount]? = { nil },
+        isRemoteMachine: Bool = false
     ) {
+        self.isRemoteMachine = isRemoteMachine
         self.repoBranches = repoBranches
         self.client = client
         self.ghosttyFactory = ghosttyFactory
@@ -307,6 +312,8 @@ public final class SessionViewModel {
             attentionToasts = attentionToastArchive.load()
         }
         self.rt.leavesFocusAlone = { [weak self] in self?.paneShownInOverview != nil }
+        self.rt.isRemoteMachine = isRemoteMachine
+        repoBranches.isRemoteMachine = isRemoteMachine
     }
 
     public var unsupportedBanner: ProtocolMismatch? {
@@ -1936,6 +1943,7 @@ public final class SessionViewModel {
     /// is counted without.
     @discardableResult
     public func perform(subject: DragSubject, target: DropTarget, board: BoardWorkspaceNames? = nil) async -> DragOutcome {
+        let board = localBoard(board)
         if let outcome = await performPinDrop(subject: subject, target: target, board: board) { return outcome }
         return await performPlanned(subject: subject, target: target, board: board, pinned: nil)
     }
@@ -2213,7 +2221,16 @@ public final class SessionViewModel {
     }
 
     public func railSections(board: BoardWorkspaceNames?, herdProgress: [String: HerdProgress] = [:]) -> RailSections? {
-        model.map { RailSections(model: $0, board: board, herdProgress: herdProgress, pins: pins.pins, topBarModel: userModel) }
+        let progress = isRemoteMachine ? [:] : herdProgress
+        return model.map {
+            RailSections(model: $0, board: localBoard(board), herdProgress: progress, pins: pins.pins, topBarModel: userModel)
+        }
+    }
+
+    /// Board and rt read this Mac's own herdr and repos, so a remote
+    /// machine's workspaces are never theirs, whatever they are called.
+    private func localBoard(_ board: BoardWorkspaceNames?) -> BoardWorkspaceNames? {
+        isRemoteMachine ? nil : board
     }
 
     public func pin(workspace: WorkspaceID, at index: Int? = nil) {
@@ -2274,7 +2291,8 @@ public final class SessionViewModel {
     /// for a launch to run in.
     @discardableResult
     public func startWorkspace(in folder: String) async -> PaneID? {
-        let params: [String: JSONValue] = ["focus": .bool(true), "cwd": .string(folder)]
+        var params: [String: JSONValue] = ["focus": .bool(true)]
+        if !isRemoteMachine { params["cwd"] = .string(folder) }
         return await create("workspace.create", params, label: "New workspace")?.rootPaneID
     }
 
@@ -2460,7 +2478,7 @@ public final class SessionViewModel {
     }
 
     private func startingCwd(forTabIn workspace: WorkspaceID) async -> String? {
-        if let folder = pins.pin(linkedTo: workspace)?.folder, folderExists(folder) { return folder }
+        if let folder = pins.pin(linkedTo: workspace)?.folder, pinFolderIsThere(folder) { return folder }
         return await startingCwd(for: .tab, from: resolvedFocusedPaneID)
     }
 
@@ -2484,7 +2502,7 @@ public final class SessionViewModel {
     /// actor.
     private func startingCwd(for kind: NewTerminalKind, from source: PaneID?) async -> String? {
         let choice = startingFolder(kind)
-        guard choice.folder != .currentPane else { return nil }
+        guard choice.folder != .currentPane, !isRemoteMachine else { return nil }
         let paneFolder = choice.folder.needsPaneFolder ? await liveFolder(of: source) : nil
         let home = homeDirectory
         return await Task.detached { choice.cwd(paneFolder: paneFolder, home: home) }.value
@@ -2531,6 +2549,12 @@ public final class SessionViewModel {
         }
     }
 
+    /// A remote machine's pin folders came from its own panes and name
+    /// nothing here, so this disk is not asked about them.
+    private func pinFolderIsThere(_ folder: String) -> Bool {
+        isRemoteMachine || folderExists(folder)
+    }
+
     public nonisolated static func directoryExists(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -2543,7 +2567,7 @@ public final class SessionViewModel {
         guard let pin = pins.pin(id), !isOpen(pin), !reopening.contains(id) else { return nil }
         reopening.insert(id)
         defer { reopening.remove(id) }
-        let folderIsThere = folderExists(pin.folder)
+        let folderIsThere = pinFolderIsThere(pin.folder)
         let params: [String: JSONValue] = [
             "focus": .bool(focus), "cwd": .string(folderIsThere ? pin.folder : homeDirectory),
         ]
@@ -2565,6 +2589,10 @@ public final class SessionViewModel {
     /// once its shell reaches a prompt, under the pin's Claude account for a
     /// Claude kind.
     public func openLink(_ link: FlockOpenLink, pin: PinnedWorkspace?, board: BoardWorkspaceNames?) async {
+        guard !isRemoteMachine else {
+            noticeSink("\(link.label) didn't open: board links open on this Mac's herdr, not a herdr machine.")
+            return
+        }
         var workspace: WorkspaceID?
         if let pin {
             if !isOpen(pin) { await reopen(pin.id, focus: false) }
