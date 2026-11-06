@@ -316,19 +316,41 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     }
 
     private var footer: some View {
-        let glyph = trigger.keyGlyph
-        let key = trigger.keyCode == SwitcherTrigger.controlTab.keyCode ? Text(glyph) : Text(glyph).font(ChromeType.switcherBacktick)
-        return HStack(alignment: .firstTextBaseline, spacing: Metrics.footerGap) {
-            Text("\(key) next")
-            Text("⇧\(key) back")
-            Text("release \(trigger.modifierGlyph) to open")
-            Text("esc cancel")
+        HStack(spacing: Metrics.footerGap) {
+            hint(keys: [trigger.keyGlyph], after: "next")
+            hint(keys: ["\u{21E7}", trigger.keyGlyph], after: "back")
+            hint(before: "release", keys: [trigger.modifierGlyph], after: "to open")
+            hint(keys: ["esc"], after: "cancel")
             Spacer(minLength: 0)
         }
         .font(ChromeType.paletteFooter)
         .foregroundStyle(theme.textLabel)
         .padding(.horizontal, Metrics.searchPadding)
         .frame(height: Metrics.footerHeight)
+    }
+
+    private func hint(before: String? = nil, keys: [String], after: String) -> some View {
+        HStack(spacing: ChromeMetrics.Switcher.keycapLabelGap) {
+            if let before { Text(before) }
+            HStack(spacing: ChromeMetrics.Switcher.keycapGap) {
+                ForEach(keys, id: \.self) { keycap($0) }
+            }
+            Text(after)
+        }
+    }
+
+    private func keycap(_ glyph: String) -> some View {
+        typealias Switcher = ChromeMetrics.Switcher
+        let isBacktick = glyph == SwitcherTrigger.controlBacktick.keyGlyph
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.tiny)
+        return Text(verbatim: glyph)
+            .font(isBacktick ? ChromeType.switcherBacktick : ChromeType.switcherKeycap)
+            .offset(y: isBacktick ? Switcher.backtickDrop : 0)
+            .padding(.horizontal, glyph.count > 1 ? Switcher.keycapPadding : 0)
+            .frame(minWidth: Switcher.keycapHeight, minHeight: Switcher.keycapHeight, maxHeight: Switcher.keycapHeight)
+            .background(shape.fill(theme.textLabel.opacity(Switcher.keycapFillOpacity)))
+            .overlay(shape.strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
+            .clipShape(shape)
     }
 
     private func open(_ id: ID) {

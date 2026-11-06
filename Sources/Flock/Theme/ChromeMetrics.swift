@@ -1123,6 +1123,16 @@ enum ChromeMetrics {
         /// The title row naming what the list holds, and the rule under it.
         static let headerHeight: CGFloat = 30
 
+        /// The footer's key hints, each key on a small cap.
+        static let keycapHeight: CGFloat = 16
+        static let keycapPadding: CGFloat = 4
+        static let keycapGap: CGFloat = 2
+        static let keycapLabelGap: CGFloat = 4
+        static let keycapFillOpacity: Double = 0.12
+        /// A backtick sits at the top of its line; this brings it to the
+        /// cap's middle.
+        static let backtickDrop: CGFloat = 5
+
         /// The header, the footer and a rule under or over each.
         static var chromeHeight: CGFloat {
             headerHeight + ChromeMetrics.Palette.footerHeight + 2 * ChromeMetrics.ruleWidth
