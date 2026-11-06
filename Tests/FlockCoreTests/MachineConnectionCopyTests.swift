@@ -152,4 +152,14 @@ final class MachineConnectionCopyTests: XCTestCase {
     func testRemoved() {
         XCTAssertEqual(MachineConnectionCopy.removed(label: label), "acme-mini is no longer a saved herdr machine.")
     }
+
+    func testDetailIsWhatFollowsTheFirstSentence() {
+        let full = "Can't reach acme-mini. Host key verification failed. Run ssh acme-mini once in Terminal, then add its host key to known_hosts."
+        XCTAssertEqual(MachineConnectionCopy.short(full), "Can't reach acme-mini.")
+        XCTAssertEqual(
+            MachineConnectionCopy.detail(full),
+            "Host key verification failed. Run ssh acme-mini once in Terminal, then add its host key to known_hosts."
+        )
+        XCTAssertEqual(MachineConnectionCopy.detail("herdr isn't running on acme-mini."), "")
+    }
 }

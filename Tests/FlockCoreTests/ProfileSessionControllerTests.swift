@@ -293,16 +293,19 @@ final class ProfileSessionControllerTests: XCTestCase {
         let switched = Task { await controller.switchTo(profileID: fixture.p1.id) }
         while fixture.gate.waiting == nil { await Task.yield() }
         XCTAssertEqual(controller.switchingTo, acme)
+        XCTAssertEqual(controller.switchingToProfile?.id, fixture.p1.id)
         fixture.gate.waiting?.resume()
         fixture.gate.waiting = nil
         let switchResult = await switched.value
         XCTAssertTrue(switchResult)
         XCTAssertNil(controller.switchingTo)
+        XCTAssertNil(controller.switchingToProfile)
 
         fixture.gate.armed = true
         let changed = Task { await controller.changeServer(to: "~/.config/herdr/herdr.sock") }
         while fixture.gate.waiting == nil { await Task.yield() }
         XCTAssertEqual(controller.switchingTo, home)
+        XCTAssertNil(controller.switchingToProfile, "a server change is not a profile switch")
         fixture.gate.waiting?.resume()
         let changeResult = await changed.value
         XCTAssertTrue(changeResult)
@@ -315,6 +318,7 @@ final class ProfileSessionControllerTests: XCTestCase {
         await controller.switchTo(profileID: fixture.p1.id)
         await controller.changeServer(to: acme)
         XCTAssertNil(controller.switchingTo)
+        XCTAssertNil(controller.switchingToProfile)
     }
 
     func testASwitchRequestedMidSwitchWaitsItsTurn() async throws {

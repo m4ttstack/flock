@@ -84,6 +84,9 @@ public final class ProfileSessionController<Session: ProfileSession> {
     /// The socket a confirmed switch is moving onto, from confirmation until
     /// `socketPath` holds it; the old session's teardown runs in between.
     public private(set) var switchingTo: String?
+    /// The profile a confirmed switch is moving onto, over the same span as
+    /// `switchingTo`; nil for a server change within the current profile.
+    public private(set) var switchingToProfile: FlockProfile?
 
     @ObservationIgnored private let environment: ProfileSessionEnvironment<Session>
     @ObservationIgnored private var queue: Task<Bool, Never>?
@@ -133,6 +136,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         let key = Self.attachKey(for: target, on: newSocket, environment: environment)
         guard await environment.confirmAttach(key, targetLabel, profiles.current.name) else { return false }
         switchingTo = newSocket
+        switchingToProfile = target
         await session.shutdown()
         profiles.select(profileID)
         await rebuild(on: newSocket)
@@ -161,6 +165,7 @@ public final class ProfileSessionController<Session: ProfileSession> {
         socketPath = newSocket
         attachKey = key
         switchingTo = nil
+        switchingToProfile = nil
         environment.register(key)
         generation += 1
         await session.start()

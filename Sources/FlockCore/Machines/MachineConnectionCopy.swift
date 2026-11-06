@@ -52,6 +52,13 @@ public enum MachineConnectionCopy {
         return String(full[..<stop.upperBound]).trimmingCharacters(in: .whitespaces)
     }
 
+    /// What follows `short(full)`: the reason and hint of a banner, empty
+    /// when it is one sentence.
+    public static func detail(_ full: String) -> String {
+        guard let stop = full.range(of: ". ") else { return "" }
+        return String(full[stop.upperBound...]).trimmingCharacters(in: .whitespaces)
+    }
+
     public static func removed(label: String) -> String {
         "\(label) is no longer a saved herdr machine."
     }
