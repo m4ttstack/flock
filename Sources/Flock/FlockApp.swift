@@ -281,7 +281,8 @@ struct FlockApp: App {
         let removed = controller.profiles.currentMachineMissing
         guard let text = MachineConnectionCopy.notice(
             label: label, tunnel: tunnel.state, store: viewModel.connectionState,
-            local: session.localHerdrVersion?.version, remote: viewModel.model?.herdrVersion, removed: removed
+            local: session.localHerdrVersion?.version, remote: viewModel.model?.herdrVersion, removed: removed,
+            tunnelUpGraceActive: session.machineConnection?.graceActive ?? false
         ) else { return nil }
         guard removed else { return MachineNotice(text: text) }
         return MachineNotice(text: text, action: .init(title: "Switch to Default") {

@@ -3,9 +3,12 @@ import Foundation
 /// What a machine profile's window says while its ssh forward or the remote
 /// herdr is not serving panes. The tunnel's state wins over the store's,
 /// except once the forward is up: then only the store knows whether herdr
-/// answers.
+/// answers. `tunnelUpGraceActive` covers the store's first attempts after the
+/// forward comes up, which may still be failing on the wait it began before.
 public enum MachineConnectionCopy {
-    public static func banner(label: String, tunnel: MachineTunnelState, store: ConnectionState) -> String? {
+    public static func banner(
+        label: String, tunnel: MachineTunnelState, store: ConnectionState, tunnelUpGraceActive: Bool = false
+    ) -> String? {
         switch tunnel {
         case .stopped:
             return nil
@@ -19,7 +22,7 @@ public enum MachineConnectionCopy {
             switch store {
             case .live, .unsupported: return nil
             case .connecting: return connecting(label)
-            case .reconnecting, .notRunning: return notRunning(label)
+            case .reconnecting, .notRunning: return tunnelUpGraceActive ? connecting(label) : notRunning(label)
             }
         }
     }
@@ -28,10 +31,12 @@ public enum MachineConnectionCopy {
     /// mismatch; the mismatch shows only once panes are being served.
     public static func notice(
         label: String, tunnel: MachineTunnelState, store: ConnectionState,
-        local: String?, remote: String?, removed: Bool
+        local: String?, remote: String?, removed: Bool, tunnelUpGraceActive: Bool = false
     ) -> String? {
         if removed { return Self.removed(label: label) }
-        if let banner = banner(label: label, tunnel: tunnel, store: store) { return banner }
+        if let banner = banner(label: label, tunnel: tunnel, store: store, tunnelUpGraceActive: tunnelUpGraceActive) {
+            return banner
+        }
         guard store == .live else { return nil }
         return versionWarning(label: label, local: local, remote: remote)
     }

@@ -64,6 +64,7 @@ public final class HerdrStore {
     private var runLoopTask: Task<Void, Never>?
     private var activeSubscribeSocket: LineSocket?
     private var reconnectAttempt = 0
+    private var backoffWait: Task<Void, Never>?
 
     // Every `execute` bumps this before publishing its overlay; a pending
     // convergence watch checks its own snapshot against the current value
@@ -664,7 +665,18 @@ public final class HerdrStore {
         guard !Task.isCancelled else { return }
         reconnectAttempt += 1
         connection = noServer ? .notRunning(attempt: reconnectAttempt) : .reconnecting(attempt: reconnectAttempt)
-        try? await Task.sleep(for: backoffSchedule(reconnectAttempt))
+        let delay = backoffSchedule(reconnectAttempt)
+        let wait = Task<Void, Never> { try? await Task.sleep(for: delay) }
+        backoffWait = wait
+        await withTaskCancellationHandler { await wait.value } onCancel: { wait.cancel() }
+        backoffWait = nil
+    }
+
+    /// Ends a backoff wait early, for a caller that knows the socket now
+    /// answers. Does nothing unless the run loop is mid-wait, so it can never
+    /// start a second connect.
+    public func reconnectNow() {
+        backoffWait?.cancel()
     }
 
     /// No socket file, or one nothing listens on (a server that exited

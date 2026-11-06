@@ -60,6 +60,7 @@ final class FlockSession: ProfileSession {
     /// session is dropped.
     let machineTunnel: MachineTunnel?
     var isRemoteMachine: Bool { machineTunnel != nil }
+    let machineConnection: MachineConnectionWatch?
     /// Nil off a machine session, which is the only one a version mismatch
     /// concerns.
     let localHerdrVersion: LocalHerdrVersion?
@@ -135,6 +136,7 @@ final class FlockSession: ProfileSession {
         let herdrStore = resnapshotInterval.map { HerdrStore(socketPath: socketPath, resnapshotInterval: $0) }
             ?? HerdrStore(socketPath: socketPath)
         self.herdrStore = herdrStore
+        machineConnection = machineTunnel.map { MachineConnectionWatch(tunnel: $0, store: herdrStore) }
         let undoJournal = UndoJournal(
             executor: herdrStore,
             model: { herdrStore.model },
@@ -246,8 +248,10 @@ final class FlockSession: ProfileSession {
         commandPalette = CommandPaletteState()
     }
 
-    /// The store's reconnect loop covers the wait for the tunnel's socket.
+    /// The store's reconnect loop covers the wait for the tunnel's socket, and
+    /// the watch cuts its backoff short once the forward is up.
     func start() async {
+        machineConnection?.start()
         machineTunnel?.start()
         if let localHerdrVersion { localVersionLoad = Task { await localHerdrVersion.loadOnce() } }
         await herdrStore.start()
@@ -255,6 +259,7 @@ final class FlockSession: ProfileSession {
 
     func shutdown() async {
         localVersionLoad?.cancel()
+        machineConnection?.stop()
         herdrHoldCoordinator.invalidate()
         dragCoordinator.invalidate()
         rearrangeMode.invalidate()

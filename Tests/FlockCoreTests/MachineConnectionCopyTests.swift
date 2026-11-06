@@ -66,6 +66,47 @@ final class MachineConnectionCopyTests: XCTestCase {
         XCTAssertEqual(banner(.up, .connecting), "Connecting to acme-mini\u{2026}")
     }
 
+    func testUpForwardInItsGraceReadsAsConnectingWhileTheStoreWaitsOutABackoff() {
+        func grace(_ store: ConnectionState) -> String? {
+            MachineConnectionCopy.banner(label: label, tunnel: .up, store: store, tunnelUpGraceActive: true)
+        }
+        XCTAssertEqual(grace(.notRunning(attempt: 2)), "Connecting to acme-mini\u{2026}")
+        XCTAssertEqual(grace(.reconnecting(attempt: 1)), "Connecting to acme-mini\u{2026}")
+        XCTAssertNil(grace(.live))
+    }
+
+    func testUpForwardAfterItsGraceReadsAsNotRunning() {
+        let after = MachineConnectionCopy.banner(
+            label: label, tunnel: .up, store: .notRunning(attempt: 2), tunnelUpGraceActive: false
+        )
+        XCTAssertEqual(after, "herdr isn't running on acme-mini.")
+    }
+
+    func testGraceChangesNothingWhileTheTunnelIsNotUp() {
+        XCTAssertEqual(
+            MachineConnectionCopy.banner(label: label, tunnel: .noServer, store: .notRunning(attempt: 1), tunnelUpGraceActive: true),
+            "herdr isn't running on acme-mini."
+        )
+        XCTAssertEqual(
+            MachineConnectionCopy.banner(
+                label: label, tunnel: .unreachable(reason: "Connection timed out."), store: .notRunning(attempt: 1),
+                tunnelUpGraceActive: true
+            ),
+            "Can't reach acme-mini. Connection timed out."
+        )
+    }
+
+    func testNoticeCarriesTheGraceThrough() {
+        func notice(grace: Bool) -> String? {
+            MachineConnectionCopy.notice(
+                label: label, tunnel: .up, store: .notRunning(attempt: 1), local: nil, remote: nil, removed: false,
+                tunnelUpGraceActive: grace
+            )
+        }
+        XCTAssertEqual(notice(grace: true), "Connecting to acme-mini\u{2026}")
+        XCTAssertEqual(notice(grace: false), "herdr isn't running on acme-mini.")
+    }
+
     func testVersionWarning() {
         XCTAssertEqual(
             MachineConnectionCopy.versionWarning(label: label, local: "0.9.5", remote: "0.9.6"),
