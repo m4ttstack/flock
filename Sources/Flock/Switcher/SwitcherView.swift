@@ -17,7 +17,7 @@ struct SwitcherOverlay: View {
         let busy = { [viewModel] in palette.isOpen || viewModel.renameEditorIsOnScreen || viewModel.rt.modal != nil }
         ZStack {
             SwitcherView(
-                theme: theme, switcher: workspaces, trigger: .control, accessibilityPrefix: "flock.switcher",
+                theme: theme, switcher: workspaces, trigger: .controlTab, accessibilityPrefix: "flock.switcher",
                 heading: "Workspaces",
                 row: { [viewModel] id in Self.workspaceRow(id, viewModel: viewModel) },
                 candidates: { [viewModel] in Self.workspaceCandidates(viewModel: viewModel) },
@@ -41,7 +41,7 @@ struct SwitcherOverlay: View {
             // rt the box keeps its narrow width and no row asks after anyone.
             let chat = chatStore.isAvailable ? chatStore : nil
             SwitcherView(
-                theme: theme, switcher: tabs, trigger: .option, accessibilityPrefix: "flock.tabSwitcher",
+                theme: theme, switcher: tabs, trigger: .optionTab, accessibilityPrefix: "flock.tabSwitcher",
                 heading: "Tabs",
                 width: chat == nil ? ChromeMetrics.Switcher.width : ChromeMetrics.Switcher.chatWidth,
                 scope: { [viewModel] in
@@ -267,12 +267,9 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     }
 
     private var footer: some View {
-        let glyph = switch trigger {
-        case .control: "⌃"
-        case .option: "⌥"
-        }
+        let key = trigger.keyGlyph
         return HStack(spacing: Metrics.footerGap) {
-            ForEach(["⇥ next", "⇧⇥ back", "release \(glyph) to open", "esc cancel"], id: \.self) { hint in
+            ForEach(["\(key) next", "⇧\(key) back", "release \(trigger.modifierGlyph) to open", "esc cancel"], id: \.self) { hint in
                 Text(hint).font(ChromeType.paletteFooter).foregroundStyle(theme.textLabel)
             }
             Spacer(minLength: 0)

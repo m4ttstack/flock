@@ -148,7 +148,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
         func decide(_ keyCode: UInt16, control: Bool = true, shift: Bool = false, command: Bool = false, option: Bool = false, active: Bool = false)
             -> SwitcherKey.Decision {
             SwitcherKey.decide(
-                trigger: .control, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
+                trigger: .controlTab, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
             )
         }
         let tab: UInt16 = 48
@@ -169,7 +169,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
         func decide(_ keyCode: UInt16, control: Bool = false, shift: Bool = false, command: Bool = false, option: Bool = true, active: Bool = false)
             -> SwitcherKey.Decision {
             SwitcherKey.decide(
-                trigger: .option, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
+                trigger: .optionTab, keyCode: keyCode, control: control, shift: shift, command: command, option: option, active: active
             )
         }
         let tab: UInt16 = 48

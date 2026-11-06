@@ -5,7 +5,7 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs. Keeps what was most recently selected across launches,
+/// workspace's tabs, ⌃` over profiles. Keeps what was most recently selected across launches,
 /// and, while the trigger is held, the rows on offer and which one letting go
 /// will open.
 @MainActor
@@ -141,18 +141,40 @@ extension RecentsSwitcher where ID == TabID {
     }
 }
 
-/// The modifier that holds a switcher open: ⌃ for workspaces, ⌥ for tabs.
-public enum SwitcherTrigger: Sendable {
-    case control, option
+/// What opens a switcher and holds it open: ⌃Tab over workspaces, ⌥Tab over
+/// tabs, ⌃` over profiles.
+public struct SwitcherTrigger: Equatable, Sendable {
+    public enum Modifier: Sendable { case control, option }
+
+    public let modifier: Modifier
+    public let keyCode: UInt16
+
+    public static let controlTab = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.tab)
+    public static let optionTab = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.tab)
+    public static let controlBacktick = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.grave)
+
+    public var modifierGlyph: String {
+        switch modifier {
+        case .control: "\u{2303}"
+        case .option: "\u{2325}"
+        }
+    }
+
+    public var keyGlyph: String { keyCode == SwitcherKey.tab ? "\u{21E5}" : "`" }
+
+    /// As menus write a shortcut, for tooltips.
+    public var label: String { modifierGlyph + keyGlyph }
 }
 
-/// The keys a switcher takes. Its trigger plus Tab, with Shift to go back,
-/// starts or steps it; while it is up, the arrows step, Return opens, Esc
-/// cancels, and every other key is held back from the pane behind.
+/// The keys a switcher takes. Its trigger, with Shift to go back, starts or
+/// steps it; while it is up, the arrows step, Return opens, Esc cancels, and
+/// every other key is held back from the pane behind.
 public enum SwitcherKey {
     public enum Decision: Equatable, Sendable { case next, previous, commit, cancel, swallow, pass }
 
     static let tab: UInt16 = 48
+    /// The ANSI grave key, which keeps its place whatever the layout types on it.
+    static let grave: UInt16 = 50
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
     static let escape: UInt16 = 53
@@ -164,11 +186,11 @@ public enum SwitcherKey {
     public static func decide(
         trigger: SwitcherTrigger, keyCode: UInt16, control: Bool, shift: Bool, command: Bool, option: Bool, active: Bool
     ) -> Decision {
-        let triggerOnly = switch trigger {
+        let triggerOnly = switch trigger.modifier {
         case .control: control && !option
         case .option: option && !control
         }
-        if keyCode == tab, triggerOnly, !command { return shift ? .previous : .next }
+        if keyCode == trigger.keyCode, triggerOnly, !command { return shift ? .previous : .next }
         guard active else { return .pass }
         switch keyCode {
         case escape: return .cancel
@@ -180,7 +202,7 @@ public enum SwitcherKey {
     }
 
     public static func isHeld(_ trigger: SwitcherTrigger, control: Bool, option: Bool) -> Bool {
-        switch trigger {
+        switch trigger.modifier {
         case .control: control
         case .option: option
         }
