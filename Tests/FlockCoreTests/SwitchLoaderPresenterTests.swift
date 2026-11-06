@@ -108,6 +108,27 @@ final class SwitchLoaderPresenterTests: XCTestCase {
         XCTAssertEqual(presenter.run?.isFinishing, false)
     }
 
+    func testARebuildFromAServerChangeIsTitledByTheServer() {
+        let work = FlockProfile(id: "work", name: "Work", socketPath: nil, knownSockets: [])
+        func built(generation: Int, afterServerChange: Bool, store: ConnectionState) -> SwitchLoaderPresenter.Snapshot {
+            let label = SwitchLoaderPresenter.label(
+                for: work, serverLabel: "acme", isRemoteMachine: false, lastChangeWasServer: afterServerChange
+            )
+            return local(store, generation: generation, label: label)
+        }
+        let presenter = makePresenter(Clock())
+        presenter.update(built(generation: 0, afterServerChange: false, store: .live))
+        XCTAssertNil(presenter.run)
+
+        presenter.update(built(generation: 1, afterServerChange: true, store: .connecting))
+        XCTAssertEqual(presenter.run?.title.current, "Switching to acme")
+
+        XCTAssertEqual(
+            SwitchLoaderPresenter.label(for: work, serverLabel: "acme", isRemoteMachine: false, lastChangeWasServer: false),
+            "Work", "a profile switch is titled by the profile"
+        )
+    }
+
     func testTheFirstUpdateIsLaunchNotASwitch() {
         let presenter = makePresenter(Clock())
         presenter.update(local(.connecting, generation: 3))

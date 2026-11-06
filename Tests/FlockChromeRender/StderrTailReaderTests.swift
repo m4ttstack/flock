@@ -48,5 +48,7 @@ final class StderrTailReaderTests: XCTestCase {
         pipe.fileHandleForWriting.write(Data("late\n".utf8))
         try? pipe.fileHandleForWriting.close()
         try? await Task.sleep(for: .milliseconds(20))
+        let again = await finish(reader)
+        XCTAssertNil(again, "a finished reader takes nothing more")
     }
 }

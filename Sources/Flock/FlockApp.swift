@@ -339,9 +339,10 @@ struct FlockApp: App {
         let profile = session.profile
         return SwitchLoaderPresenter.Snapshot(
             input: SwitchLoaderInput(
-                label: session.isRemoteMachine
-                    ? profile.machine?.label ?? session.address.label
-                    : controller.lastChangeWasServer ? session.address.label : profile.name,
+                label: SwitchLoaderPresenter.label(
+                    for: profile, serverLabel: session.address.label,
+                    isRemoteMachine: session.isRemoteMachine, lastChangeWasServer: controller.lastChangeWasServer
+                ),
                 isMachine: session.isRemoteMachine,
                 isDefaultProfile: profile.id == FlockProfile.defaultID,
                 tunnel: session.machineTunnel?.state ?? .stopped,

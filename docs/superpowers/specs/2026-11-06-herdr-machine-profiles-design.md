@@ -176,13 +176,14 @@ id state is per machine. (Matt's call.)
 
 ### Relaunch
 
-Flock reopens on a machine profile if it quit there. At launch, a saved
-machine id that is not yet confirmed by `herdr machine list` is a pending
-profile: the window shows "Connecting to mini…" and builds no session
-until the list confirms the machine and the tunnel's socket answers. It
-never falls back to Default and shows this Mac's panes in the meantime. If
-the list confirms the machine is gone or disabled, Flock says so and offers
-Default. (Matt's call.)
+Flock reopens on a machine profile if it quit there. Machine profiles
+persist, so at launch Flock tunnels to the stored machine at once, without
+waiting for `herdr machine list`, and shows the switch loader over the
+window: "Connecting to mini…" while the tunnel comes up, then "Can't reach
+mini" with the reason if it fails. If a later machine list says the
+machine is gone, the loader says "mini is no longer a saved herdr machine"
+and offers Switch to Default. It never falls back to Default and shows
+this Mac's panes in the meantime. (Matt's call.)
 
 ### Production and Dev side by side
 
@@ -214,8 +215,9 @@ in the connection banner; do not block. (My call.)
   onto panes today, so "file drop" means files copied in Finder and
   pasted) copy the file to mini over the
   machine's SSH connection (a short `ssh <target> 'cat > <path>'` or
-  equivalent) into a temp
-  directory on mini, then paste mini's path. Upload failures show a short
+  equivalent) into a temp directory on mini that only the remote user
+  owns (an existing one is used only if it is a real directory that user
+  owns), then paste the path mini reports. Upload failures show a short
   note in the pane chrome; nothing local is pasted instead. (Matt's call.)
 - **Starting folder** on a machine profile: Home or Custom resolve on mini,
   not here. Flock omits the local cwd so herdr opens in mini's home, and

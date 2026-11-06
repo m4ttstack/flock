@@ -23,6 +23,16 @@ public final class SwitchLoaderPresenter {
         }
     }
 
+    /// What the loader names for a built session. After a server change it
+    /// names the server, so a rebuild that lands before any pending snapshot
+    /// is drawn still titles the run by the server switched to.
+    public static func label(
+        for profile: FlockProfile, serverLabel: String, isRemoteMachine: Bool, lastChangeWasServer: Bool
+    ) -> String {
+        if isRemoteMachine { return profile.machine?.label ?? serverLabel }
+        return lastChangeWasServer ? serverLabel : profile.name
+    }
+
     public private(set) var run: SwitchLoaderRun?
     /// The loader is fully opaque: what it covers need not be drawn. False
     /// while it fades in over the window and once it starts fading out.
