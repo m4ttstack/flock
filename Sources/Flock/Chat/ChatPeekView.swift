@@ -61,7 +61,7 @@ struct ChatPeekView: View {
     func label(_ text: String) -> some View {
         Text(text)
             .font(ChromeType.chatPopoverSectionLabel)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, ChromeMetrics.ChatPeek.Label.topPadding)
             .padding(.trailing, ChromeMetrics.ChatPeek.Label.trailingPadding)
@@ -81,8 +81,8 @@ struct ChatPeekView: View {
                     .fill(dotColor(for: buddy.status))
                     .frame(width: ChromeMetrics.ChatPeek.PaneRow.dotSize, height: ChromeMetrics.ChatPeek.PaneRow.dotSize)
                 VStack(alignment: .leading, spacing: ChromeMetrics.ChatPeek.PaneRow.stackGap) {
-                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
-                    Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.overlay0)
+                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.textStrong)
+                    Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.textLabel)
                 }
                 Spacer(minLength: 0)
                 if hasUnread { unreadPill(buddy.unread) }
@@ -90,14 +90,14 @@ struct ChatPeekView: View {
                     Image(systemName: "arrow.turn.up.right")
                         .resizable()
                         .scaledToFit()
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                         .frame(width: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.width, height: ChromeMetrics.ChatPeek.PaneRow.jumpIconSize.height)
                 }
             }
             .padding(.vertical, ChromeMetrics.ChatPeek.PaneRow.verticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPeek.PaneRow.horizontalPadding)
             .frame(width: ChromeMetrics.ChatPeek.width, height: ChromeMetrics.ChatPeek.PaneRow.height)
-            .background(hasUnread ? Color(theme.palette.activeRowBg) : Color.clear)
+            .background(hasUnread ? theme.lift : Color.clear)
         }
         .buttonStyle(.plain)
         .allowsHitTesting(onJump != nil)
@@ -105,7 +105,7 @@ struct ChatPeekView: View {
 
     func roomRow(_ room: ChatPeekRoom, isFirst: Bool) -> some View {
         HStack(spacing: ChromeMetrics.ChatPeek.RoomRow.gap) {
-            Text(room.label ?? room.room).font(ChromeType.chatPeekRoomName).foregroundStyle(theme.subtext0)
+            Text(room.label ?? room.room).font(ChromeType.chatPeekRoomName).foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
             if room.unread > 0 { unreadPill(room.unread) }
         }
@@ -120,11 +120,12 @@ struct ChatPeekView: View {
     private func unreadPill(_ count: Int) -> some View {
         Text("\(count)")
             .font(ChromeType.chatPeekUnreadCount)
-            .foregroundStyle(Color(theme.palette.panelBg))
+            .foregroundStyle(theme.textStrong)
             .padding(.vertical, ChromeMetrics.ChatPeek.PaneRow.pillVerticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPeek.PaneRow.pillHorizontalPadding)
             .frame(width: ChromeMetrics.ChatPeek.PaneRow.pillSize.width, height: ChromeMetrics.ChatPeek.PaneRow.pillSize.height)
-            .background(theme.accent, in: Capsule())
+            .background(theme.lift, in: Capsule())
+            .overlay(Capsule().strokeBorder(theme.hairFocus, lineWidth: 1))
     }
 
     private func location(for buddy: ChatBuddy) -> String {
@@ -134,15 +135,14 @@ struct ChatPeekView: View {
         return buddy.title ?? ""
     }
 
-    /// Chat peek's own reduced palette (yellow/green/accent/red), not the
-    /// pane chrome's own agent-status mark: `done` reads `accent` here, never
-    /// `teal`, and an unrecognised word (a buddy no longer signed in) is
+    /// The pane-status colours (working yellow, idle green, done teal,
+    /// blocked red); an unrecognised word (a buddy no longer signed in) is
     /// `overlay0` rather than any of the four live colours.
     private func dotColor(for status: String) -> Color {
         switch AgentStatus(rawValue: status) ?? .unknown {
         case .working: theme.yellow
         case .idle: theme.green
-        case .done: theme.accent
+        case .done: theme.teal
         case .blocked: theme.red
         case .unknown: theme.overlay0
         }
