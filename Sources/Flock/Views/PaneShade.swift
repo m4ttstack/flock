@@ -15,8 +15,10 @@ struct PaneShade: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PaneShadeView { PaneShadeView() }
 
+    /// The view's alpha, not its layer's opacity: AppKit owns a layer-backed
+    /// view's root layer and resets that opacity from the alpha.
     func updateNSView(_ view: PaneShadeView, context: Context) {
-        view.layer?.opacity = Float(veil)
+        view.alphaValue = veil
     }
 }
 
