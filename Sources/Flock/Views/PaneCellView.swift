@@ -915,8 +915,10 @@ struct PaneCellView: View {
         }
     }
 
+    /// Only on the focused pane: the launch keys act there alone, and a strip
+    /// under another pane's shade would fight it.
     private var showsLauncherStrip: Bool {
-        guard let ghosttySurface else { return false }
+        guard isFocused, let ghosttySurface else { return false }
         return PaneLoaderPolicy.showsLauncherOverlay(
             // A key press hides the launcher as it launches; the lit item
             // stays on screen until its flash ends.
