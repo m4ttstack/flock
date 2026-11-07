@@ -293,25 +293,29 @@ enum ChromeMetrics {
             static let glintHalfWidth: CGFloat = 0.18
             static let glintRest: Double = 0.12
             static let glintPeak: Double = 0.85
-            static let cometPeriod: Double = 2.4
+            static let cometPeriod: Double = 2.6
             static let cometTail: CGFloat = 0.3
             /// A bright core with a halo, wider than the line it rides.
             static let cometHeadSize: CGFloat = 7
             /// Each period: crossing, then the impact burst, then a rest.
-            static let cometTravelShare: Double = 0.62
-            static let cometBurstShare: Double = 0.22
+            static let cometTravelShare: Double = 0.55
+            static let cometBurstShare: Double = 0.32
             /// Above 1 the head gathers speed on its way across.
             static let cometAcceleration: Double = 1.25
             static let cometFadeIn: Double = 0.1
             /// The share of the burst the tail takes to pull into the impact.
             static let cometTailRetract: Double = 0.35
             static let cometBurstCanvas: CGFloat = 26
-            /// Thrown back off the trailing wall: up, back and down.
-            static let cometSparkAngles: [Double] = [115, 140, 160, 180, 200, 220, 245]
-            static let cometSparkReach: CGFloat = 11
-            static let cometSparkSize: CGFloat = 2.5
-            /// How far a spark drops by the end of the burst.
-            static let cometSparkFall: CGFloat = 3
+            static let cometSparkCount = 11
+            /// Degrees, 180 straight back off the wall, 270 straight up: most
+            /// sparks leave back and upward, a few skim down.
+            static let cometSparkSpread: ClosedRange<Double> = 150...290
+            /// Points per second.
+            static let cometSparkSpeed: ClosedRange<Double> = 25...110
+            static let cometSparkSize: ClosedRange<CGFloat> = 1.4...3.2
+            /// Points per second squared: enough to carry a spark below the
+            /// line and into the terminal before it fades.
+            static let cometGravity: Double = 320
             static let auroraStops = 16
             static let auroraOpacity: Double = 0.55
             static let workingBreathePeriod: Double = 3.4

@@ -125,17 +125,21 @@ struct PaneStatusLine: View {
         var head: Double
         var envelope: Double
         var burst: Double?
+        /// Which pass this is, so each burst throws its own sparks.
+        var pass: Int = 0
     }
 
     private func cometFlight(_ motion: Motion, t: Double) -> CometFlight {
-        let phase = fraction(t / (M.cometPeriod * motion.slowdown))
+        let cycles = t / (M.cometPeriod * motion.slowdown)
+        let phase = fraction(cycles)
+        let pass = Int(cycles.rounded(.down).truncatingRemainder(dividingBy: 100_000))
         if phase < M.cometTravelShare {
             let head = pow(phase / M.cometTravelShare, M.cometAcceleration)
             return CometFlight(head: head, envelope: smoothstep(0, M.cometFadeIn, head), burst: nil)
         }
         let burst = (phase - M.cometTravelShare) / M.cometBurstShare
         guard burst < 1 else { return CometFlight(head: 1, envelope: 0, burst: nil) }
-        return CometFlight(head: 1, envelope: 1 - smoothstep(0, M.cometTailRetract, burst), burst: burst)
+        return CometFlight(head: 1, envelope: 1 - smoothstep(0, M.cometTailRetract, burst), burst: burst, pass: pass)
     }
 
     @ViewBuilder
@@ -143,7 +147,7 @@ struct PaneStatusLine: View {
         let flight = cometFlight(motion, t: t)
         let size = M.cometHeadSize
         if let burst = flight.burst {
-            cometBurst(motion, progress: burst)
+            cometBurst(motion, progress: burst, pass: flight.pass, seconds: burst * M.cometPeriod * motion.slowdown * M.cometBurstShare)
                 .offset(x: width - M.cometBurstCanvas / 2 - size / 2)
         } else {
             Circle()
@@ -167,34 +171,54 @@ struct PaneStatusLine: View {
         )
     }
 
-    /// The impact: a flash where the head struck, a ring opening out from it,
-    /// and sparks thrown back off the wall, all gone within the burst.
-    private func cometBurst(_ motion: Motion, progress: Double) -> some View {
+    /// The impact: a flash where the head struck, and sparks thrown back off
+    /// the wall that gravity pulls down into the pane as they fade. Every
+    /// spark's speed, angle, size and life come from the pass number, so no
+    /// two bursts match and each one holds still frame to frame.
+    private func cometBurst(_ motion: Motion, progress: Double, pass: Int, seconds: Double) -> some View {
         let color = Color(motion.color)
-        let out = 1 - pow(1 - progress, 3)
-        let fade = pow(1 - progress, 1.5)
-        let canvas = M.cometBurstCanvas
+        let flashSize = M.cometHeadSize * 2
         return ZStack {
             Circle()
                 .fill(headGlow(motion, radius: M.cometHeadSize))
-                .frame(width: M.cometHeadSize * 2, height: M.cometHeadSize * 2)
-                .scaleEffect(1 + 0.6 * out)
-                .opacity(max(0, 1 - progress * 2.5))
-            Circle()
-                .stroke(color.opacity(0.6 * motion.intensity), lineWidth: 1)
-                .frame(width: M.cometHeadSize + (canvas - M.cometHeadSize) * out, height: M.cometHeadSize + (canvas - M.cometHeadSize) * out)
-                .opacity(fade)
-            ForEach(Array(M.cometSparkAngles.enumerated()), id: \.offset) { index, degrees in
-                let radians = degrees * .pi / 180
-                let reach = M.cometSparkReach * (index.isMultiple(of: 2) ? 1 : 0.7) * out
+                .frame(width: flashSize, height: flashSize)
+                .scaleEffect(1 + 0.5 * (1 - pow(1 - progress, 3)))
+                .opacity(max(0, 1 - progress * 3))
+            ForEach(0..<M.cometSparkCount, id: \.self) { index in
+                let spark = Spark(pass: pass, index: index)
+                let life = min(1, progress / spark.life)
+                let x = spark.velocity.dx * seconds
+                let y = spark.velocity.dy * seconds + 0.5 * M.cometGravity * seconds * seconds
                 Circle()
-                    .fill(index.isMultiple(of: 3) ? Color.white.opacity(0.85 * motion.intensity) : color.opacity(motion.intensity))
-                    .frame(width: M.cometSparkSize * (1 - 0.5 * progress), height: M.cometSparkSize * (1 - 0.5 * progress))
-                    .offset(x: cos(radians) * reach, y: sin(radians) * reach + M.cometSparkFall * progress * progress)
-                    .opacity(fade)
+                    .fill(spark.isWhite ? Color.white.opacity(0.85 * motion.intensity) : color.opacity(motion.intensity))
+                    .frame(width: spark.size, height: spark.size)
+                    .offset(x: x, y: y)
+                    .opacity(life < 1 ? 1 - pow(life, 2.5) : 0)
             }
         }
-        .frame(width: canvas, height: canvas)
+        .frame(width: M.cometBurstCanvas, height: M.cometBurstCanvas)
+    }
+
+    /// One spark of a burst, drawn from a hash of its pass and index.
+    private struct Spark {
+        let velocity: CGVector
+        let size: CGFloat
+        let life: Double
+        let isWhite: Bool
+
+        init(pass: Int, index: Int) {
+            func noise(_ salt: Double) -> Double {
+                let v = sin(Double(pass) * 12.9898 + Double(index) * 78.233 + salt * 37.719) * 43758.5453
+                return v - v.rounded(.down)
+            }
+            typealias M = ChromeMetrics.Pane.StatusLine
+            let angle = (M.cometSparkSpread.lowerBound + noise(1) * (M.cometSparkSpread.upperBound - M.cometSparkSpread.lowerBound)) * .pi / 180
+            let speed = M.cometSparkSpeed.lowerBound + noise(2) * (M.cometSparkSpeed.upperBound - M.cometSparkSpeed.lowerBound)
+            velocity = CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed)
+            size = M.cometSparkSize.lowerBound + noise(3) * (M.cometSparkSize.upperBound - M.cometSparkSize.lowerBound)
+            life = 0.55 + noise(4) * 0.45
+            isWhite = noise(5) < 0.3
+        }
     }
 
     private func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
