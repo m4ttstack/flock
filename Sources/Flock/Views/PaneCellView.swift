@@ -642,7 +642,7 @@ struct PaneCellView: View {
             if chatButtonAppearance != .absent { chatButton }
         }
         .frame(height: ChromeMetrics.PaneBar.rowHeight)
-        .padding(.top, ChromeMetrics.PaneBar.rowTop)
+        .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
         .padding(.trailing, PaneChrome.horizontalPadding)
     }
 
