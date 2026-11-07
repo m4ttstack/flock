@@ -98,7 +98,7 @@ public struct ChromeRoles: Equatable, Sendable {
     public static let selectionAccentAmount = 0.27
     /// White over a dark theme, black over a light one, as the share each
     /// neutral role blends in.
-    public static let liftAmount = (dark: 0.07, light: 0.05)
+    public static let liftAmount = (dark: 0.12, light: 0.08)
     public static let hairAmount = (dark: 0.09, light: 0.10)
     public static let hairFocusAmount = (dark: 0.30, light: 0.28)
     /// The brightest channel a light theme's lifted chrome may reach, so it
