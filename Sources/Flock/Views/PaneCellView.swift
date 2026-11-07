@@ -467,6 +467,10 @@ struct PaneCellView: View {
             switch focusStyle {
             case .dimOthers where !isFocused:
                 theme.pane.opacity(ChromeMetrics.Pane.Focus.dimScrimOpacity).allowsHitTesting(false)
+            // With the drain, a light veil: the pane reads as set back, not
+            // as wearing a different theme.
+            case .drainColour where !isFocused:
+                theme.pane.opacity(ChromeMetrics.Pane.Focus.drainVeilOpacity).allowsHitTesting(false)
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
             default:
