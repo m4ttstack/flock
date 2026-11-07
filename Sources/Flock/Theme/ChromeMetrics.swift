@@ -320,6 +320,11 @@ enum ChromeMetrics {
             static let auroraStops = 16
             static let auroraOpacity: Double = 0.55
             static let workingBreathePeriod: Double = 3.4
+            /// A breathing line's width at its faintest, as a share of the
+            /// pane's; it reaches the full width at its brightest.
+            static let breatheNarrowest: CGFloat = 0.9
+            /// The share of the line at each end that fades in.
+            static let breatheFeather: Double = 0.06
             static let workingLow: Double = 0.05
             static let workingHigh: Double = 0.5
             static let blockedPeriod: Double = 2.2
