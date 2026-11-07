@@ -306,6 +306,12 @@ enum ChromeMetrics {
             static let doneOpacity: Double = 0.35
             static let idleOpacity: Double = 0.22
             static let backgroundWorkOpacity: Double = 0.4
+            /// The wash rises from the line to the box's top edge.
+            static let washHeight: CGFloat = top
+            /// The wash's strength at the line, as a share of the line's own.
+            static let washStrength: Double = 0.45
+            /// How much of that is left 30% of the way up: an ease-out fade.
+            static let washMidpoint: Double = 0.3
         }
 
 

@@ -383,7 +383,7 @@ struct PaneCellView: View {
                         real: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
                     )
                 )
-                    .padding(.top, ChromeMetrics.Pane.StatusLine.top)
+                    .padding(.top, ChromeMetrics.Pane.StatusLine.top - ChromeMetrics.Pane.StatusLine.washHeight)
             }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
