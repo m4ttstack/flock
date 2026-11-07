@@ -224,8 +224,8 @@ struct PaneCellView: View {
 
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
-            .overlay(alignment: .topLeading) { title.opacity(headerOpacity) }
-            .overlay(alignment: .topTrailing) { legendControls.opacity(headerOpacity) }
+            .overlay(alignment: .topLeading) { title.opacity(headerOpacity).animation(focusFade, value: isFocused) }
+            .overlay(alignment: .topTrailing) { legendControls.opacity(headerOpacity).animation(focusFade, value: isFocused) }
             // Last, so a long title running under it never takes its press.
             .overlay(alignment: .top) { if role == .canvas { grip.opacity(headerOpacity) } }
             // While rearranging a drag starts from ANY point on the pane,
@@ -384,7 +384,7 @@ struct PaneCellView: View {
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
-            .overlay { focusWash }
+            .overlay { focusWash.animation(.easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration), value: isFocused) }
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
@@ -421,6 +421,8 @@ struct PaneCellView: View {
         let side = PaneChrome.horizontalPadding(flush: flush)
         return EdgeInsets(top: PaneChrome.contentTop, leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side)
     }
+
+    private var focusFade: Animation { .easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration) }
 
     private var dimness: Double { appearance?.dimness ?? PaneAppearanceStore.standardDimness }
 
@@ -503,7 +505,9 @@ struct PaneCellView: View {
     private var focusWash: some View {
         if !rearrangeMode.active {
             switch focusStyle {
-            case .dimOthers where !isFocused, .drainColour where !isFocused:
+            // Drawn focused or not, at no strength when focused, so its fade
+            // runs both ways.
+            case .dimOthers, .drainColour:
                 chromeVeil
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)

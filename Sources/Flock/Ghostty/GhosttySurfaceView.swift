@@ -74,11 +74,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// a later identical value must still reach the layer it has by then.
     private func applyShade() {
         guard let layer else { return }
-        if shade == .none {
-            drainLayer.removeFromSuperlayer()
-            veilLayer.removeFromSuperlayer()
-            return
-        }
+        let changed = shade != appliedShade
+        // Nothing to lay down until a pane first loses focus; after that the
+        // layers stay and fade to nothing, so focus can fade both ways.
+        if shade == .none, drainLayer.superlayer == nil { return }
         layerUsesCoreImageFilters = true
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -92,17 +91,30 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             for sublayer in [drainLayer, veilLayer] {
                 sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
                 sublayer.zPosition = .greatestFiniteMagnitude
+                sublayer.opacity = 0
                 layer.addSublayer(sublayer)
             }
         }
         drainLayer.frame = layer.bounds
         veilLayer.frame = layer.bounds
-        drainLayer.backgroundColor = shade.ground
+        if let ground = shade.ground {
+            drainLayer.backgroundColor = ground
+            veilLayer.backgroundColor = ground
+        }
+        CATransaction.commit()
+        guard changed else { return }
+        appliedShade = shade
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(ChromeMetrics.Pane.Focus.transitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         drainLayer.opacity = Float(shade.drain)
-        veilLayer.backgroundColor = shade.ground
         veilLayer.opacity = Float(shade.veil)
         CATransaction.commit()
     }
+
+    /// What the layers were last faded to, so a layout pass that re-applies
+    /// the same shade does not restart the fade.
+    private var appliedShade = SurfaceShade.none
 
     private let drainLayer = CALayer()
     private let veilLayer = CALayer()
