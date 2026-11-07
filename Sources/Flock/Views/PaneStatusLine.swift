@@ -106,6 +106,13 @@ struct PaneStatusLine: View {
                 } else {
                     stack(paint, t: 0)
                 }
+            } else {
+                // No status to carry (a shell, or the line switched off):
+                // a plain rule still marks where the header ends.
+                theme.hair
+                    .frame(height: M.height)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .frame(height: M.washHeight + M.height)
             }
         }
         .allowsHitTesting(false)
