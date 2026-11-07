@@ -86,7 +86,7 @@ chmod 755 "$OUT/$NAME"
 cp "$WORK/herdr/LICENSE" "$OUT/$NAME.LICENSE"
 cat > "$OUT/$NAME.provenance.txt" <<EOF
 # An Apache-2.0 build of herdr $HERDR_VERSION with patches/herdr/$HERDR_VERSION.patch
-# from github.com/m4ttstack/flock applied: mouse events and capture state on
+# from github.com/m4ttstack/flock applied: mouse events, capture state and host theme on
 # terminal session control. Not made or endorsed by herdr's maintainers.
 herdr_version=$HERDR_VERSION
 herdr_tag_commit=$TAG_COMMIT
