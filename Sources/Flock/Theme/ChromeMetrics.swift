@@ -276,13 +276,11 @@ enum ChromeMetrics {
         /// The Pane focus styles' marks (`PaneFocusStyle`).
         enum Focus {
             /// Pane ground over an unfocused pane, so its text fades.
-            static let dimScrimOpacity: Double = 0.65
             /// `textStrong` over the focused pane: white on a dark theme,
             /// near black on a light one, so it reads as `lift`.
             static let liftWashOpacity: Double = 0.05
             /// Drain colour: how much of an unfocused terminal's colour goes.
             static let drainAmount: Double = 0.3
-            static let drainVeilOpacity: Double = 0.65
             /// Drain colour and quiet chrome: what an unfocused pane's header,
             /// status line and wash keep.
             static let chromeFadeOpacity: Double = 0.45

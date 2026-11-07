@@ -25,6 +25,18 @@ struct PanesSettingsSection: View {
                 Text("How the pane with the keyboard stands out from the rest.")
             }
             .accessibilityIdentifier("flock.settings.paneFocus")
+            LabeledContent {
+                Slider(
+                    value: Binding(get: { store.dimness }, set: { store.setDimness($0) }),
+                    in: PaneAppearanceStore.dimnessRange
+                )
+                .frame(maxWidth: 200)
+            } label: {
+                Text("Dimness")
+                Text("How far panes without focus recede, under Dim others and Drain colour.")
+            }
+            .disabled(store.focusStyle != .dimOthers && store.focusStyle != .drainColour)
+            .accessibilityIdentifier("flock.settings.paneDimness")
             Picker(selection: Binding(get: { store.statusLine }, set: { store.select($0) })) {
                 ForEach(PaneStatusLineStyle.allCases, id: \.self) { value in
                     Text(value.displayName).tag(value)

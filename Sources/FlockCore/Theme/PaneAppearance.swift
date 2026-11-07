@@ -71,10 +71,16 @@ public final class PaneAppearanceStore {
     public static let focusStyleKey = "flock.paneFocusStyle"
     public static let layoutKey = "flock.paneLayout"
     public static let statusLineKey = "flock.paneStatusLine"
+    public static let dimnessKey = "flock.paneDimness"
+    /// How far a pane without focus recedes under dim others and drain
+    /// colour: the share of its own ground laid over it.
+    public static let dimnessRange: ClosedRange<Double> = 0.3...0.9
+    public static let standardDimness = 0.65
 
     public private(set) var focusStyle: PaneFocusStyle
     public private(set) var layout: PaneLayoutStyle
     public private(set) var statusLine: PaneStatusLineStyle
+    public private(set) var dimness: Double
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
@@ -83,6 +89,8 @@ public final class PaneAppearanceStore {
         focusStyle = userDefaults.string(forKey: Self.focusStyleKey).flatMap(PaneFocusStyle.init(rawValue:)) ?? .standard
         layout = userDefaults.string(forKey: Self.layoutKey).flatMap(PaneLayoutStyle.init(rawValue:)) ?? .standard
         statusLine = userDefaults.string(forKey: Self.statusLineKey).flatMap(PaneStatusLineStyle.init(rawValue:)) ?? .standard
+        let stored = userDefaults.object(forKey: Self.dimnessKey) as? Double
+        dimness = stored.map { min(max($0, Self.dimnessRange.lowerBound), Self.dimnessRange.upperBound) } ?? Self.standardDimness
     }
 
     public func select(_ value: PaneFocusStyle) {
@@ -98,5 +106,10 @@ public final class PaneAppearanceStore {
     public func select(_ value: PaneStatusLineStyle) {
         statusLine = value
         userDefaults.set(value.rawValue, forKey: Self.statusLineKey)
+    }
+
+    public func setDimness(_ value: Double) {
+        dimness = min(max(value, Self.dimnessRange.lowerBound), Self.dimnessRange.upperBound)
+        userDefaults.set(dimness, forKey: Self.dimnessKey)
     }
 }

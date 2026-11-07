@@ -422,6 +422,8 @@ struct PaneCellView: View {
         return EdgeInsets(top: PaneChrome.contentTop, leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side)
     }
 
+    private var dimness: Double { appearance?.dimness ?? PaneAppearanceStore.standardDimness }
+
     private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .standard }
 
     private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
@@ -472,9 +474,8 @@ struct PaneCellView: View {
         guard !rearrangeMode.active, !isFocused else { return .none }
         let ground = NSColor(theme.pane).cgColor
         switch focusStyle {
-        case .dimOthers: return SurfaceShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity, ground: ground)
-        case .drainColour:
-            return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity, ground: ground)
+        case .dimOthers: return SurfaceShade(drain: 0, veil: dimness, ground: ground)
+        case .drainColour: return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: dimness, ground: ground)
         case .brighterBorder, .quietChrome, .lift: return .none
         }
     }
