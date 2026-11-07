@@ -358,7 +358,9 @@ struct PaneCellView: View {
             // clip eats the OLDEST lines off the top and leaves the newest
             // ones, which are the ones being watched, against the edge.
             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // The rows a box cannot fill whole are split above and below the
+            // surface, so no dead strip collects at the bottom.
+            .modifier(RowRemainderSplit(surfaceHeight: surfaceSize.height))
             .padding(Self.contentInsets)
             // While the launcher shows, the surface claims no point at all
             // (`GhosttySurfaceView.hitTest`), which also removes ITS own
@@ -485,7 +487,9 @@ struct PaneCellView: View {
         return GeometryReader { proxy in
             Path { path in
                 path.addRect(CGRect(origin: .zero, size: proxy.size))
-                path.addRect(box.offsetBy(dx: Self.contentInsets.leading, dy: Self.contentInsets.top))
+                let available = proxy.size.height - Self.contentInsets.top - Self.contentInsets.bottom
+                let split = RowRemainderSplit.offset(available: available, surfaceHeight: surfaceSize.height)
+                path.addRect(box.offsetBy(dx: Self.contentInsets.leading, dy: Self.contentInsets.top + split))
             }
             .fill(theme.pane.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
         }
@@ -1134,5 +1138,22 @@ struct PaneCopiedToastPill: View {
         .shadow(color: theme.chrome.opacity(0.4), radius: ChromeMetrics.Toast.shadowRadius, y: ChromeMetrics.Toast.copiedShadowY)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
+    }
+}
+
+/// Places the whole-cell surface in the box's content area with the part of
+/// a row it cannot fill split above and below it, rounded down to a whole
+/// point so the surface stays on the pixel grid the box was snapped to.
+struct RowRemainderSplit: ViewModifier {
+    let surfaceHeight: CGFloat
+
+    static func offset(available: CGFloat, surfaceHeight: CGFloat) -> CGFloat {
+        max(0, ((available - surfaceHeight) / 2).rounded(.down))
+    }
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            content.offset(y: Self.offset(available: proxy.size.height, surfaceHeight: surfaceHeight))
+        }
     }
 }

@@ -5,7 +5,7 @@ import CoreGraphics
 /// what keeps the surface's origin on the device-pixel grid the box was
 /// snapped to.
 public enum PaneChrome {
-    public static let verticalPadding: CGFloat = 10
+    public static let verticalPadding: CGFloat = 4
     public static let horizontalPadding: CGFloat = 13
     public static let titleRowTop: CGFloat = 13
     public static let titleRowHeight: CGFloat = 22
