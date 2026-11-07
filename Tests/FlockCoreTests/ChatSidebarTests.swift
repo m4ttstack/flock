@@ -103,6 +103,32 @@ final class ChatSidebarTests: XCTestCase {
         XCTAssertEqual(try decoded(#"{"room":"dm","pane":"bg:w9:p1","name":"alex","assignedPane":"bg:w9:p2"}"#).agentPane, "bg:w9:p1")
     }
 
+    func testClosedRowsAreReadWithTheirIds() throws {
+        let json = Data(
+            #"{"conversations":[],"closed":[{"id":9,"room":"dm","displayName":"Alex","closedAt":1700,"tickets":[]}]}"#.utf8
+        )
+        let list = try XCTUnwrap(ChatSidebarChats.decodeList(stdout: json, exitCode: 0))
+        XCTAssertEqual(list.closed, [ChatSidebarClosedChat(id: 9, room: "dm", displayName: "Alex", closedAt: 1700)])
+        XCTAssertEqual(try XCTUnwrap(ChatSidebarChats.decodeList(stdout: Data(#"{"conversations":[]}"#.utf8), exitCode: 0)).closed, [])
+        XCTAssertNil(ChatSidebarChats.decodeList(stdout: json, exitCode: 1))
+    }
+
+    func testAChatOnlyTheClosedRowsKnowResumesByItsClosedId() {
+        let closed = [ChatSidebarClosedChat(id: 9, room: "dm", displayName: "Alex", closedAt: 1700)]
+        XCTAssertEqual(ChatSidebarClosedChat.resumeID(room: "dm", in: closed, lastSeen: nil), 9)
+    }
+
+    func testTheClosedRowBeatsTheIdLastSeenOnTheOpenRow() {
+        let closed = [
+            ChatSidebarClosedChat(id: 9, room: "dm", displayName: "Alex", closedAt: 1700),
+            ChatSidebarClosedChat(id: 12, room: "dm", displayName: "Alex", closedAt: 1800),
+            ChatSidebarClosedChat(id: 5, room: "other", displayName: "Sam", closedAt: 1900),
+        ]
+        XCTAssertEqual(ChatSidebarClosedChat.resumeID(room: "dm", in: closed, lastSeen: 4), 12)
+        XCTAssertEqual(ChatSidebarClosedChat.resumeID(room: "dm", in: [], lastSeen: 4), 4)
+        XCTAssertNil(ChatSidebarClosedChat.resumeID(room: "dm", in: [], lastSeen: nil))
+    }
+
     func testStartTakesTheBriefOnStdinSoItsArgumentsCarryNoProblem() {
         XCTAssertEqual(
             ChatSlackStart.arguments(person: "U0TEST", requesterPane: "w1:p2"),

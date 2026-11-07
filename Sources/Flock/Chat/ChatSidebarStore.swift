@@ -16,6 +16,7 @@ final class ChatSidebarStore {
     private(set) var chatAppIsDown = false
     private(set) var isCollapsed = false
     private(set) var tabPanes: Set<String> = []
+    private(set) var closedChats: [ChatSidebarClosedChat] = []
 
     /// Each read of rt, before the links below are applied.
     @ObservationIgnored var onChats: (([ChatSidebarChat]) async -> Void)?
@@ -24,12 +25,12 @@ final class ChatSidebarStore {
 
     @ObservationIgnored private var focusedPane: String?
     @ObservationIgnored private var port: Int?
-    @ObservationIgnored private let readChats: @Sendable () async -> [ChatSidebarChat]?
+    @ObservationIgnored private let readChats: @Sendable () async -> ChatSidebarChats?
     @ObservationIgnored private let readPort: @Sendable () async -> Int?
     @ObservationIgnored private let pause: (Duration) async throws -> Void
 
     init(
-        readChats: @escaping @Sendable () async -> [ChatSidebarChat]? = ChatToolLocator.slackChats,
+        readChats: @escaping @Sendable () async -> ChatSidebarChats? = ChatToolLocator.slackChats,
         readPort: @escaping @Sendable () async -> Int? = ChatToolLocator.chatAppPort,
         pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
@@ -56,7 +57,9 @@ final class ChatSidebarStore {
     }
 
     func refresh() async {
-        guard let open = await readChats(), !Task.isCancelled else { return }
+        guard let read = await readChats(), !Task.isCancelled else { return }
+        let open = read.conversations
+        closedChats = read.closed
         await onChats?(open)
         let linked = open.map { chat in
             var chat = chat
@@ -66,6 +69,11 @@ final class ChatSidebarStore {
         await select(
             ChatSidebarSelection.next(current: selection, open: linked, focusedPane: focusedPane, tabPanes: tabPanes)
         )
+    }
+
+    /// What Resume takes for the chat shown: rt's closed row for its room.
+    func resumeID(for chat: ChatSidebarChat) -> Int? {
+        ChatSidebarClosedChat.resumeID(room: chat.room, in: closedChats, lastSeen: chat.id)
     }
 
     func toggleCollapsed() {

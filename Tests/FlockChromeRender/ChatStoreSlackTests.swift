@@ -44,6 +44,15 @@ private actor SlackScript: ChatRunning {
     }
 }
 
+/// Answers each read of rt's list with the next reading, the last repeating.
+private final class ReadScript: @unchecked Sendable {
+    private var readings: [ChatSidebarChats]
+
+    init(_ readings: [ChatSidebarChats]) { self.readings = readings }
+
+    func next() -> ChatSidebarChats { readings.count > 1 ? readings.removeFirst() : readings[0] }
+}
+
 private actor SendLog {
     private(set) var lines: [(pane: String, line: String)] = []
 
@@ -254,6 +263,34 @@ final class ChatStoreSlackTests: XCTestCase {
 
         let verbs = await script.verbs
         XCTAssertEqual(verbs.filter { $0 == .slackClose(pane: "bg:w9:p1") }.count, 2)
+    }
+
+    func testAChatOnlyTheClosedRowsKnowResumesByTheirId() async {
+        let closed = ChatSidebarClosedChat(id: 12, room: "dm", displayName: "Alex", closedAt: 1800)
+        let sidebar = ChatSidebarStore(
+            readChats: { ChatSidebarChats(conversations: [], closed: [closed]) }, readPort: { nil }, pause: { _ in }
+        )
+
+        await sidebar.refresh()
+
+        XCTAssertEqual(sidebar.resumeID(for: ChatSidebarChat(room: "dm", name: "alex")), 12)
+        XCTAssertNil(sidebar.resumeID(for: ChatSidebarChat(room: "elsewhere", name: "sam")))
+    }
+
+    func testAnEndedChatResumesByTheClosedRowNotTheOpenRowItLastHad() async {
+        let reads = ReadScript([
+            ChatSidebarChats(conversations: [open(id: 4)]),
+            ChatSidebarChats(conversations: [], closed: [ChatSidebarClosedChat(id: 12, room: "dm", closedAt: 1800)]),
+        ])
+        let sidebar = ChatSidebarStore(readChats: { reads.next() }, readPort: { nil }, pause: { _ in })
+        await sidebar.tabChanged(to: ["w1:p1"])
+        XCTAssertEqual(sidebar.selection?.isEnded, false)
+
+        await sidebar.refresh()
+
+        let shown = try? XCTUnwrap(sidebar.selection)
+        XCTAssertEqual(shown?.isEnded, true)
+        XCTAssertEqual(shown.flatMap { sidebar.resumeID(for: $0.chat) }, 12)
     }
 
     func testAClosingChatReadsAsClosingUntilRtStopsListingIt() async {

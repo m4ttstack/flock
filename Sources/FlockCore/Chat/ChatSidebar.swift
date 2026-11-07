@@ -46,14 +46,54 @@ public struct ChatSidebarChat: Decodable, Equatable, Sendable {
     }
 }
 
+/// A chat rt lists as closed. Its `id` is what `slack-resume` takes, and it
+/// stays listed after the open row is gone and across a Flock relaunch.
+public struct ChatSidebarClosedChat: Decodable, Equatable, Sendable {
+    public let id: Int
+    public let room: String
+    public var displayName: String? = nil
+    public var closedAt: Double? = nil
+
+    public init(id: Int, room: String, displayName: String? = nil, closedAt: Double? = nil) {
+        self.id = id
+        self.room = room
+        self.displayName = displayName
+        self.closedAt = closedAt
+    }
+
+    /// The latest closed chat in `room`, else the id last seen on its open row.
+    public static func resumeID(room: String, in closed: [ChatSidebarClosedChat], lastSeen: Int?) -> Int? {
+        closed.filter { $0.room == room }.max { ($0.closedAt ?? 0) < ($1.closedAt ?? 0) }?.id ?? lastSeen
+    }
+}
+
 public struct ChatSidebarChats: Decodable, Equatable, Sendable {
     public let conversations: [ChatSidebarChat]
+    public var closed: [ChatSidebarClosedChat] = []
+
+    private enum CodingKeys: String, CodingKey { case conversations, closed }
+
+    public init(conversations: [ChatSidebarChat], closed: [ChatSidebarClosedChat] = []) {
+        self.conversations = conversations
+        self.closed = closed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        conversations = try values.decode([ChatSidebarChat].self, forKey: .conversations)
+        // A closed row that does not read must not hide the open chats.
+        closed = (try? values.decode([ChatSidebarClosedChat].self, forKey: .closed)) ?? []
+    }
 
     /// Nil for anything rt did not answer: that says nothing about which
     /// chats are open, so it must not read as "none are".
     public static func decode(stdout: Data, exitCode: Int32) -> [ChatSidebarChat]? {
+        decodeList(stdout: stdout, exitCode: exitCode)?.conversations
+    }
+
+    public static func decodeList(stdout: Data, exitCode: Int32) -> ChatSidebarChats? {
         guard exitCode == 0 else { return nil }
-        return (try? JSONDecoder().decode(ChatSidebarChats.self, from: stdout))?.conversations
+        return try? JSONDecoder().decode(ChatSidebarChats.self, from: stdout)
     }
 }
 

@@ -120,7 +120,7 @@ private struct ChatSidebarHeader: View {
             if !selection.isEnded, let pane {
                 endButton(pane)
             }
-            if selection.isEnded, let conversation = selection.chat.id {
+            if selection.isEnded, let conversation = store.resumeID(for: selection.chat) {
                 resumeButton(conversation)
             }
             Button {

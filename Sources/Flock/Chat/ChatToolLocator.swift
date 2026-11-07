@@ -55,9 +55,9 @@ enum ChatToolLocator {
 
     /// Asks rt rather than herdr-chat, whose status carries no room id.
     @Sendable
-    static func slackChats() async -> [ChatSidebarChat]? {
+    static func slackChats() async -> ChatSidebarChats? {
         guard let (stdout, exitCode) = await runTool("rt", arguments: ["chat", "slack-status", "--json"]) else { return nil }
-        return ChatSidebarChats.decode(stdout: stdout, exitCode: exitCode)
+        return ChatSidebarChats.decodeList(stdout: stdout, exitCode: exitCode)
     }
 
     /// `rt chat avatar` gives up on its own after 15s.
