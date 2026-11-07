@@ -231,10 +231,10 @@ struct PaneCellView: View {
 
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
-            .overlay(alignment: .topLeading) { title }
-            .overlay(alignment: .topTrailing) { legendControls }
+            .overlay(alignment: .topLeading) { title.opacity(headerOpacity) }
+            .overlay(alignment: .topTrailing) { legendControls.opacity(headerOpacity) }
             // Last, so a long title running under it never takes its press.
-            .overlay(alignment: .top) { if role == .canvas { grip } }
+            .overlay(alignment: .top) { if role == .canvas { grip.opacity(headerOpacity) } }
             // While rearranging a drag starts from ANY point on the pane,
             // gutters and sub-cell remainder included, which no subview of the
             // cell covers. Arming this as well as the body's own AppKit path
@@ -430,6 +430,13 @@ struct PaneCellView: View {
         case .lift:
             return nil
         }
+    }
+
+    /// The header draws over the box, outside the dim scrim, so it fades by
+    /// the scrim's own amount to match.
+    private var headerOpacity: Double {
+        guard !rearrangeMode.active, focusStyle == .dimOthers, !isFocused else { return 1 }
+        return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
     }
 
     /// The quick launch strip's own band, so the pane's top and bottom chrome
