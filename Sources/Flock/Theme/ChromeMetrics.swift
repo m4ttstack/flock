@@ -325,10 +325,10 @@ enum ChromeMetrics {
             static let breatheNarrowest: CGFloat = 0.96
             /// The share of the line at each end that fades in.
             static let breatheFeather: Double = 0.06
-            static let workingLow: Double = 0.05
+            static let workingLow: Double = 0.18
             static let workingHigh: Double = 0.5
             static let blockedPeriod: Double = 2.2
-            static let blockedLow: Double = 0.15
+            static let blockedLow: Double = 0.25
             static let blockedHigh: Double = 0.75
             static let doneOpacity: Double = 0.35
             static let idleOpacity: Double = 0.22
