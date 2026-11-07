@@ -105,7 +105,7 @@ public actor LineSocket {
         continuation.finish()
     }
 
-    private static func openAndConnect(path: String) throws -> Int32 {
+    static func openAndConnect(path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw LineSocketError.connectFailed(errno) }
 

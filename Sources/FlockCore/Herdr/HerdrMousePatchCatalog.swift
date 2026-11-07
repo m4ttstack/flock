@@ -33,15 +33,20 @@ public struct HerdrMousePatchEntry: Equatable, Sendable {
     /// The SHA-256 of every earlier revision published for this version and
     /// architecture: a herdr carrying one of them has an outdated patch.
     public let superseded: Set<String>
+    /// The patch changes herdr's server as well as its per-pane client, so
+    /// it is whole only once the running server is on the patched binary.
+    public let changesServer: Bool
 
     public init(
-        version: String, sha256: String, arch: HerdrPatchArch = .current, revision: Int = 1, superseded: Set<String> = []
+        version: String, sha256: String, arch: HerdrPatchArch = .current, revision: Int = 1, superseded: Set<String> = [],
+        changesServer: Bool = false
     ) {
         self.version = version
         self.sha256 = sha256
         self.arch = arch
         self.revision = revision
         self.superseded = superseded
+        self.changesServer = changesServer
     }
 
     /// Revision 1 carries no suffix: its releases were published before
@@ -67,10 +72,12 @@ public struct HerdrMousePatchRelease: Equatable, Sendable {
     public let version: String
     public let revision: Int
     public let sha256: [HerdrPatchArch: String]
+    public let changesServer: Bool
 
-    public init(version: String, revision: Int = 1, arm64: String?, x86_64: String? = nil) {
+    public init(version: String, revision: Int = 1, arm64: String?, x86_64: String? = nil, changesServer: Bool = false) {
         self.version = version
         self.revision = revision
+        self.changesServer = changesServer
         var sha256: [HerdrPatchArch: String] = [:]
         sha256[.arm64] = arm64
         sha256[.x86_64] = x86_64
@@ -79,7 +86,9 @@ public struct HerdrMousePatchRelease: Equatable, Sendable {
 
     public func entry(for arch: HerdrPatchArch, superseded: Set<String> = []) -> HerdrMousePatchEntry? {
         sha256[arch].map {
-            HerdrMousePatchEntry(version: version, sha256: $0, arch: arch, revision: revision, superseded: superseded)
+            HerdrMousePatchEntry(
+                version: version, sha256: $0, arch: arch, revision: revision, superseded: superseded, changesServer: changesServer
+            )
         }
     }
 }
@@ -105,7 +114,8 @@ public enum HerdrMousePatchCatalog {
         ),
         HerdrMousePatchRelease(
             version: "0.9.5", revision: 2, arm64: "e5ae358c87d039b9b7edb8cf9071a718ce2c9f9f781f795f3e9309e2dc3e5786",
-            x86_64: "c1e4b5b2999044ec333aa29a518aab52cfe2373bb3a5f7de8db3a52447035aa4"
+            x86_64: "c1e4b5b2999044ec333aa29a518aab52cfe2373bb3a5f7de8db3a52447035aa4",
+            changesServer: true
         ),
     ]
 

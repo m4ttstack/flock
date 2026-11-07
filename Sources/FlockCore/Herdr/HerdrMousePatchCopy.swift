@@ -43,9 +43,12 @@ public enum HerdrMousePatchCopy {
     /// `herdrUpdated` is the same restart for a different reason: `--handoff`
     /// starts a new server while every bridge still talks to the old one, so
     /// it is raised the moment the handoff lands, before any reinstall.
+    /// `serverBehind` is raised by no change at all: the server was found on
+    /// an older binary than the patched one on disk (`HerdrServerRestart`).
     public enum RestartReason: Equatable, Sendable {
         case installed, updated, restored
         case herdrUpdated(PatchAfterUpdate)
+        case serverBehind
     }
 
     /// `untouched`: flock's patch was not on the replaced herdr, or there is
@@ -61,15 +64,23 @@ public enum HerdrMousePatchCopy {
         case .restored: "The original herdr is restored"
         case .herdrUpdated(.reinstalled): "herdr is updated and mouse support reinstalled"
         case .herdrUpdated: "herdr is updated"
+        case .serverBehind: "herdr's server is on an older build"
         }
     }
 
-    public static func restartDetail(for reason: RestartReason) -> String {
+    /// `restartsServer`: the server runs an older binary than the patched one
+    /// on disk, so restarting Flock alone would leave the patch half applied.
+    public static func restartDetail(for reason: RestartReason, restartsServer: Bool = false) -> String {
         switch reason {
-        case .installed, .updated, .restored: "Restart Flock so your panes pick it up."
-        case .herdrUpdated(.reinstalling): "Reinstalling mouse support, then restart Flock so your panes reconnect."
-        case .herdrUpdated(.reinstallFailed): "Mouse support couldn't be reinstalled; see Settings."
-        case .herdrUpdated: "Restart Flock so your panes reconnect."
+        case .herdrUpdated(.reinstalling): return "Reinstalling mouse support, then restart Flock so your panes reconnect."
+        case .herdrUpdated(.reinstallFailed): return "Mouse support couldn't be reinstalled; see Settings."
+        default: break
+        }
+        if reason == .serverBehind { return "Restarting it keeps your panes running." }
+        if restartsServer { return "Restart herdr to finish; panes keep running." }
+        switch reason {
+        case .herdrUpdated: return "Restart Flock so your panes reconnect."
+        default: return "Restart Flock so your panes pick it up."
         }
     }
 
@@ -80,6 +91,33 @@ public enum HerdrMousePatchCopy {
     }
 
     public static let restartActionTitle = "Restart Flock"
+    public static let serverRestartActionTitle = "Restart herdr"
+    public static let serverRestartProgressTitle = "Restarting herdr..."
+
+    public static func restartActionTitle(restartsServer: Bool) -> String {
+        restartsServer ? serverRestartActionTitle : restartActionTitle
+    }
+
+    /// A live handoff: herdr passes every pane to a new server on the binary
+    /// on disk, so nothing in a pane is restarted. Flock restarts afterwards
+    /// because the handoff drops every pane's bridge.
+    public static let serverRestartConfirmation = Confirmation(
+        title: "Restart herdr's server?",
+        message: "flock hands your panes to a new herdr server running the build on disk, then restarts Flock to "
+            + "reconnect them. Shells and agents keep running. A program that already picked light or dark keeps "
+            + "it until it checks again.",
+        confirmButtonTitle: "Restart"
+    )
+
+    /// The banner's one line has no room for the way to finish by hand.
+    public static let serverRestartFailedBanner = "herdr's server didn't restart; see Settings."
+
+    /// The handoff refused or failed, which leaves the old server running.
+    /// Stopping it by hand is the way left, and that one does end every pane.
+    public static func serverRestartFailure(_ reason: String) -> String {
+        "\(reason) To finish by hand, run herdr server stop in a terminal, then reopen Flock. That ends every "
+            + "pane's shell and agent."
+    }
 
     public static func actionTitle(for state: HerdrMousePatchRowState) -> String? {
         switch state {
