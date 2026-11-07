@@ -15,30 +15,41 @@ struct PaneShade: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PaneShadeView { PaneShadeView() }
 
-    /// The view's alpha, not its layer's opacity: AppKit owns a layer-backed
-    /// view's root layer and resets that opacity from the alpha.
     func updateNSView(_ view: PaneShadeView, context: Context) {
-        view.alphaValue = veil
+        view.setVeil(veil)
     }
 }
 
+/// The veil is a sublayer, never the root layer's own fill or opacity: AppKit
+/// owns a layer-backed view's root layer and resets both.
 final class PaneShadeView: NSView {
+    private let veilLayer = CALayer()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
-    }
-
-    /// Set here, where AppKit asks for it, rather than once at creation: the
-    /// root layer of a layer-backed view is AppKit's, and it can be rebuilt.
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.backgroundColor = NSColor.black.cgColor
+        veilLayer.backgroundColor = NSColor.black.cgColor
+        veilLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(veilLayer)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setVeil(_ veil: Double) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        veilLayer.opacity = Float(veil)
+        CATransaction.commit()
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        veilLayer.frame = bounds
+        CATransaction.commit()
+    }
 
     /// Never takes a click: the pane under it keeps every one.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
