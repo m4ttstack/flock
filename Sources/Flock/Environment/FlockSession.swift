@@ -20,6 +20,7 @@ final class FlockSession: ProfileSession {
     let rtModalSizeStore: RtModalSizeStore
     let rtModalTextSizeStore: RtModalTextSizeStore
     let topBarLabelStore: TopBarLabelStore
+    let paneAppearanceStore: PaneAppearanceStore
     let optionAsAltStore: OptionAsAltStore
     let scrollSpeedStore: ScrollSpeedStore
     let linkTrustStore: LinkTrustStore
@@ -79,6 +80,7 @@ final class FlockSession: ProfileSession {
         rtModalSizeStore = RtModalSizeStore(userDefaults: preferences)
         rtModalTextSizeStore = RtModalTextSizeStore(userDefaults: preferences)
         topBarLabelStore = TopBarLabelStore(userDefaults: preferences)
+        paneAppearanceStore = PaneAppearanceStore(userDefaults: preferences)
         let optionAsAltStore = OptionAsAltStore(userDefaults: preferences)
         self.optionAsAltStore = optionAsAltStore
         let scrollSpeedStore = ScrollSpeedStore(userDefaults: preferences)

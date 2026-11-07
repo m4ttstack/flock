@@ -263,6 +263,26 @@ enum ChromeMetrics {
         static let scrollIndicatorInset: CGFloat = 4
         static let toastInset: CGFloat = 13
 
+        /// The Pane focus styles' marks (`PaneFocusStyle`).
+        enum Focus {
+            /// Pane ground over an unfocused pane, so its text fades.
+            static let dimScrimOpacity: Double = 0.45
+            /// `textStrong` over the focused pane: white on a dark theme,
+            /// near black on a light one, so it reads as `lift`.
+            static let liftWashOpacity: Double = 0.05
+            static let tickWidth: CGFloat = 36
+            static let tickHeight: CGFloat = 2
+            static let tickInset: CGFloat = 12
+        }
+
+        /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn
+        /// point, and the divider's grab band narrows to stay inside the
+        /// neighbours' padding, which no longer has a gutter in front of it.
+        enum EdgeToEdge {
+            static let gutter: CGFloat = 1
+            static let bandThickness: CGFloat = 2 * PaneChrome.verticalPadding
+        }
+
         /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
         /// hover, inside a wider hit area.
         enum Grip {

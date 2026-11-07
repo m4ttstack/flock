@@ -198,6 +198,7 @@ struct FlockApp: App {
     private var terminalTextSizeStore: TerminalTextSizeStore { session.terminalTextSizeStore }
     private var rtModalSizeStore: RtModalSizeStore { session.rtModalSizeStore }
     private var topBarLabelStore: TopBarLabelStore { session.topBarLabelStore }
+    private var paneAppearanceStore: PaneAppearanceStore { session.paneAppearanceStore }
     private var topBarOverlaySizeStore: TopBarOverlaySizeStore { session.topBarOverlaySizeStore }
     private var rtModalTextSizeStore: RtModalTextSizeStore { session.rtModalTextSizeStore }
     private var optionAsAltStore: OptionAsAltStore { session.optionAsAltStore }
@@ -321,6 +322,7 @@ struct FlockApp: App {
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
                 .environment(topBarLabelStore)
+                .environment(paneAppearanceStore)
                 .environment(topBarOverlaySizeStore)
                 .environment(rtModalTextSizeStore)
                 .environment(optionAsAltStore)
@@ -747,6 +749,7 @@ struct FlockApp: App {
                 linkTrustStore: linkTrustStore,
                 topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
+                paneAppearanceStore: paneAppearanceStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
                 commandLineToolStore: commandLineToolStore,

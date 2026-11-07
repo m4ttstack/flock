@@ -16,6 +16,7 @@ struct PaneHoverLift: ViewModifier {
     /// the caster itself stays hidden under an opaque pane.
     let fill: Color
     let active: Bool
+    var cornerRadius: CGFloat = PaneChrome.cornerRadius
 
     static let shadowRadius: CGFloat = 16
     static let shadowOpacity: Double = 0.5
@@ -23,7 +24,7 @@ struct PaneHoverLift: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background {
-            RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+            RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(fill)
                 .shadow(
                     color: .black.opacity(active ? Self.shadowOpacity : 0),
@@ -100,6 +101,7 @@ struct PaneCellView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
     @Environment(BoardStore.self) private var board: BoardStore?
+    @Environment(PaneAppearanceStore.self) private var appearance: PaneAppearanceStore?
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
@@ -377,7 +379,8 @@ struct PaneCellView: View {
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
-            .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .overlay { focusWash }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
             // leave the thumb unable to reach the last row.
@@ -392,18 +395,66 @@ struct PaneCellView: View {
                     rearrangePaint
                 }
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-                    .strokeBorder(borderColor, lineWidth: isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth)
-            )
-            .modifier(PaneHoverLift(fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging))
+            .overlay {
+                if let border {
+                    RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(border.color, lineWidth: border.width)
+                }
+            }
+            .overlay(alignment: .topLeading) { focusTick }
+            .modifier(PaneHoverLift(
+                fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging, cornerRadius: cornerRadius
+            ))
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
     }
 
-    private var borderColor: Color {
-        rearrangeMode.active || isFocused ? theme.accent : theme.paneBorder
+    private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .brighterBorder }
+
+    private var isEdgeToEdge: Bool { appearance?.layout == .edgeToEdge }
+
+    private var cornerRadius: CGFloat { isEdgeToEdge ? 0 : PaneChrome.cornerRadius }
+
+    /// Edge to edge, the canvas draws the line between panes, so a pane only
+    /// strokes its own edge to say it has focus.
+    private var border: (color: Color, width: CGFloat)? {
+        if rearrangeMode.active {
+            return (theme.accent, isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth)
+        }
+        switch focusStyle {
+        case .brighterBorder:
+            if isFocused { return (theme.hairFocus, ChromeMetrics.ruleWidth) }
+            return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
+        case .dimOthers, .accentTick:
+            return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
+        case .lift:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private var focusWash: some View {
+        if !rearrangeMode.active {
+            switch focusStyle {
+            case .dimOthers where !isFocused:
+                theme.pane.opacity(ChromeMetrics.Pane.Focus.dimScrimOpacity).allowsHitTesting(false)
+            case .lift where isFocused:
+                theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
+            default:
+                EmptyView()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var focusTick: some View {
+        if !rearrangeMode.active, focusStyle == .accentTick, isFocused {
+            Rectangle()
+                .fill(theme.accent)
+                .frame(width: ChromeMetrics.Pane.Focus.tickWidth, height: ChromeMetrics.Pane.Focus.tickHeight)
+                .padding(.leading, ChromeMetrics.Pane.Focus.tickInset)
+                .allowsHitTesting(false)
+        }
     }
 
     /// Rearrange mode's repaint, per the spec's "Grabbing a pane" bullet:

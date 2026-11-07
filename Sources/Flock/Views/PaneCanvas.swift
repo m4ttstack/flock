@@ -23,21 +23,30 @@ struct PaneCanvas: View {
     @Environment(DragCoordinator.self) private var drag
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(\.displayScale) private var displayScale
+    @Environment(PaneAppearanceStore.self) private var appearance: PaneAppearanceStore?
     /// The window is being dragged by an edge right now. Every cell freezes
     /// its surface for the whole gesture, the same way a divider drag does:
     /// this arrives once per gesture, where `proxy.size` arrives once per
     /// intermediate frame and so can never tell a resize from its end.
     @State private var isWindowResizing = false
 
-    private static let dividerThickness: CGFloat = DividerBand.gutter
+    private var isEdgeToEdge: Bool { appearance?.layout == .edgeToEdge }
 
-    private static let canvasPadding: EdgeInsets = {
-        let padding = PaneBox.canvasPadding(margin: ChromeMetrics.Canvas.margin, dividerThickness: dividerThickness)
+    private var dividerThickness: CGFloat {
+        isEdgeToEdge ? ChromeMetrics.Pane.EdgeToEdge.gutter : DividerBand.gutter
+    }
+
+    private var bandThickness: CGFloat {
+        isEdgeToEdge ? ChromeMetrics.Pane.EdgeToEdge.bandThickness : DividerBand.thickness
+    }
+
+    private var canvasPadding: EdgeInsets {
+        let padding = PaneBox.canvasPadding(margin: isEdgeToEdge ? 0 : ChromeMetrics.Canvas.margin, dividerThickness: dividerThickness)
         return EdgeInsets(
             top: padding.leadingAndTop, leading: padding.leadingAndTop,
             bottom: padding.trailingAndBottom, trailing: padding.trailingAndBottom
         )
-    }()
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -55,7 +64,7 @@ struct PaneCanvas: View {
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {
-                            let box = PaneBox.frame(in: frame, dividerThickness: Self.dividerThickness)
+                            let box = PaneBox.frame(in: frame, dividerThickness: dividerThickness)
                             let fit = SurfaceGrid.fit(inner: Self.innerSize(of: box.size), cell: cell)
                             PaneCellView(
                                 theme: theme,
@@ -121,19 +130,19 @@ struct PaneCanvas: View {
                 if solo == nil {
                     DropzoneOverlay(
                         theme: theme, layout: layout, exported: layout.flatMap { viewModel.exportedLayout(for: $0.tabID) },
-                        grid: grid, dividerThickness: Self.dividerThickness
+                        grid: grid, dividerThickness: dividerThickness
                     )
                 }
                 if layout != nil, solo == nil {
                     ForEach(geometry.dividers, id: \.path) { divider in
-                        let band = divider.hitBand(thickness: DividerBand.thickness)
+                        let band = divider.hitBand(thickness: bandThickness)
                         DividerHandleView(theme: theme, divider: divider, band: band)
                             .offset(x: band.minX, y: band.minY)
                     }
                     // On top of every divider: a T or a plus overlaps two
                     // bands in one square, which neither divider's own view
                     // can resolve alone (see `DividerIntersectionView`).
-                    ForEach(DividerIntersections.find(in: geometry.dividers, bandThickness: DividerBand.thickness), id: \.id) { intersection in
+                    ForEach(DividerIntersections.find(in: geometry.dividers, bandThickness: bandThickness), id: \.id) { intersection in
                         DividerIntersectionView(intersection: intersection)
                             .offset(x: intersection.square.minX, y: intersection.square.minY)
                     }
@@ -153,8 +162,10 @@ struct PaneCanvas: View {
             }
             .background { WindowLiveResizeReporter { isWindowResizing = $0 } }
         }
-        .padding(Self.canvasPadding)
-        .background(theme.canvas)
+        .padding(canvasPadding)
+        // Edge to edge, the one point between panes is all of the canvas
+        // that shows, so its colour is the divider's.
+        .background(isEdgeToEdge ? theme.hair : theme.canvas)
     }
 
     private func resolvedGeometry(grid: CanvasGrid, composition: CanvasComposition) -> CanvasGeometry {
@@ -164,7 +175,7 @@ struct PaneCanvas: View {
             layout: layout,
             exported: viewModel.exportedLayout(for: layout.tabID),
             grid: grid,
-            dividerThickness: Self.dividerThickness,
+            dividerThickness: dividerThickness,
             liveRatioOverride: override,
             composition: composition
         )
