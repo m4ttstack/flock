@@ -266,7 +266,7 @@ enum ChromeMetrics {
         /// The Pane focus styles' marks (`PaneFocusStyle`).
         enum Focus {
             /// Pane ground over an unfocused pane, so its text fades.
-            static let dimScrimOpacity: Double = 0.45
+            static let dimScrimOpacity: Double = 0.6
             /// `textStrong` over the focused pane: white on a dark theme,
             /// near black on a light one, so it reads as `lift`.
             static let liftWashOpacity: Double = 0.05
