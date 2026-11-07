@@ -304,6 +304,8 @@ enum ChromeMetrics {
             static let blockedLow: Double = 0.15
             static let blockedHigh: Double = 0.75
             static let doneOpacity: Double = 0.35
+            static let idleOpacity: Double = 0.22
+            static let backgroundWorkOpacity: Double = 0.4
         }
 
 

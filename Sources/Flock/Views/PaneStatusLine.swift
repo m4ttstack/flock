@@ -8,6 +8,9 @@ struct PaneStatusLine: View {
     let theme: Theme
     let status: AgentStatus
     let style: PaneStatusLineStyle
+    /// What a pane whose agent rests is still running (a shell job, say),
+    /// which outranks the resting line as the header dot it replaces did.
+    var backgroundWork: String? = nil
 
     private typealias M = ChromeMetrics.Pane.StatusLine
 
@@ -17,15 +20,18 @@ struct PaneStatusLine: View {
                 EmptyView()
             } else {
                 switch status {
+                case .idle where backgroundWork != nil, .unknown where backgroundWork != nil:
+                    theme.backgroundWorkColor.opacity(M.backgroundWorkOpacity).frame(height: M.height)
                 case .working: working
                 case .blocked: animated { t, _ in breathe(theme.red, t: t, period: M.blockedPeriod, low: M.blockedLow, high: M.blockedHigh) }
                 case .done: theme.teal.opacity(M.doneOpacity).frame(height: M.height)
-                case .idle, .unknown: EmptyView()
+                case .idle: theme.green.opacity(M.idleOpacity).frame(height: M.height)
+                case .unknown: EmptyView()
                 }
             }
         }
         .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .help(backgroundWork ?? status.rawValue)
     }
 
     @ViewBuilder

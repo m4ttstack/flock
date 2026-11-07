@@ -377,7 +377,10 @@ struct PaneCellView: View {
             }
             .background(theme.pane)
             .overlay(alignment: .top) {
-                PaneStatusLine(theme: theme, status: pane.agentStatus, style: appearance?.statusLine ?? .glint)
+                PaneStatusLine(
+                    theme: theme, status: pane.agentStatus, style: appearance?.statusLine ?? .glint,
+                    backgroundWork: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
+                )
                     .padding(.top, ChromeMetrics.Pane.StatusLine.top)
             }
             // On the box, not the surface: a surface holds whole cells, so it
@@ -504,7 +507,6 @@ struct PaneCellView: View {
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {
-                statusDot
                 if showsWindowButton { windowButton }
                 titleLabel
             }
@@ -567,15 +569,6 @@ struct PaneCellView: View {
         .frame(height: ChromeMetrics.PaneBar.rowHeight)
         .padding(.top, ChromeMetrics.PaneBar.rowTop)
         .padding(.trailing, PaneChrome.horizontalPadding)
-    }
-
-    private var statusDot: some View {
-        let appearance = statusChipAppearance
-        return PaneStatusDot(
-            theme: theme,
-            color: appearance.color,
-            label: appearance.label.prefix(1).uppercased() + appearance.label.dropFirst()
-        )
     }
 
     /// Maximizing the only pane in a tab would change nothing. A solo cell
@@ -729,20 +722,6 @@ struct PaneCellView: View {
             theme: theme, paneID: pane.paneID, mode: viewModel.rightClicks.mode(for: pane.terminalID),
             onToggle: pane.terminalID.map { terminal in { viewModel.rightClicks.toggle(terminal) } }
         )
-    }
-
-    /// Every pane wears a chip. Idle takes herdr's idle green, which
-    /// `agentStatusColor` leaves out because the dots draw idle as a hollow
-    /// ring; unknown (no agent detected) reads as idle, dimmed, rather than
-    /// naming a state herdr never reported.
-    private var statusChipAppearance: (label: String, color: Color) {
-        let shown = ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork)
-        if let reason = shown.backgroundWork { return (reason, theme.backgroundWorkColor) }
-        return switch pane.agentStatus {
-        case .idle: ("idle", theme.green)
-        case .unknown: ("idle", theme.overlay0)
-        default: (pane.agentStatus.rawValue, theme.agentStatusColor(pane.agentStatus) ?? theme.overlay0)
-        }
     }
 
     /// True once the badge has actually appeared, and for however much longer
