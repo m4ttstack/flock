@@ -66,7 +66,8 @@ final class ChatStoreSlackTests: XCTestCase {
 
     private func makeStore(
         _ script: SlackScript, agent: String? = "bg:w9:p1", refusal: String? = nil, screen: String? = nil,
-        sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil
+        sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil,
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
     ) async -> (ChatStore, ToastCenter) {
         let toasts = ToastCenter()
         let suite = defaults ?? UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
@@ -86,6 +87,7 @@ final class ChatStoreSlackTests: XCTestCase {
                 return refusal
             },
             readAgentRefusal: { _ in screen },
+            now: now,
             defaults: suite
         )
         await store.probeTask.value
@@ -216,6 +218,45 @@ final class ChatStoreSlackTests: XCTestCase {
 
         XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
         XCTAssertNil(toasts.current)
+    }
+
+    func testAChatThatOpensLateKeepsItsOwner() async {
+        let sends = SendLog()
+        var clock = ContinuousClock.now
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), sends: sends, now: { clock })
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        clock = clock.advanced(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([])
+        await store.noteSlackChats([])
+
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertEqual(toasts.current?.message, "Slack chat didn't open")
+        if let id = toasts.current?.id { toasts.dismiss(id) }
+        await store.noteSlackChats([])
+        XCTAssertNil(toasts.current)
+
+        await store.noteSlackChats([open()])
+
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertEqual(store.slackRow(for: pane), .open(name: "alex"))
+        let exits = await exitLines(sends)
+        XCTAssertTrue(exits.isEmpty)
+    }
+
+    func testARefusedChatStillRetires() async {
+        let sends = SendLog()
+        var clock = ContinuousClock.now
+        let (store, _) = await makeStore(
+            SlackScript(chats: [nil]), screen: "already in a chat", sends: sends, now: { clock })
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        clock = clock.advanced(by: ChatSlackAgent.openDeadline + .seconds(1))
+
+        await store.noteSlackChats([])
+
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        let exits = await exitLines(sends)
+        XCTAssertEqual(exits, [ChatSlackAgent.exitLine])
     }
 
     func testAChatThatClosedExitsItsAgent() async {

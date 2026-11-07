@@ -18,6 +18,7 @@ struct ChatSlackAgentChat: Equatable, Codable {
     let repoName: String
     var name: String?
     var startedAt: ContinuousClock.Instant = .now
+    var timedOut = false
 
     private enum CodingKeys: String, CodingKey { case pane, repoName, name }
 }
@@ -86,6 +87,7 @@ final class ChatStore {
     @ObservationIgnored private let typeIntoAgent: @Sendable (_ pane: String, _ line: String) async -> String?
     @ObservationIgnored private let readAgentRefusal: @Sendable (_ pane: String) async -> String?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     /// A pane drawn in more than one place asks once, not once per view.
     @ObservationIgnored private var followingAutoSignIn: Set<PaneID> = []
 
@@ -126,6 +128,7 @@ final class ChatStore {
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
         loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
         defaults: UserDefaults = .standard
     ) {
         self.toasts = toasts
@@ -137,6 +140,7 @@ final class ChatStore {
         self.readAgentRefusal = readAgentRefusal
         self.loadFace = loadFace
         self.defaults = defaults
+        self.now = now
         slackAgents = Self.savedSlackAgents(in: defaults)
         startProbe(probe: probe, rtProbe: rtProbe, deckProbe: deckProbe, makeRunner: makeRunner)
     }
@@ -346,7 +350,7 @@ final class ChatStore {
             exitAgent(agent, after: .zero)
             return false
         }
-        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil)
+        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil, startedAt: now())
         return true
     }
 
@@ -356,6 +360,7 @@ final class ChatStore {
         for (owner, agent) in slackAgents {
             if let chat = open.first(where: { $0.pane == agent.pane }) {
                 if agent.name != chat.shownName { slackAgents[owner]?.name = chat.shownName }
+                if agent.timedOut { slackAgents[owner]?.timedOut = false }
                 if slackTransitions[owner] == .opening { slackTransitions[owner] = nil }
             } else if agent.name != nil {
                 retire(owner, agent, after: ChatSlackAgent.exitDelay)
@@ -363,8 +368,8 @@ final class ChatStore {
                 guard slackAgents[owner] == agent else { continue }
                 retire(owner, agent, after: .zero)
                 toasts.show("Slack chat not started: \(refusal)", kind: .info)
-            } else if ContinuousClock.now - agent.startedAt > ChatSlackAgent.openDeadline {
-                retire(owner, agent, after: .zero)
+            } else if !agent.timedOut, now() - agent.startedAt > ChatSlackAgent.openDeadline {
+                slackAgents[owner]?.timedOut = true
                 toasts.show("Slack chat didn't open", kind: .info)
             }
         }
