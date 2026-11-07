@@ -48,7 +48,7 @@ struct DividerHandleView: View {
                 // Hover and a live drag take a hue no pane border ever uses,
                 // so an active handle never reads as the focused border beside
                 // it.
-                handle(color: isHovering ? theme.mauve : theme.textLabel)
+                handle(color: isHovering ? theme.textLabel : theme.hairFocus)
             }
         }
         .frame(width: band.width, height: band.height)
@@ -113,7 +113,7 @@ struct DividerHandleView: View {
             forDividerLength: isVertical ? divider.frame.height : divider.frame.width
         )
         return ZStack {
-            handle(color: theme.mauve)
+            handle(color: theme.textStrong)
             // Clear of the handle so the percentage never covers what the
             // pointer is holding.
             ratioLabel(ratio)

@@ -64,7 +64,7 @@ struct MessageDock: View {
             VStack(spacing: 0) {
                 if placement == .rail {
                     Rectangle()
-                        .fill(theme.rule)
+                        .fill(theme.hair)
                         .frame(height: ChromeMetrics.ruleWidth)
                 }
                 VStack(alignment: .leading, spacing: ChromeMetrics.Dock.itemSpacing) {
@@ -86,7 +86,6 @@ struct MessageDock: View {
                 .padding(.bottom, ChromeMetrics.Dock.bottomInset)
                 .padding(.horizontal, ChromeMetrics.Dock.horizontalInset)
             }
-            .background(placement == .rail ? theme.tabRest : .clear)
             .animation(.easeOut(duration: 0.15), value: notice)
         }
     }
@@ -105,7 +104,7 @@ struct DockCardChrome: ViewModifier {
             .padding(.horizontal, ChromeMetrics.AttentionToast.horizontalPadding)
             .padding(.vertical, ChromeMetrics.AttentionToast.verticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .background(isFloating ? theme.chrome : theme.lift, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                     .strokeBorder(border, lineWidth: ChromeMetrics.ruleWidth)
@@ -140,7 +139,7 @@ private struct NoticeCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .modifier(DockCardChrome(theme: theme, border: theme.rule, isFloating: isFloating))
+        .modifier(DockCardChrome(theme: theme, border: theme.hair, isFloating: isFloating))
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)

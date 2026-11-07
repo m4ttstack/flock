@@ -6,14 +6,12 @@ public enum PaneFocusStyle: String, CaseIterable, Sendable {
     case brighterBorder
     case dimOthers
     case lift
-    case accentTick
 
     public var displayName: String {
         switch self {
         case .brighterBorder: "Brighter border"
         case .dimOthers: "Dim others"
         case .lift: "Lift"
-        case .accentTick: "Accent tick"
         }
     }
 }

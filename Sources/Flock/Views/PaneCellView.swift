@@ -400,7 +400,6 @@ struct PaneCellView: View {
                     RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(border.color, lineWidth: border.width)
                 }
             }
-            .overlay(alignment: .topLeading) { focusTick }
             .modifier(PaneHoverLift(
                 fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging, cornerRadius: cornerRadius
             ))
@@ -425,7 +424,7 @@ struct PaneCellView: View {
         case .brighterBorder:
             if isFocused { return (theme.hairFocus, ChromeMetrics.ruleWidth) }
             return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
-        case .dimOthers, .accentTick:
+        case .dimOthers:
             return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
         case .lift:
             return nil
@@ -446,16 +445,6 @@ struct PaneCellView: View {
         }
     }
 
-    @ViewBuilder
-    private var focusTick: some View {
-        if !rearrangeMode.active, focusStyle == .accentTick, isFocused {
-            Rectangle()
-                .fill(theme.accent)
-                .frame(width: ChromeMetrics.Pane.Focus.tickWidth, height: ChromeMetrics.Pane.Focus.tickHeight)
-                .padding(.leading, ChromeMetrics.Pane.Focus.tickInset)
-                .allowsHitTesting(false)
-        }
-    }
 
     /// Rearrange mode's repaint, per the spec's "Grabbing a pane" bullet:
     /// terminal content dims under a scrim and a centered grip glyph appears.

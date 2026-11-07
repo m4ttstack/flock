@@ -270,9 +270,6 @@ enum ChromeMetrics {
             /// `textStrong` over the focused pane: white on a dark theme,
             /// near black on a light one, so it reads as `lift`.
             static let liftWashOpacity: Double = 0.05
-            static let tickWidth: CGFloat = 36
-            static let tickHeight: CGFloat = 2
-            static let tickInset: CGFloat = 12
         }
 
         /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn

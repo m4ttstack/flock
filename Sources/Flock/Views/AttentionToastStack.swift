@@ -146,7 +146,7 @@ private struct AttentionToastCard: View {
     private var borderColor: Color {
         switch toast.kind {
         case .needsInput: theme.red.opacity(ChromeMetrics.AttentionToast.borderOpacity)
-        case .finished: theme.rule
+        case .finished: theme.hair
         }
     }
 }
@@ -161,8 +161,8 @@ private struct MorePill: View {
             .foregroundStyle(theme.textLabel)
             .padding(.horizontal, ChromeMetrics.AttentionToast.pillHorizontalPadding)
             .padding(.vertical, ChromeMetrics.AttentionToast.pillVerticalPadding)
-            .background(theme.chrome, in: Capsule())
-            .overlay(Capsule().strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
+            .background(theme.lift, in: Capsule())
+            .overlay(Capsule().strokeBorder(theme.hair, lineWidth: ChromeMetrics.ruleWidth))
             .accessibilityIdentifier("flock.attention.more")
     }
 }
