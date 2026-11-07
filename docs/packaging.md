@@ -27,6 +27,22 @@ The second run adds its assets to the existing release and prints the SHA-256
 for that architecture's slot in `HerdrMousePatchCatalog`. A version with no
 Intel entry offers no patch on an Intel Mac.
 
+A published patch is never replaced. A changed `patches/herdr/X.patch` for a
+version already out ships as a new revision, its own `herdr-patch-X-rN`
+release:
+
+```bash
+Scripts/build-herdr-patch.sh --version 0.9.5 --arch arm64 --revision 2
+Scripts/publish-herdr-patch.sh 0.9.5 arm64 --revision 2
+```
+
+Its catalog line (`HerdrMousePatchRelease(version:revision:...)`) holds
+`awaitingPublication` until each architecture's printed SHA-256 replaces it;
+until then the previous revision stays the one offered. Once pinned, a herdr
+carrying an earlier revision's exact build reads as outdated, and Flock offers
+the update from the banner and the Settings row, keeping the original herdr
+as the backup.
+
 ## Releasing an update
 
 Installed copies update themselves with Sparkle. Every release on GitHub
