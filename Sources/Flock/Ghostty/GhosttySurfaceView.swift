@@ -65,31 +65,37 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
     /// scrim could darken only the ground libghostty leaves clear.
     var shade = SurfaceShade.none {
-        didSet {
-            guard oldValue != shade, let layer else { return }
-            if shade == .none {
-                drainLayer.removeFromSuperlayer()
-                veilLayer.removeFromSuperlayer()
-                return
-            }
-            layerUsesCoreImageFilters = true
-            if drainLayer.superlayer == nil {
-                drainLayer.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
-                drainLayer.compositingFilter = CIFilter(name: "CISaturationBlendMode")
-                for sublayer in [drainLayer, veilLayer] {
-                    sublayer.frame = layer.bounds
-                    sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-                    sublayer.zPosition = .greatestFiniteMagnitude
-                    layer.addSublayer(sublayer)
-                }
-            }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            drainLayer.opacity = Float(shade.drain)
-            veilLayer.backgroundColor = shade.ground
-            veilLayer.opacity = Float(shade.veil)
-            CATransaction.commit()
+        didSet { applyShade() }
+    }
+
+    /// Run on every change and again whenever the view lands in a window or
+    /// lays out: the first shade can arrive before this view has a layer, and
+    /// a later identical value must still reach the layer it has by then.
+    private func applyShade() {
+        guard let layer else { return }
+        if shade == .none {
+            drainLayer.removeFromSuperlayer()
+            veilLayer.removeFromSuperlayer()
+            return
         }
+        layerUsesCoreImageFilters = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if drainLayer.superlayer !== layer {
+            drainLayer.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
+            drainLayer.compositingFilter = CIFilter(name: "CISaturationBlendMode")
+            for sublayer in [drainLayer, veilLayer] {
+                sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+                sublayer.zPosition = .greatestFiniteMagnitude
+                layer.addSublayer(sublayer)
+            }
+        }
+        drainLayer.frame = layer.bounds
+        veilLayer.frame = layer.bounds
+        drainLayer.opacity = Float(shade.drain)
+        veilLayer.backgroundColor = shade.ground
+        veilLayer.opacity = Float(shade.veil)
+        CATransaction.commit()
     }
 
     private let drainLayer = CALayer()
@@ -259,6 +265,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// or `layout()` runs -- there is no separate polling/retry timer.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyShade()
         updateObservers()
         applyBackgroundColor()
         if window == nil { return }
@@ -299,6 +306,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
 
     override func layout() {
         super.layout()
+        applyShade()
         // A layout pass follows the window settling on its new display, so
         // reasserting the scale here catches a display notification that
         // arrived before the window's backing scale actually updated, no
