@@ -335,32 +335,120 @@ index 323af2f8..0433ca48 100644
 +    ));
 +}
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index cb2c6196..52cbed39 100644
+index cb2c6196..c7f6a20b 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
-@@ -2261,6 +2261,17 @@ impl HeadlessServer {
+@@ -188,6 +188,13 @@ enum AltScreenReadConflict {
+     Defer,
+ }
+ 
++#[derive(Clone, Copy)]
++struct TerminalAttachHostTheme {
++    theme: crate::terminal_theme::TerminalTheme,
++    appearance: Option<crate::terminal_theme::HostAppearance>,
++    appearance_explicit: bool,
++}
++
+ /// The headless server — runs the herdr event loop without a real terminal.
+ pub struct HeadlessServer {
+     app: app::App,
+@@ -208,6 +215,9 @@ pub struct HeadlessServer {
+     next_client_id: u64,
+     /// The client currently driving session-wide host presentation and side effects.
+     foreground_client_id: Option<u64>,
++    /// The host theme a terminal controller last set, put back whenever no
++    /// foreground client is left to own the session's theme.
++    terminal_attach_host_theme: Option<TerminalAttachHostTheme>,
+     /// Ephemeral shell connection controlling PTY geometry for each stable tab id.
+     tab_geometry_controllers: HashMap<String, u64>,
+     /// Stable tab id whose viewers may see and interact with the one terminal popup.
+@@ -364,6 +374,7 @@ impl HeadlessServer {
+             #[cfg(unix)]
+             next_client_id: 1,
+             foreground_client_id: None,
++            terminal_attach_host_theme: None,
+             tab_geometry_controllers: HashMap::new(),
+             popup_owner_tab_id: None,
+             client_shell_boot_id: format!(
+@@ -809,6 +820,7 @@ impl HeadlessServer {
+             let server_keybindings = self.server_keybindings.clone();
+             apply_keybindings(&mut self.app, &server_keybindings);
+             self.sync_visible_server_config_diagnostic(false);
++            self.restore_terminal_attach_host_theme();
+             return;
+         };
+         let Some(client) = self.clients.get(&client_id) else {
+@@ -820,6 +832,7 @@ impl HeadlessServer {
+             let server_keybindings = self.server_keybindings.clone();
+             apply_keybindings(&mut self.app, &server_keybindings);
+             self.sync_visible_server_config_diagnostic(false);
++            self.restore_terminal_attach_host_theme();
+             return;
+         };
+ 
+@@ -852,6 +865,22 @@ impl HeadlessServer {
+         self.app.set_host_terminal_theme(host_terminal_theme);
+     }
+ 
++    /// A foreground client's theme is the session's only while it is
++    /// foreground; once none is left, the terminal controller's comes back.
++    fn restore_terminal_attach_host_theme(&mut self) {
++        if let Some(applied) = self.terminal_attach_host_theme {
++            self.apply_terminal_attach_host_theme(applied);
++        }
++    }
++
++    fn apply_terminal_attach_host_theme(&mut self, applied: TerminalAttachHostTheme) -> bool {
++        let mut changed = self
++            .app
++            .set_host_terminal_appearance_state(applied.appearance, applied.appearance_explicit);
++        changed |= self.app.set_host_terminal_theme(applied.theme);
++        changed
++    }
++
+     fn sync_visible_server_config_diagnostic(&mut self, uses_local_keybindings: bool) {
+         let visible = if uses_local_keybindings {
+             &self.server_config_diagnostic_without_keybindings
+@@ -2261,6 +2290,26 @@ impl HeadlessServer {
                  let Some(client) = self.clients.get_mut(&client_id) else {
                      return false;
                  };
 +                // A terminal controller has no shell surface to be foreground in;
 +                // its theme applies to every pane as soon as it arrives.
++                // A theme line arrives as several updates, so each one merges onto
++                // the session's current theme rather than the client's own, which
++                // starts empty and would clear every pane's colors until the rest
++                // arrived.
 +                if matches!(client.mode, ClientConnectionMode::TerminalAttach { .. }) {
++                    client.host_terminal_theme = self.app.state.host_terminal_theme;
++                    client.host_terminal_appearance = self.app.state.host_terminal_appearance;
++                    client.host_terminal_appearance_explicit =
++                        self.app.state.host_terminal_appearance_explicit;
 +                    client.update_host_theme(&update);
-+                    let mut changed = self.app.set_host_terminal_appearance_state(
-+                        client.host_terminal_appearance,
-+                        client.host_terminal_appearance_explicit,
-+                    );
-+                    changed |= self.app.set_host_terminal_theme(client.host_terminal_theme);
-+                    return changed;
++                    let applied = TerminalAttachHostTheme {
++                        theme: client.host_terminal_theme,
++                        appearance: client.host_terminal_appearance,
++                        appearance_explicit: client.host_terminal_appearance_explicit,
++                    };
++                    self.terminal_attach_host_theme = Some(applied);
++                    return self.apply_terminal_attach_host_theme(applied);
 +                }
                  if !matches!(client.mode, ClientConnectionMode::ClientShell) {
                      return false;
                  }
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 3ab7ec0f..4dc0c402 100644
+index 3ab7ec0f..62477125 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -8333,3 +8333,48 @@ fn no_handle_internal_event_bypass_in_module() {
+@@ -114,6 +114,7 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
+         #[cfg(unix)]
+         next_client_id: 1,
+         foreground_client_id: None,
++        terminal_attach_host_theme: None,
+         tab_geometry_controllers: HashMap::new(),
+         popup_owner_tab_id: None,
+         client_shell_boot_id: "test-boot".into(),
+@@ -8333,3 +8334,157 @@ fn no_handle_internal_event_bypass_in_module() {
          bypass_lines.join("\n  ")
      );
  }
@@ -403,6 +491,115 @@ index 3ab7ec0f..4dc0c402 100644
 +        server.app.state.host_terminal_theme.background,
 +        Some(light.into())
 +    );
++    assert_eq!(
++        server.app.state.host_terminal_appearance,
++        Some(crate::terminal_theme::HostAppearance::Light)
++    );
++    assert!(server.app.state.host_terminal_appearance_explicit);
++}
++
++fn terminal_attach_test_client() -> ClientConnection {
++    let mut client = ClientConnection::new(
++        (80, 24),
++        crate::kitty_graphics::HostCellSize::default(),
++        1,
++        RenderEncoding::SemanticFrame,
++        None,
++    );
++    client.mode = ClientConnectionMode::TerminalAttach {
++        terminal_id: "1".to_owned(),
++    };
++    client
++}
++
++#[test]
++fn terminal_attach_host_theme_merges_onto_the_current_theme() {
++    let mut server = test_headless_server();
++    let mut current = crate::terminal_theme::TerminalTheme::default();
++    current.foreground = Some(
++        protocol::ClientHostColor {
++            r: 205,
++            g: 214,
++            b: 244,
++        }
++        .into(),
++    );
++    current.background = Some(
++        protocol::ClientHostColor {
++            r: 30,
++            g: 30,
++            b: 46,
++        }
++        .into(),
++    );
++    current.palette[1] = current.foreground;
++    server.app.set_host_terminal_theme(current);
++    server.clients.insert(1, terminal_attach_test_client());
++    server.foreground_client_id = None;
++
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
++    });
++
++    assert_eq!(server.app.state.host_terminal_theme, current);
++    assert_eq!(
++        server.app.state.host_terminal_appearance,
++        Some(crate::terminal_theme::HostAppearance::Light)
++    );
++}
++
++#[test]
++fn terminal_attach_host_theme_returns_when_the_foreground_client_leaves() {
++    let mut server = test_headless_server();
++    server.clients.insert(1, terminal_attach_test_client());
++    server.foreground_client_id = None;
++    let light = protocol::ClientHostColor {
++        r: 239,
++        g: 241,
++        b: 245,
++    };
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
++    });
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::DefaultColor {
++            kind: protocol::ClientHostDefaultColorKind::Background,
++            color: light,
++        },
++    });
++    let controller_theme = server.app.state.host_terminal_theme;
++
++    let mut shell = ClientConnection::new(
++        (80, 24),
++        crate::kitty_graphics::HostCellSize::default(),
++        2,
++        RenderEncoding::SemanticFrame,
++        None,
++    );
++    shell.mode = ClientConnectionMode::ClientShell;
++    shell.host_terminal_theme.background = Some(
++        protocol::ClientHostColor {
++            r: 30,
++            g: 30,
++            b: 46,
++        }
++        .into(),
++    );
++    shell.host_terminal_appearance = Some(crate::terminal_theme::HostAppearance::Dark);
++    let shell_theme = shell.host_terminal_theme;
++    server.clients.insert(2, shell);
++    server.foreground_client_id = Some(2);
++    server.sync_foreground_client_state();
++    assert_eq!(server.app.state.host_terminal_theme, shell_theme);
++
++    server.clients.remove(&2);
++    server.foreground_client_id = None;
++    server.sync_foreground_client_state();
++
++    assert_eq!(server.app.state.host_terminal_theme, controller_theme);
 +    assert_eq!(
 +        server.app.state.host_terminal_appearance,
 +        Some(crate::terminal_theme::HostAppearance::Light)
