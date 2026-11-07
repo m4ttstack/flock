@@ -1047,14 +1047,8 @@ enum ChromeMetrics {
         /// herdr's dots glow when a pane is actually asking for something;
         /// the parity checklist carries it on `blocked` alone.
         static let blockedGlowRadius: CGFloat = 6
-        /// The arrow's own width: every point it does not need goes to the
-        /// breadcrumb, which at the rail's narrowest has about fifty.
-        static let jumpGlyphWidth: CGFloat = 12
         /// The close button's own box, so the x never overhangs its slot.
         static let dismissGlyphWidth: CGFloat = CloseButton.size
-        /// Between the jump arrow and the dismiss x. They do different things
-        /// to the same toast, so they need daylight rather than adjacency.
-        static let glyphSpacing: CGFloat = 4
         static let breadcrumbToGlyphs: CGFloat = 4
         static let pillHorizontalPadding: CGFloat = 9
         static let pillVerticalPadding: CGFloat = 4

@@ -87,11 +87,12 @@ private struct AttentionToastCard: View {
                     .lineLimit(1)
                     .truncationMode(.head)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                trailingGlyphs
+                dismissButton
             }
             .padding(.leading, ChromeMetrics.AttentionToast.statusDot + ChromeMetrics.AttentionToast.dotSpacing)
         }
         .modifier(DockCardChrome(theme: theme, border: borderColor, isFloating: isFloating))
+        .overlay { if isHovering { HoverWashFill(theme: theme, cornerRadius: PaneChrome.cornerRadius) } }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         // Guarded like every other chrome tap: SwiftUI's tap gesture on macOS
@@ -114,29 +115,15 @@ private struct AttentionToastCard: View {
             .fixedSize()
     }
 
-    /// Two slots, never one. The arrow says "this jumps" and the x says "this
-    /// dismisses", so they cannot share pixels: stacked, the arrow was what a
-    /// resting card showed and the x was what the pointer armed, and aiming
-    /// at the arrow dismissed the toast instead of jumping to the pane.
-    ///
-    /// Both slots exist at every moment so a card never reflows as the
+    /// Its slot exists at every moment so a card never reflows as the
     /// pointer crosses it; only the x's opacity and hit testing follow hover.
-    /// Fixed as a pair, so a narrow card takes its room from the breadcrumb
-    /// and never from the daylight between them.
-    private var trailingGlyphs: some View {
-        HStack(spacing: ChromeMetrics.AttentionToast.glyphSpacing) {
-            Image(systemName: "arrow.right")
-                .font(ChromeType.attentionToastGlyph)
-                .foregroundStyle(theme.textLabel)
-                .frame(width: ChromeMetrics.AttentionToast.jumpGlyphWidth)
-                .accessibilityIdentifier("flock.attention.jump.\(toast.paneID.rawValue)")
-            HoverCloseButton(
-                theme: theme, isRevealed: isHovering, help: "Dismiss",
-                accessibilityIdentifier: "flock.attention.dismiss.\(toast.paneID.rawValue)",
-                action: { viewModel.dismissAttentionToast(pane: toast.paneID) }
-            )
-            .frame(width: ChromeMetrics.AttentionToast.dismissGlyphWidth)
-        }
+    private var dismissButton: some View {
+        HoverCloseButton(
+            theme: theme, isRevealed: isHovering, help: "Dismiss",
+            accessibilityIdentifier: "flock.attention.dismiss.\(toast.paneID.rawValue)",
+            action: { viewModel.dismissAttentionToast(pane: toast.paneID) }
+        )
+        .frame(width: ChromeMetrics.AttentionToast.dismissGlyphWidth)
         .fixedSize()
     }
 

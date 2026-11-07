@@ -194,7 +194,6 @@ enum ChromeType {
     static let attentionToastSubject = inter(13)
     static let attentionToastBreadcrumb = inter(11.5)
     static let attentionToastPill = inter(11.5, .medium)
-    static let attentionToastGlyph = Font.system(size: 10, weight: .semibold)
     static let copiedSymbol = Font.system(size: 14, weight: .medium)
     static let copiedMessage = inter(13)
     static let delayedTip = inter(12)
