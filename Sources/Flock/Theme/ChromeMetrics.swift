@@ -160,8 +160,6 @@ enum ChromeMetrics {
         static let height: CGFloat = headerBandHeight
         static let horizontalPadding: CGFloat = 10
         static let tabGap: CGFloat = 3
-        /// Kept for the render tests until they follow the pill strip.
-        static let tabTopClearance: CGFloat = 8
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
@@ -184,9 +182,6 @@ enum ChromeMetrics {
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
-        /// Kept for the render tests until they follow the pill strip.
-        static let paneGlyphWidth: CGFloat = 12
-        static let paneGlyphGap: CGFloat = 5
         /// The checkmark leading a tab marked complete.
         static let completeGlyphWidth: CGFloat = 12
         static let completeGlyphGap: CGFloat = 5
@@ -375,11 +370,6 @@ enum ChromeMetrics {
         }
     }
 
-    /// The chat button's popover: the plugin's launcher, six bands stacked
-    /// with zero gap between them, each sized to its own row content rather
-    /// than sharing one uniform inset. `signedOutHeight`/`signedInHeight` are
-    /// each band's own height summed; a geometry test cross-checks the sum
-    /// against these named totals so the two can never drift apart.
     /// `anchoredPanel`: a popover hung from its trigger's bottom-right corner.
     enum AnchoredPanel {
         static let gap: CGFloat = 4
@@ -396,12 +386,17 @@ enum ChromeMetrics {
         static let shadowMargin: CGFloat = 18
     }
 
+    /// The chat button's popover: header, status, the FEATURES label and the
+    /// feature rows, stacked with zero gap between them, each sized to its own
+    /// row content. `signedOutHeight`/`signedInHeight` are those bands summed
+    /// plus the bottom padding; a geometry test cross-checks the sum against
+    /// these named totals so the two can never drift apart.
     enum ChatPopover {
         static let width: CGFloat = 360
         /// Seconds after a close in which a chip click is the closing click.
         static let reopenGuard: Double = 0.35
-        static let signedOutHeight: CGFloat = 325
-        static let signedInHeight: CGFloat = 348
+        static let signedOutHeight: CGFloat = 251
+        static let signedInHeight: CGFloat = 274
         static let cornerRadius: CGFloat = ChromeRadius.surface
 
         enum Header {
@@ -466,12 +461,9 @@ enum ChromeMetrics {
             static let chevronSize = CGSize(width: 12, height: 12)
         }
 
-        /// One button spanning the band's full inner width (360 - the 14pt
-        /// insets on each side), zero top padding (the band sits flush under
-        /// THIS PANE's own bottom padding), 16 clear below it to the
-        /// popover's own bottom edge.
+        /// The small sign in or out button at the end of the status row.
         enum SignButtons {
-            /// Under the features, now that the sign button rides the status line.
+            /// Under the features: the popover's own bottom padding.
             static let bottomPadding: CGFloat = 8
             static let cornerRadius: CGFloat = ChromeRadius.control
             static let buttonVerticalPadding: CGFloat = 3
