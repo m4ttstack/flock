@@ -4,7 +4,7 @@ import Observation
 /// How the canvas tells the focused pane from the rest.
 public enum PaneFocusStyle: String, CaseIterable, Sendable {
     /// What a fresh install shows.
-    public static let standard: PaneFocusStyle = .dimOthers
+    public static let standard: PaneFocusStyle = .drainColour
 
     case brighterBorder
     case dimOthers
@@ -75,11 +75,11 @@ public final class PaneAppearanceStore {
     /// How far a pane without focus recedes under dim others and drain
     /// colour: the share of its own ground laid over it.
     public static let dimnessRange: ClosedRange<Double> = 0.3...0.9
-    public static let standardDimness = 0.65
+    public static let standardDimness = 0.44
     public static let desaturationKey = "flock.paneDesaturation"
     /// How much colour drain colour takes from a pane without focus.
     public static let desaturationRange: ClosedRange<Double> = 0...1
-    public static let standardDesaturation = 0.75
+    public static let standardDesaturation = 1.0
 
     public private(set) var focusStyle: PaneFocusStyle
     public private(set) var layout: PaneLayoutStyle
