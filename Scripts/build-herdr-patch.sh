@@ -33,8 +33,11 @@ case "$ARCH" in
   *) echo "build-herdr-patch: --arch must be arm64 or x86_64, not $ARCH" >&2; exit 2 ;;
 esac
 case "$REVISION" in
-  ''|*[!0-9]*|0) echo "build-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
+  ''|*[!0-9]*) echo "build-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
 esac
+# Base 10, so 02 names r2 and 08 is not read as octal.
+REVISION=$((10#$REVISION))
+[ "$REVISION" -ge 1 ] || { echo "build-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2; }
 RELEASE="$HERDR_VERSION"
 [ "$REVISION" = 1 ] || RELEASE="$HERDR_VERSION-r$REVISION"
 PATCH="patches/herdr/$HERDR_VERSION.patch"
@@ -51,6 +54,9 @@ command -v zig >/dev/null 2>&1 || {
   echo "build-herdr-patch: zig $ZIG_VERSION is not on PATH; herdr's build.rs needs it" >&2; exit 1; }
 [ "$(zig version)" = "$ZIG_VERSION" ] || {
   echo "build-herdr-patch: zig is $(zig version), herdr's build.rs requires $ZIG_VERSION" >&2; exit 1; }
+
+FLOCK_COMMIT="$(git rev-parse HEAD)"
+git diff --quiet HEAD -- "$PATCH" || echo "build-herdr-patch: $PATCH differs from HEAD; publish-herdr-patch.sh refuses a build whose patch is not committed" >&2
 
 OUT="build/herdr-patches"
 NAME="herdr-mouse-patch-$RELEASE-$ARCH"
@@ -82,6 +88,13 @@ if [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "$VERB_MARK")" -eq 0 ]; then
   echo "build-herdr-patch: built binary carries no terminal.mouse_capture verb" >&2
   exit 1
 fi
+# Only an error message is long enough to stay a whole string on both
+# architectures.
+if [ "$(grep -cF -- "terminal.host_theme" "$PATCH")" -gt 0 ] \
+  && [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "host_theme needs")" -eq 0 ]; then
+  echo "build-herdr-patch: $PATCH adds terminal.host_theme but the built binary carries none" >&2
+  exit 1
+fi
 [ "$(lipo -archs "$BUILT")" = "$ARCH" ] || {
   echo "build-herdr-patch: built binary is $(lipo -archs "$BUILT"), expected $ARCH" >&2; exit 1; }
 # An Intel binary runs here only under Rosetta.
@@ -99,6 +112,7 @@ cat > "$OUT/$NAME.provenance.txt" <<EOF
 # terminal session control. Not made or endorsed by herdr's maintainers.
 herdr_version=$HERDR_VERSION
 patch_release=$RELEASE
+flock_commit=$FLOCK_COMMIT
 herdr_tag_commit=$TAG_COMMIT
 patch_sha256=$(shasum -a 256 "$PATCH" | cut -d' ' -f1)
 zig_version=$ZIG_VERSION

@@ -30,8 +30,11 @@ case "$ARCH" in
   *) echo "publish-herdr-patch: the architecture must be arm64 or x86_64, not $ARCH" >&2; exit 2 ;;
 esac
 case "$REVISION" in
-  ''|*[!0-9]*|0) echo "publish-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
+  ''|*[!0-9]*) echo "publish-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
 esac
+# Base 10, so 02 names r2 and 08 is not read as octal.
+REVISION=$((10#$REVISION))
+[ "$REVISION" -ge 1 ] || { echo "publish-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2; }
 RELEASE="$VERSION"
 [ "$REVISION" = 1 ] || RELEASE="$VERSION-r$REVISION"
 REPO="m4ttstack/flock"
@@ -41,6 +44,19 @@ DIR="build/herdr-patches"
 for f in "$NAME" "$NAME.provenance.txt" "$NAME.LICENSE"; do
   [ -f "$DIR/$f" ] || { echo "publish-herdr-patch: no $DIR/$f; run Scripts/build-herdr-patch.sh --version $VERSION --arch $ARCH --revision $REVISION" >&2; exit 1; }
 done
+PROVENANCE="$DIR/$NAME.provenance.txt"
+PATCH="patches/herdr/$VERSION.patch"
+FLOCK_COMMIT="$(sed -n 's/^flock_commit=//p' "$PROVENANCE")"
+PATCH_SHA="$(sed -n 's/^patch_sha256=//p' "$PROVENANCE")"
+[ -n "$FLOCK_COMMIT" ] || { echo "publish-herdr-patch: $PROVENANCE names no flock_commit; rebuild it" >&2; exit 1; }
+# The release notes link the patch at this commit, so it must be the patch
+# that was built, and it must be on GitHub.
+COMMITTED_SHA="$(git show "$FLOCK_COMMIT:$PATCH" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+[ "$COMMITTED_SHA" = "$PATCH_SHA" ] || {
+  echo "publish-herdr-patch: $PATCH at $FLOCK_COMMIT is not the patch this build applied; commit it and rebuild" >&2; exit 1; }
+gh api "repos/$REPO/commits/$FLOCK_COMMIT" --silent 2>/dev/null || {
+  echo "publish-herdr-patch: $FLOCK_COMMIT is not on GitHub; push it first" >&2; exit 1; }
+
 EXISTING=0
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
   EXISTING=1
@@ -63,7 +79,7 @@ ASSETS=("$DIR/$NAME" "$DIR/$NAME.sha256" "$DIR/$NAME.provenance.txt" "$DIR/$NAME
 if [ "$EXISTING" = 1 ]; then
   gh release upload "$TAG" -R "$REPO" "${ASSETS[@]}"
 else
-  NOTES="An Apache-2.0 build of herdr $VERSION with [patches/herdr/$VERSION.patch](https://github.com/$REPO/blob/main/patches/herdr/$VERSION.patch) applied, so herdr's terminal session control reports mouse capture to Flock and takes Flock's light or dark theme. Flock downloads and verifies this file itself from Settings; it is not made or endorsed by herdr's maintainers. Each architecture's SHA-256 is in its \`.sha256\` asset."
+  NOTES="An Apache-2.0 build of herdr $VERSION with [patches/herdr/$VERSION.patch](https://github.com/$REPO/blob/$FLOCK_COMMIT/$PATCH) applied, so herdr's terminal session control reports mouse capture to Flock and takes Flock's light or dark theme. Flock downloads and verifies this file itself from Settings; it is not made or endorsed by herdr's maintainers. Each architecture's SHA-256 is in its \`.sha256\` asset."
   gh release create "$TAG" -R "$REPO" --prerelease --title "herdr $RELEASE mouse patch" --notes "$NOTES" "${ASSETS[@]}"
 fi
 

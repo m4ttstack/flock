@@ -27,6 +27,11 @@ The second run adds its assets to the existing release and prints the SHA-256
 for that architecture's slot in `HerdrMousePatchCatalog`. A version with no
 Intel entry offers no patch on an Intel Mac.
 
+The build records the flock commit it ran from in its provenance file, and the
+release notes link the patch at that commit. Commit and push the patch before
+building: `publish-herdr-patch.sh` refuses a build whose patch differs from
+the one at its recorded commit, or whose commit is not on GitHub.
+
 A published patch is never replaced. A changed `patches/herdr/X.patch` for a
 version already out ships as a new revision, its own `herdr-patch-X-rN`
 release:
