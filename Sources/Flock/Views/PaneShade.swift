@@ -26,6 +26,14 @@ final class PaneShadeView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    /// Set here, where AppKit asks for it, rather than once at creation: the
+    /// root layer of a layer-backed view is AppKit's, and it can be rebuilt.
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
         layer?.backgroundColor = NSColor.black.cgColor
     }
 
