@@ -19,6 +19,7 @@ struct WorkspaceRail: View {
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
     @Environment(ProfilePickerContext.self) private var profilePicker: ProfilePickerContext?
+    @Environment(\.machineFolderLister) private var machineFolders
     @State private var scrollPosition = ScrollPosition()
     @State private var isNewWorkspaceRowHovered = false
     @State private var symbolPickerRow: WorkspaceID?
@@ -379,9 +380,10 @@ struct WorkspaceRail: View {
         let current = viewModel.pins.pin(pin.id)?.folder ?? pin.folder
         viewModel.answerPinFolder(pin.id, with: nil)
         DispatchQueue.main.async {
-            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?", onMachine: viewModel.isRemoteMachine) {
-                viewModel.setPinFolder(pin.id, to: folder)
-            }
+            FolderPanel.choose(
+                current: current, message: "Where should \"\(pin.name)\" open?",
+                machine: MachineFolderPick(lister: machineFolders, viewModel: viewModel, theme: theme)
+            ) { viewModel.setPinFolder(pin.id, to: $0) }
         }
     }
 

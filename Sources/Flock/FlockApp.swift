@@ -382,7 +382,13 @@ struct FlockApp: App {
                 herdrMousePatchStore: herdrMousePatchStore,
                 machineNotice: machineNotice
             )
+            .environment(\.machineFolderLister, machineFolderLister)
         }
+    }
+
+    private var machineFolderLister: MachineFolderLister? {
+        guard session.isRemoteMachine, let machine = session.profile.machine else { return nil }
+        return MachineFolderLister(target: machine.target)
     }
 
     /// Nil for a picked custom path: herdr only attaches to a custom socket,

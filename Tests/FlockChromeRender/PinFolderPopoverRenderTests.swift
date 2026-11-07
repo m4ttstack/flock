@@ -59,8 +59,8 @@ final class PinFolderPopoverRenderTests: XCTestCase {
         }
     }
 
-    /// On a herdr machine Finder has nothing to offer, so the list ends at the
-    /// last choice with no rule and no Other.
+    /// With no Other action, the list ends at the
+    /// last choice with no rule.
     func testOnAHerdrMachineTheQuestionHasNoOther() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }

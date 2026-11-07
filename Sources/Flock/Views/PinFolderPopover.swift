@@ -9,7 +9,6 @@ struct PinFolderPopover: View {
     let name: String
     let ask: PinFolderAsk
     let onChoose: (String) -> Void
-    /// nil on a herdr machine, where Finder can only offer this Mac's folders.
     let onOther: (() -> Void)?
     /// Per row, for renders; `PinFolderPopover.otherRow` is Other's.
     var forced: [Int: ControlInteraction] = [:]
