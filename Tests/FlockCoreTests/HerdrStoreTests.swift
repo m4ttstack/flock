@@ -221,6 +221,63 @@ final class HerdrStoreTests: XCTestCase {
         fake.stop()
     }
 
+    @MainActor
+    func testReconnectNowCutsABackoffWaitShortAndConnectsOnce() async throws {
+        let fake = FakeHerdrServer(); try fake.start()
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+        fake.stop()
+
+        let store = HerdrStore(socketPath: fake.socketPath, backoffSchedule: { _ in .seconds(600) })
+        await store.start()
+        defer { store.stop(); fake.stop() }
+
+        try await waitUntil { store.connection == .notRunning(attempt: 1) }
+        try fake.restart()
+        store.reconnectNow()
+        store.reconnectNow()
+
+        try await waitUntil { store.connection == .live }
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1)
+        XCTAssertEqual(fake.subscriberCount, 1)
+    }
+
+    @MainActor
+    func testReconnectNowIsANoOpWhileLive() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+
+        let store = HerdrStore(socketPath: fake.socketPath, backoffSchedule: { _ in .seconds(600) })
+        await store.start()
+        defer { store.stop() }
+
+        try await waitUntil { store.connection == .live }
+        XCTAssertFalse(store.isInBackoffForTesting)
+        store.reconnectNow()
+
+        XCTAssertFalse(store.isInBackoffForTesting)
+        XCTAssertEqual(store.connection, .live)
+        XCTAssertEqual(fake.receivedRequests.filter { $0.method == "session.snapshot" }.count, 1)
+        XCTAssertEqual(fake.subscriberCount, 1)
+    }
+
+    @MainActor
+    func testReconnectNowBeforeStartOrAfterStopDoesNothing() async throws {
+        let store = HerdrStore(socketPath: "/tmp/pdhs-no-such.sock", backoffSchedule: { _ in .seconds(600) })
+        store.reconnectNow()
+        XCTAssertEqual(store.connection, .connecting)
+        XCTAssertFalse(store.isInBackoffForTesting)
+
+        await store.start()
+        try await waitUntil { store.isInBackoffForTesting }
+        store.stop()
+        try await waitUntil { !store.isInBackoffForTesting }
+        store.reconnectNow()
+        XCTAssertFalse(store.isInBackoffForTesting)
+        XCTAssertEqual(store.connection, .notRunning(attempt: 1))
+    }
+
     /// The window `testReconnectReBootstraps` leaves open: connection A dies
     /// between its ack and the snapshot landing, so the reading task ends
     /// before there is any live stream for it to end. That death is the only

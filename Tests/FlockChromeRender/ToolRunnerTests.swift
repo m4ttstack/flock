@@ -13,6 +13,21 @@ final class ToolRunnerTests: XCTestCase {
         XCTAssertEqual(plain.exitCode, 3)
     }
 
+    func testInputReachesTheChildIntact() async throws {
+        let payload = Data((0..<(1 << 20)).map { UInt8($0 % 251) })
+        let runner = ToolRunner(binaryPath: "/bin/cat", deadline: .seconds(10))
+        let result = try await runner.runCapturingStderr([], input: payload)
+        XCTAssertEqual(result.stdout, payload)
+        XCTAssertEqual(result.exitCode, 0)
+    }
+
+    func testAChildThatQuitsBeforeReadingItsInputDoesNotKillTheCaller() async throws {
+        let payload = Data(count: 4 << 20)
+        let runner = ToolRunner(binaryPath: "/bin/sh", deadline: .seconds(10))
+        let result = try await runner.runCapturingStderr(["-c", "exit 4"], input: payload)
+        XCTAssertEqual(result.exitCode, 4)
+    }
+
     func testChildRunsFromTheHomeDirectory() async throws {
         let result = try await ToolRunner(binaryPath: "/bin/pwd", deadline: .seconds(5)).run(["-P"])
         let home = FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().path

@@ -2798,6 +2798,31 @@ final class ChromeRenderTests: XCTestCase {
                 nil, failingProfilesPicker, (makeProfileStore(), false, "Default")
             ))
         }
+        var remoteCases: Set<String> = []
+        let machineProfiles = makeProfileStore()
+        machineProfiles.syncMachines([
+            HerdrMachine(id: "acme-mini-0001", label: "acme-mini", target: "acme-mini", session: "default"),
+            HerdrMachine(id: "acme-studio-0002", label: "acme-studio", target: "acme-studio", session: "default"),
+        ])
+        machineProfiles.select("machine.acme-mini-0001")
+        let machineFoldersSuite = "\(ChromeRenderTests.defaultsSuite).machineFolders"
+        defer { UserDefaults().removePersistentDomain(forName: machineFoldersSuite) }
+        let machineFolders = StartingFolderStore(userDefaults: try XCTUnwrap(UserDefaults(suiteName: machineFoldersSuite)))
+        machineFolders.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
+        machineFolders.select(.mainCheckout, for: .pane)
+        for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let stores = try makeHerdrUpdateStores(patchInstalled: false)
+            await stores.update.checkIfDue()
+            let machineCases: [(String, StartingFolderStore, SettingsTab, (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?)] = [
+                ("herdr-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .herdr, stores),
+                ("profiles-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .profiles, nil),
+                ("general-machine-\(scheme)", machineFolders, .general, nil),
+            ]
+            for (name, folders, tab, caseStores) in machineCases {
+                remoteCases.insert(name)
+                cases.append((name, appearance, folders, tab, caseStores, profilesPicker, (machineProfiles, false, nil)))
+            }
+        }
         defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
@@ -2835,6 +2860,7 @@ final class ChromeRenderTests: XCTestCase {
                 profilesDraft: name.hasPrefix("profiles-new-custom-empty")
                     ? .init(customServer: true)
                     : name.hasPrefix("profiles-row-custom-empty") ? .init(customPathProfile: demo.id) : nil,
+                isRemoteMachine: remoteCases.contains(name),
                 selection: selection
             )
             if name.hasPrefix("herdr-update-updating") {
@@ -4866,10 +4892,16 @@ private struct Harness {
     }
 
     /// The title bar alone, at a width the main window's minimum never allows.
-    func makeTitleBarWindow(width: CGFloat, isDevBuild: Bool, herdrUpdate: HerdrUpdateStore? = nil) -> NSWindow {
+    func makeTitleBarWindow(
+        width: CGFloat, isDevBuild: Bool, herdrUpdate: HerdrUpdateStore? = nil,
+        connectionState: ConnectionState = .live, machineNotice: MachineNotice? = nil
+    ) -> NSWindow {
         host(
             VStack(spacing: 0) {
-                TitleBar(theme: themeStore.active, sessionLabel: "render", connectionState: .live, isDevBuild: isDevBuild)
+                TitleBar(
+                    theme: themeStore.active, sessionLabel: "render", connectionState: connectionState,
+                    isDevBuild: isDevBuild, machineNotice: machineNotice
+                )
                     .environment(herdrUpdate)
                 Spacer(minLength: 0)
             }
@@ -5541,6 +5573,44 @@ extension ChromeRenderTests {
                 } else {
                     XCTAssertEqual(peach, 0, "\(scheme): the plain note drew peach")
                 }
+                window.close()
+            }
+        }
+    }
+
+    /// A machine profile's connection line at the title bar's right, in each
+    /// state it can read: a long failure, the version warning while live, and
+    /// the removed machine with its button. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    func testTheMachineNoticeDrawsEveryState() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let width: CGFloat = 900
+        let trailing = CGRect(x: width - 560, y: 0, width: 560, height: ChromeMetrics.TitleBar.height)
+        let cases: [(String, ConnectionState, MachineNotice)] = [
+            ("connecting", .connecting, MachineNotice(text: "Connecting to acme-mini\u{2026}")),
+            ("unreachable", .reconnecting(attempt: 2), MachineNotice(
+                text: "Can't reach acme-mini. Permission denied (publickey). If your key has a passphrase, run ssh-add, then check that ssh acme-mini works."
+            )),
+            ("version", .live, MachineNotice(
+                text: "acme-mini runs herdr 0.9.6 and this Mac has 0.9.5. Panes may misbehave until they match."
+            )),
+            ("removed", .live, MachineNotice(
+                text: "acme-mini is no longer a saved herdr machine.", action: .init(title: "Switch to Default", perform: {})
+            )),
+        ]
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            for (kind, state, notice) in cases {
+                let window = harness.makeTitleBarWindow(
+                    width: width, isDevBuild: false, connectionState: state, machineNotice: notice
+                )
+                await settle(window)
+                let image = try snapshot(window)
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("machine-notice-\(kind)-\(scheme).png"))
+                }
+                XCTAssertGreaterThan(count(theme.palette.yellow.hex, in: trailing, of: image), 0, "\(scheme) \(kind): no yellow dot")
                 window.close()
             }
         }

@@ -13,9 +13,9 @@ enum FlockClientGuard {
 
     private static var unregisterInstalled = false
 
-    /// Writes this process's record for `socketPath`, replacing any earlier
+    /// Writes this process's record for `attachKey`, replacing any earlier
     /// one. The unregister on quit is installed once however often this runs.
-    static func register(socketPath: String) {
+    static func register(attachKey: String) {
         let registry = FlockClientRegistry.shared
         let me = ProcessInfo.processInfo.processIdentifier
         ReleaseSignal.listen()
@@ -23,7 +23,7 @@ enum FlockClientGuard {
             pid: me,
             bundleID: Bundle.main.bundleIdentifier ?? "",
             appName: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Flock",
-            socketPath: socketPath,
+            socketPath: attachKey,
             hidesOnRelease: true
         ))
         guard !unregisterInstalled else { return }
@@ -33,9 +33,9 @@ enum FlockClientGuard {
         ) { _ in registry.unregister(pid: me) }
     }
 
-    static func settle(socketPath: String, defaultSocketPath: String) async {
-        register(socketPath: socketPath)
-        let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
+    static func settle(attachKey: String, defaultSocketPath: String) async {
+        register(attachKey: attachKey)
+        let others = conflicts(on: attachKey, defaultSocketPath: defaultSocketPath)
         guard let other = others.first else { return }
 
         switch ask(about: other, copy: launchCopy(other: other.appName), declineTitle: "Quit This One") {
@@ -48,15 +48,14 @@ enum FlockClientGuard {
         }
     }
 
-    /// Asked before this Flock moves to `socketPath`. False means stay where
+    /// Asked before this Flock moves onto `attachKey`. False means stay where
     /// it is; true means go ahead, with any other Flock on that session
     /// either gone or knowingly kept.
-    static func confirmAttach(socketPath: String, defaultSocketPath: String, stayLabel: String) async -> Bool {
-        let others = conflicts(on: socketPath, defaultSocketPath: defaultSocketPath)
+    static func confirmAttach(attachKey: String, targetLabel: String, defaultSocketPath: String, stayLabel: String) async -> Bool {
+        let others = conflicts(on: attachKey, defaultSocketPath: defaultSocketPath)
         guard let other = others.first else { return true }
 
-        let target = HerdrServerAddress(socketPath: socketPath, home: NSHomeDirectory()).label
-        let copy = switchCopy(other: other.appName, target: target)
+        let copy = switchCopy(other: other.appName, target: targetLabel)
         switch ask(about: other, copy: copy, declineTitle: "Stay on \(stayLabel)") {
         case .quitOther:
             await quit(others)

@@ -101,4 +101,11 @@ final class StartingFolderTests: XCTestCase {
     func testOnlyMainCheckoutNeedsThePanesFolder() {
         XCTAssertEqual(StartingFolder.allCases.filter(\.needsPaneFolder), [.mainCheckout])
     }
+
+    func testRemoteMachineSendsNoLocalStartingFolder() {
+        XCTAssertNil(StartingFolderChoice(folder: .home).cwd(paneFolder: nil, home: "/Users/acme", isRemoteMachine: true))
+        XCTAssertNil(StartingFolderChoice(folder: .custom, customPath: root.path).cwd(paneFolder: nil, home: "/Users/acme", isRemoteMachine: true))
+        XCTAssertNil(StartingFolderChoice(folder: .mainCheckout).cwd(paneFolder: root.path, home: "/Users/acme", isRemoteMachine: true))
+        XCTAssertNil(StartingFolderChoice(folder: .currentPane).cwd(paneFolder: nil, home: "/Users/acme", isRemoteMachine: true))
+    }
 }

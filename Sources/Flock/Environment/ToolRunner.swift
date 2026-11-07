@@ -29,14 +29,17 @@ struct ToolRunner: Sendable {
         return (output.stdout, output.exitCode)
     }
 
-    func runCapturingStderr(_ arguments: [String]) async throws -> (stdout: Data, stderr: Data, exitCode: Int32) {
-        let output = try await run(arguments, capturingStderr: true)
+    func runCapturingStderr(
+        _ arguments: [String], input: Data? = nil
+    ) async throws -> (stdout: Data, stderr: Data, exitCode: Int32) {
+        let output = try await run(arguments, capturingStderr: true, input: input)
         return (output.stdout, output.stderr, output.exitCode)
     }
 
-    private func run(_ arguments: [String], capturingStderr: Bool) async throws -> Output {
+    private func run(_ arguments: [String], capturingStderr: Bool, input: Data? = nil) async throws -> Output {
         let child = Child(
-            binaryPath: binaryPath, arguments: arguments, environment: environment, capturesStderr: capturingStderr
+            binaryPath: binaryPath, arguments: arguments, environment: environment,
+            capturesStderr: capturingStderr, input: input
         )
 
         // A caller's `.task` is cancelled on teardown, not just timed out:
@@ -109,6 +112,8 @@ private final class Child: @unchecked Sendable {
     private let process = Process()
     private let stdoutPipe = Pipe()
     private let stderrPipe: Pipe?
+    private let stdinPipe: Pipe?
+    private let input: Data?
     private var stderr = Data()
     /// True only once `process.run()` has returned. Apple documents
     /// `terminate()` on an unlaunched process as undefined, and `terminate()`
@@ -117,7 +122,10 @@ private final class Child: @unchecked Sendable {
     private var launched = false
     private var terminateRequested = false
 
-    init(binaryPath: String, arguments: [String], environment: [String: String]?, capturesStderr: Bool) {
+    init(
+        binaryPath: String, arguments: [String], environment: [String: String]?, capturesStderr: Bool,
+        input: Data? = nil
+    ) {
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
         // An app opened by launchd runs from `/`, and rt chat refuses to
@@ -127,6 +135,9 @@ private final class Child: @unchecked Sendable {
         process.standardOutput = stdoutPipe
         stderrPipe = capturesStderr ? Pipe() : nil
         process.standardError = stderrPipe ?? FileHandle.nullDevice
+        self.input = input
+        stdinPipe = input == nil ? nil : Pipe()
+        if let stdinPipe { process.standardInput = stdinPipe }
     }
 
     /// Reads stdout to EOF before waiting: a verb that writes more than the
@@ -141,6 +152,8 @@ private final class Child: @unchecked Sendable {
         lock.unlock()
         if requestedBeforeLaunch { process.terminate() }
 
+        if let stdinPipe, let input { feed(input, to: stdinPipe) }
+
         let stderrDrained = DispatchGroup()
         if let stderrPipe {
             stderrDrained.enter()
@@ -154,6 +167,19 @@ private final class Child: @unchecked Sendable {
         process.waitUntilExit()
         stderrDrained.wait()
         return Output(stdout: stdout, stderr: lock.withLock { stderr }, exitCode: process.terminationStatus)
+    }
+
+    /// Written from a thread of its own so a payload larger than the pipe's
+    /// buffer cannot stall the stdout drain, and closed even when the child
+    /// exits first. A child that quits early would otherwise raise SIGPIPE
+    /// in this process, so the descriptor opts out of it.
+    private func feed(_ data: Data, to pipe: Pipe) {
+        let writer = pipe.fileHandleForWriting
+        _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1)
+        Thread {
+            try? writer.write(contentsOf: data)
+            try? writer.close()
+        }.start()
     }
 
     /// Before launch this only records the request: the real

@@ -9,7 +9,7 @@ struct PinFolderPopover: View {
     let name: String
     let ask: PinFolderAsk
     let onChoose: (String) -> Void
-    let onOther: () -> Void
+    let onOther: (() -> Void)?
     /// Per row, for renders; `PinFolderPopover.otherRow` is Other's.
     var forced: [Int: ControlInteraction] = [:]
 
@@ -36,25 +36,27 @@ struct PinFolderPopover: View {
                 Button { onChoose(choice.folder) } label: {
                     row(choice, isPicked: index == picked)
                 }
-                .buttonStyle(PinFolderRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
+                .buttonStyle(PickedRowStyle(theme: theme, isPicked: index == picked, hovering: hovered == index, forced: forced[index]))
                 .onHover { hovered = $0 ? index : (hovered == index ? nil : hovered) }
             }
-            Rectangle()
-                .fill(theme.rule)
-                .frame(height: ChromeMetrics.ruleWidth)
-            Button(action: onOther) {
-                Text("Other\u{2026}")
-                    .font(ChromeType.pinFolderOther)
-                    .foregroundStyle(theme.textDim)
-                    .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
-                    .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+            if let onOther {
+                Rectangle()
+                    .fill(theme.rule)
+                    .frame(height: ChromeMetrics.ruleWidth)
+                Button(action: onOther) {
+                    Text("Other\u{2026}")
+                        .font(ChromeType.pinFolderOther)
+                        .foregroundStyle(theme.textDim)
+                        .padding(.leading, ChromeMetrics.PinFolderPopover.otherLeading)
+                        .padding(.vertical, ChromeMetrics.PinFolderPopover.otherVerticalPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PickedRowStyle(
+                    theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
+                ))
+                .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
             }
-            .buttonStyle(PinFolderRowStyle(
-                theme: theme, isPicked: false, hovering: hovered == Self.otherRow, forced: forced[Self.otherRow]
-            ))
-            .onHover { hovered = $0 ? Self.otherRow : (hovered == Self.otherRow ? nil : hovered) }
         }
         .padding(.vertical, ChromeMetrics.PinFolderPopover.verticalPadding)
         .frame(width: ChromeMetrics.PinFolderPopover.width)
@@ -128,7 +130,7 @@ struct PinFolderPopover: View {
 /// A row's states: the keyboard's pick as the selection fill, and hover and
 /// press as the chrome's one wash over it, so the pick never moves under the
 /// pointer.
-private struct PinFolderRowStyle: ButtonStyle {
+struct PickedRowStyle: ButtonStyle {
     let theme: Theme
     let isPicked: Bool
     let hovering: Bool

@@ -962,8 +962,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// method).
     @objc func paste(_ sender: Any?) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
-        guard let text = NSPasteboard.general.pasteText() else { return }
-        session.paste(text)
+        session.pasteClipboard()
     }
 
     override func selectAll(_ sender: Any?) {

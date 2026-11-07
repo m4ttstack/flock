@@ -41,6 +41,7 @@ final class FlockSession: ProfileSession {
     let topBarOverlaySizeStore: TopBarOverlaySizeStore
     let workspaceSwitcher: WorkspaceSwitcher
     let tabSwitcher: TabSwitcher
+    let serverSwitcher: ServerSwitcher
 
     let toastCenter: ToastCenter
     let chatStore: ChatStore
@@ -57,6 +58,15 @@ final class FlockSession: ProfileSession {
     let dragCoordinator: DragCoordinator
     let dividerDragCoordinator: DividerDragCoordinator
     let commandPalette: CommandPaletteState
+    /// Holds itself alive until stopped, so `shutdown()` must run before the
+    /// session is dropped.
+    let machineTunnel: MachineTunnel?
+    var isRemoteMachine: Bool { machineTunnel != nil }
+    let machineConnection: MachineConnectionWatch?
+    /// Nil off a machine session, which is the only one a version mismatch
+    /// concerns.
+    let localHerdrVersion: LocalHerdrVersion?
+    @ObservationIgnored private var localVersionLoad: Task<Void, Never>?
 
     init(
         context: ProfileSessionContext,
@@ -64,7 +74,9 @@ final class FlockSession: ProfileSession {
         board: BoardStore,
         herdProgress: HerdProgressStore,
         resnapshotInterval: Duration?,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(),
+        makeTunnel: @MainActor (HerdrMachine) -> MachineTunnel,
+        localHerdrVersion: @escaping @Sendable () -> String? = LocalHerdrVersion.readInstalled
     ) {
         let preferences = context.preferences
         let idState = context.idState
@@ -72,6 +84,10 @@ final class FlockSession: ProfileSession {
         profile = context.profile
         self.socketPath = socketPath
         address = HerdrServerAddress(socketPath: socketPath, home: home)
+        let machineTunnel = context.isRemoteMachine ? context.profile.machine.map(makeTunnel) : nil
+        self.machineTunnel = machineTunnel
+        let isRemoteMachine = machineTunnel != nil
+        self.localHerdrVersion = isRemoteMachine ? LocalHerdrVersion(read: localHerdrVersion) : nil
 
         let themeStore = ThemeStore(userDefaults: preferences)
         self.themeStore = themeStore
@@ -111,18 +127,20 @@ final class FlockSession: ProfileSession {
         topBarOverlaySizeStore = TopBarOverlaySizeStore(userDefaults: idState)
         workspaceSwitcher = WorkspaceSwitcher(userDefaults: idState)
         tabSwitcher = TabSwitcher(userDefaults: idState)
+        serverSwitcher = ServerSwitcher(userDefaults: preferences)
 
         let toastCenter = ToastCenter()
         self.toastCenter = toastCenter
         // `ChatStore`'s own init resolves `ChatToolLocator.binaryPath` off the
         // main actor via its `probeTask`; nothing here reads it synchronously.
-        let chatStore = ChatStore(toasts: toastCenter, loadFace: ChatFaceImage.load(handle:))
+        let chatStore = ChatStore(toasts: toastCenter, loadFace: ChatFaceImage.load(handle:), isRemoteMachine: isRemoteMachine)
         self.chatStore = chatStore
         chatSidebarStore.onChats = { await chatStore.noteSlackChats($0) }
         chatSidebarStore.owner = { chatStore.slackOwner(ofAgent: $0)?.rawValue }
         let herdrStore = resnapshotInterval.map { HerdrStore(socketPath: socketPath, resnapshotInterval: $0) }
             ?? HerdrStore(socketPath: socketPath)
         self.herdrStore = herdrStore
+        machineConnection = machineTunnel.map { MachineConnectionWatch(tunnel: $0, store: herdrStore) }
         let undoJournal = UndoJournal(
             executor: herdrStore,
             model: { herdrStore.model },
@@ -139,7 +157,16 @@ final class FlockSession: ProfileSession {
                 fontSizePoints: { terminalTextSizeStore.points },
                 optionAsAlt: { optionAsAltStore.active },
                 scrollSpeed: { scrollSpeedStore.active },
-                linkTrust: linkTrustStore
+                linkTrust: linkTrustStore,
+                isRemoteMachine: isRemoteMachine,
+                remotePaste: isRemoteMachine
+                    ? context.profile.machine.map { machine in
+                        RemotePasteTarget(
+                            uploader: RemoteFileUploader(target: machine.target, label: machine.label),
+                            notify: { message in toastCenter.show(message, kind: .info) }
+                        )
+                    }
+                    : nil
             )
         }
         self.ghosttyFactory = ghosttyFactory
@@ -187,7 +214,8 @@ final class FlockSession: ProfileSession {
             paneTitleDefaults: idState,
             pinnedWorkspaceDefaults: idState,
             identity: workspaceIdentityStore,
-            cswapAccounts: CswapList.read
+            cswapAccounts: CswapList.read,
+            isRemoteMachine: isRemoteMachine
         )
         self.viewModel = viewModel
         herdrStore.onChange = { [weak viewModel] model, connection in
@@ -227,11 +255,18 @@ final class FlockSession: ProfileSession {
         commandPalette = CommandPaletteState()
     }
 
+    /// The store's reconnect loop covers the wait for the tunnel's socket, and
+    /// the watch cuts its backoff short once the forward is up.
     func start() async {
+        machineConnection?.start()
+        machineTunnel?.start()
+        if let localHerdrVersion { localVersionLoad = Task { await localHerdrVersion.loadOnce() } }
         await herdrStore.start()
     }
 
     func shutdown() async {
+        localVersionLoad?.cancel()
+        machineConnection?.stop()
         herdrHoldCoordinator.invalidate()
         dragCoordinator.invalidate()
         rearrangeMode.invalidate()
@@ -239,5 +274,6 @@ final class FlockSession: ProfileSession {
         await viewModel.shutdown()
         chatStore.stop()
         toastCenter.clear()
+        await machineTunnel?.stop()
     }
 }

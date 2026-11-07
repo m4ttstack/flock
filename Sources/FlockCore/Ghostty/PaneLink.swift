@@ -32,8 +32,11 @@ public enum PaneLink: Equatable {
     /// terminal's cells, of which an emoji or a CJK character takes two.
     public static func match(
         inRow row: String, column: Int, folder: String?, home: String,
-        handled: (URL) -> Bool = { _ in false }, exists: (String) -> Bool
+        handled: (URL) -> Bool = { _ in false }, isRemoteMachine: Bool = false, exists: (String) -> Bool
     ) -> Match? {
+        if isRemoteMachine {
+            return match(inRow: row, column: column, folder: folder, home: home, handled: handled) { _ in false }
+        }
         var cellStarts: [Int] = []
         var cells = 0
         for character in row {
@@ -113,11 +116,13 @@ public enum PaneLink: Equatable {
     /// A path that names nothing on disk resolves to nothing, since the
     /// matcher also takes prose that merely contains a slash. So does an
     /// address no app is `handled` by; whether one that is may open without
-    /// asking is `LinkTrust`'s.
+    /// asking is `LinkTrust`'s. A remote machine's pane names files on that
+    /// machine, so no path resolves there, even one this Mac also has.
     public static func resolve(
         _ text: String?, folder: String?, home: String, handled: (URL) -> Bool = { _ in false },
-        exists: (String) -> Bool
+        isRemoteMachine: Bool = false, exists: (String) -> Bool
     ) -> PaneLink? {
+        if isRemoteMachine { return resolve(text, folder: folder, home: home, handled: handled) { _ in false } }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         var candidate = text
         if text.hasPrefix("file://") {

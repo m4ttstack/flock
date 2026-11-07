@@ -10,11 +10,16 @@ public struct FlockProfile: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var socketPath: String?
     public var knownSockets: [String]
+    /// Set for profiles derived from `herdr machine list`; their socket is a tunnel's.
+    public var machine: HerdrMachine?
 
-    public init(id: String, name: String, socketPath: String?, knownSockets: [String]) {
+    public var isMachine: Bool { machine != nil }
+
+    public init(id: String, name: String, socketPath: String?, knownSockets: [String], machine: HerdrMachine? = nil) {
         self.id = id
         self.name = name
         self.socketPath = socketPath
         self.knownSockets = knownSockets
+        self.machine = machine
     }
 }

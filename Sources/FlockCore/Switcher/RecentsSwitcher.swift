@@ -5,9 +5,9 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs. Keeps what was most recently selected across launches,
-/// and, while the trigger is held, the rows on offer and which one letting go
-/// will open.
+/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers. Keeps what was
+/// most recently selected across launches, and, while the trigger is held,
+/// the rows on offer and which one letting go will open.
 @MainActor
 @Observable
 public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<String>> {
@@ -47,13 +47,18 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Selects the item before this one, or with `reverse` the last row.
-    /// Returns false, and starts nothing, when there is nowhere to go.
+    /// Returns false, and starts nothing, when there is nowhere to go. Items
+    /// in `last` follow every other row, recent ones first among them, so a
+    /// quick tap reaches one only when nothing else is on offer; the current
+    /// item stays first whatever it is.
     @discardableResult
-    public func begin(items: [ID], current: ID?, reverse: Bool = false) -> Bool {
-        let known = Set(items)
-        var rows = recents.filter { known.contains($0) && $0 != current }
-        if let current, known.contains(current) { rows.insert(current, at: 0) }
-        rows += items.filter { !rows.contains($0) }
+    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) -> Bool {
+        var rows: [ID] = []
+        if let current, items.contains(current) { rows.append(current) }
+        for group in [items.filter { !last.contains($0) }, items.filter { last.contains($0) }] {
+            let known = Set(group)
+            for id in recents.filter(known.contains) + group where !rows.contains(id) { rows.append(id) }
+        }
         guard rows.count > 1 else { return false }
         session += 1
         order = rows
@@ -87,6 +92,30 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
         order = []
         selection = 0
         isShown = false
+    }
+
+    /// Acts on a key's decision and says whether the key was used. A trigger
+    /// press that starts nothing (one item, a locked window) is not, so it
+    /// reaches the pane behind.
+    /// `keepsUnopened`: a press that opens nothing is still held back from
+    /// the pane.
+    public func apply(
+        _ decision: SwitcherKey.Decision, keepsUnopened: Bool = false, begin: (_ reverse: Bool) -> Bool, open: () -> Void
+    ) -> Bool {
+        switch decision {
+        case .pass:
+            return false
+        case .next, .previous:
+            guard isActive else { return begin(decision == .previous) || keepsUnopened }
+            step(decision == .next ? 1 : -1)
+        case .commit:
+            open()
+        case .cancel:
+            cancel()
+        case .swallow:
+            break
+        }
+        return true
     }
 }
 
@@ -141,18 +170,47 @@ extension RecentsSwitcher where ID == TabID {
     }
 }
 
-/// The modifier that holds a switcher open: ⌃ for workspaces, ⌥ for tabs.
-public enum SwitcherTrigger: Sendable {
-    case control, option
+/// What opens a switcher and holds it open: ⌃Tab over workspaces, ⌥Tab over
+/// tabs, ⌃` over profiles, ⌥` over servers.
+public struct SwitcherTrigger: Equatable, Sendable {
+    public enum Modifier: Sendable { case control, option }
+
+    public let modifier: Modifier
+    public let keyCode: UInt16
+
+    public static let controlTab = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.tab)
+    public static let optionTab = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.tab)
+    public static let controlBacktick = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.grave)
+    public static let optionBacktick = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.grave)
+
+    public var modifierGlyph: String {
+        switch modifier {
+        case .control: "\u{2303}"
+        case .option: "\u{2325}"
+        }
+    }
+
+    public var keyGlyph: String { keyCode == SwitcherKey.tab ? "\u{21E5}" : "`" }
+
+    /// ⌥` is the grave accent's dead key and ⌃` types a NUL, so a backtick
+    /// press that opens nothing would leave the pane half-composing an accent
+    /// or reading a stray byte.
+    public var keepsUnopenedPress: Bool { keyCode == SwitcherKey.grave }
+
+    /// As menus write a shortcut, for tooltips.
+    public var label: String { modifierGlyph + keyGlyph }
 }
 
-/// The keys a switcher takes. Its trigger plus Tab, with Shift to go back,
-/// starts or steps it; while it is up, the arrows step, Return opens, Esc
-/// cancels, and every other key is held back from the pane behind.
+/// The keys a switcher takes. Its trigger, with Shift to go back, starts or
+/// steps it; while it is up, the arrows step, Return opens, Esc cancels, and
+/// every other key is held back from the pane behind.
 public enum SwitcherKey {
     public enum Decision: Equatable, Sendable { case next, previous, commit, cancel, swallow, pass }
 
     static let tab: UInt16 = 48
+    /// The ANSI grave key, which keeps its place whatever the layout types
+    /// on it.
+    static let grave: UInt16 = 50
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
     static let escape: UInt16 = 53
@@ -164,11 +222,11 @@ public enum SwitcherKey {
     public static func decide(
         trigger: SwitcherTrigger, keyCode: UInt16, control: Bool, shift: Bool, command: Bool, option: Bool, active: Bool
     ) -> Decision {
-        let triggerOnly = switch trigger {
+        let triggerOnly = switch trigger.modifier {
         case .control: control && !option
         case .option: option && !control
         }
-        if keyCode == tab, triggerOnly, !command { return shift ? .previous : .next }
+        if keyCode == trigger.keyCode, triggerOnly, !command { return shift ? .previous : .next }
         guard active else { return .pass }
         switch keyCode {
         case escape: return .cancel
@@ -180,7 +238,7 @@ public enum SwitcherKey {
     }
 
     public static func isHeld(_ trigger: SwitcherTrigger, control: Bool, option: Bool) -> Bool {
-        switch trigger {
+        switch trigger.modifier {
         case .control: control
         case .option: option
         }

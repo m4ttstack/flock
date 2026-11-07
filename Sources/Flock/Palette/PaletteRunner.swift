@@ -16,7 +16,7 @@ extension PaletteContext {
             focusedPaneZoomed: viewModel.canvasFocusedPaneIsZoomed,
             neighbors: Set(PaneDirection.allCases.filter { viewModel.focusedPaneHasNeighbor(toward: $0) }),
             modalUp: viewModel.modalIsUp,
-            rtInstalled: rtInstalled && terminal != nil,
+            rtInstalled: rtInstalled && terminal != nil && !viewModel.isRemoteMachine,
             rtCommands: terminal.map { viewModel.rt.commandRows(linkedTo: $0) } ?? [],
             chatRows: ChatMenuModel.rows(
                 isAvailable: chatStore.isAvailable, hasFocusedPane: focused != nil,

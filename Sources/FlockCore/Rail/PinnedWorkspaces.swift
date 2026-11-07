@@ -121,6 +121,17 @@ public enum PinFolders {
             .min { $0.paneID.rawValue < $1.paneID.rawValue }
         return pane?.paneID
     }
+
+    /// A typed folder on a herdr machine: herdr takes the cwd as given, with
+    /// no shell to expand `~` or resolve a relative path, so only an
+    /// absolute path counts.
+    public static func machineFolder(_ text: String) -> String? {
+        let path = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard path.hasPrefix("/") else { return nil }
+        var trimmed = path
+        while trimmed.count > 1, trimmed.hasSuffix("/") { trimmed.removeLast() }
+        return trimmed
+    }
 }
 
 @MainActor

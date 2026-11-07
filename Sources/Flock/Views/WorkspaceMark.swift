@@ -41,6 +41,8 @@ private struct WorkspaceMenu: ViewModifier {
     let workspace: WorkspaceID
     let key: String?
     let changeSymbol: (() -> Void)?
+    @Environment(ThemeStore.self) private var themeStore: ThemeStore?
+    @Environment(\.machineFolderLister) private var machineFolders
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -51,9 +53,10 @@ private struct WorkspaceMenu: ViewModifier {
                     ForEach(WorkspaceMenuModel.entries(for: workspace, model: model, isPinned: pin != nil), id: \.accessibilityIdentifier) { entry in
                         Button(entry.label) {
                             if entry.action == .changeFolder, let pin {
-                                if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
-                                    viewModel.setPinFolder(pin.id, to: folder)
-                                }
+                                FolderPanel.choose(
+                                    current: pin.folder, message: "Where \"\(pin.name)\" opens",
+                                    machine: MachineFolderPick(lister: machineFolders, viewModel: viewModel, theme: themeStore?.active)
+                                ) { viewModel.setPinFolder(pin.id, to: $0) }
                             } else {
                                 Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
                             }
@@ -88,6 +91,8 @@ private struct EmptyPinMenu: ViewModifier {
     let pin: PinnedWorkspace
     let beginRename: () -> Void
     let changeSymbol: () -> Void
+    @Environment(ThemeStore.self) private var themeStore: ThemeStore?
+    @Environment(\.machineFolderLister) private var machineFolders
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -96,9 +101,10 @@ private struct EmptyPinMenu: ViewModifier {
                     switch entry.action {
                     case .rename: beginRename()
                     case .changeFolder:
-                        if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
-                            viewModel.setPinFolder(pin.id, to: folder)
-                        }
+                        FolderPanel.choose(
+                            current: pin.folder, message: "Where \"\(pin.name)\" opens",
+                            machine: MachineFolderPick(lister: machineFolders, viewModel: viewModel, theme: themeStore?.active)
+                        ) { viewModel.setPinFolder(pin.id, to: $0) }
                     case .moveToTopBar: viewModel.moveToTopBar(pin: pin.id, at: nil)
                     case .remove: viewModel.removePin(pin.id)
                     }

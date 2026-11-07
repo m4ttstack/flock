@@ -94,13 +94,15 @@ struct NoHerdrScreen: View {
                 .font(ChromeType.noHerdrBody)
                 .foregroundStyle(theme.textDim)
                 .multilineTextAlignment(.center)
-            Text(copy.hint)
-                .font(ChromeType.noHerdrHint)
-                .foregroundStyle(theme.textLabel)
-                .multilineTextAlignment(.center)
+            if !copy.hint.isEmpty {
+                Text(copy.hint)
+                    .font(ChromeType.noHerdrHint)
+                    .foregroundStyle(theme.textLabel)
+                    .multilineTextAlignment(.center)
+            }
             if let primaryAction {
                 Button(primaryAction.title, action: primaryAction.perform)
-                    .buttonStyle(PrimaryActionStyle(theme: theme))
+                    .buttonStyle(NoHerdrPrimaryActionStyle(theme: theme))
                     .disabled(primaryAction.isDisabled)
                     .padding(.top, ChromeMetrics.NoHerdr.primaryActionTopPadding)
                     .accessibilityIdentifier("flock.noHerdr.primaryAction")
@@ -113,7 +115,7 @@ struct NoHerdrScreen: View {
 /// The theme's accent whatever the window's state: `.borderedProminent`
 /// greys out in a window that is not key, which a screen with one thing to
 /// do cannot afford.
-private struct PrimaryActionStyle: ButtonStyle {
+struct NoHerdrPrimaryActionStyle: ButtonStyle {
     let theme: Theme
     @Environment(\.isEnabled) private var isEnabled
 

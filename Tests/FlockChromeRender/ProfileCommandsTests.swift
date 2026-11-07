@@ -2,15 +2,35 @@ import XCTest
 @testable import FlockCore
 
 final class ProfileCommandsTests: XCTestCase {
-    func testRowsListEveryProfileAndCheckTheCurrent() {
+    func testSectionsListEveryProfileAndCheckTheCurrent() {
         let profiles = [
             FlockProfile(id: "default", name: "Default", socketPath: nil, knownSockets: []),
             FlockProfile(id: "p1", name: "Demo", socketPath: nil, knownSockets: []),
         ]
-        XCTAssertEqual(ProfileCommands.rows(profiles: profiles, currentID: "p1"), [
+        XCTAssertEqual(ProfileCommands.sections(profiles: profiles, currentID: "p1"), [[
             ProfileMenuRow(id: "default", title: "Default", isCurrent: false),
             ProfileMenuRow(id: "p1", title: "Demo", isCurrent: true),
+        ]])
+    }
+
+    func testMachinesFollowTheUserProfilesInTheirOwnSection() {
+        let mini = HerdrMachine(id: "0123456789abcdef0123456789abcdef", label: "acme-mini", target: "acme-mini", session: "default")
+        let profiles = [
+            FlockProfile(id: "default", name: "Default", socketPath: nil, knownSockets: []),
+            FlockProfile(id: "machine.\(mini.id)", name: "acme-mini", socketPath: nil, knownSockets: [], machine: mini),
+            FlockProfile(id: "p1", name: "Demo", socketPath: nil, knownSockets: []),
+        ]
+        XCTAssertEqual(ProfileCommands.sections(profiles: profiles, currentID: "machine.\(mini.id)"), [
+            [
+                ProfileMenuRow(id: "default", title: "Default", isCurrent: false),
+                ProfileMenuRow(id: "p1", title: "Demo", isCurrent: false),
+            ],
+            [ProfileMenuRow(id: "machine.\(mini.id)", title: "acme-mini", isCurrent: true)],
         ])
+    }
+
+    @MainActor func testTheShortcutIsControlCommandP() {
+        XCTAssertEqual(ProfilePickerContext.shortcutLabel, "\u{2303}\u{2318}P")
     }
 
     func testOnlyTheProfileCurrentAtClickTimeGoesThroughChangeServer() {

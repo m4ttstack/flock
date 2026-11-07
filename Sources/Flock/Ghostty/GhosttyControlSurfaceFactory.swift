@@ -33,6 +33,8 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
     /// answer is wanted at wheel time, not at creation.
     private let scrollSpeed: () -> ScrollSpeed
     private let linkTrust: LinkTrustStore?
+    private let isRemoteMachine: Bool
+    private let remotePaste: RemotePasteTarget?
 
     init(
         host: GhosttyHost, socketPath: String,
@@ -41,7 +43,9 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         fontSizePoints: @escaping () -> Double,
         optionAsAlt: @escaping () -> OptionAsAlt,
         scrollSpeed: @escaping () -> ScrollSpeed,
-        linkTrust: LinkTrustStore? = nil
+        linkTrust: LinkTrustStore? = nil,
+        isRemoteMachine: Bool = false,
+        remotePaste: RemotePasteTarget? = nil
     ) {
         self.host = host
         self.socketPath = socketPath
@@ -51,6 +55,8 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         self.optionAsAlt = optionAsAlt
         self.scrollSpeed = scrollSpeed
         self.linkTrust = linkTrust
+        self.isRemoteMachine = isRemoteMachine
+        self.remotePaste = remotePaste
     }
 
     func makeSurface(
@@ -98,6 +104,8 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         )
         session.onUserInput = onUserInput
         session.linkTrust = linkTrust
+        session.isRemoteMachine = isRemoteMachine
+        session.remotePaste = remotePaste
         session.onClearRequested = onClearRequested
         session.onScreenActivity = onScreenActivity
         session.scrollSpeed = scrollSpeed

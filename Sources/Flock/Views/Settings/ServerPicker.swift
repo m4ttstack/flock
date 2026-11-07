@@ -9,6 +9,9 @@ import Observation
 @Observable
 final class ServerPicker {
     private(set) var entries: [HerdrSessionEntry] = []
+    /// False until a listing has succeeded, so an empty `entries` can be told
+    /// from a list never read.
+    private(set) var hasListed = false
     private(set) var failure: String?
     /// True when `failure` came from stopping or deleting a listed server,
     /// so it shows under that list rather than under the Server row.
@@ -27,6 +30,16 @@ final class ServerPicker {
     @ObservationIgnored private let stop: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored private let delete: (String) async -> Result<Void, HerdrSessionControl.Failure>
     @ObservationIgnored let home: String
+    @ObservationIgnored private let now: () -> Double
+    @ObservationIgnored private var inFlight: Task<[HerdrSessionEntry]?, Never>?
+    @ObservationIgnored private var lastRefreshEnded: Double?
+    /// Listings can finish out of order; one started before the listing
+    /// already shown is dropped rather than shown over it.
+    @ObservationIgnored private var listingsStarted = 0
+    @ObservationIgnored private var listingShown = 0
+
+    /// How long a finished listing answers `refreshIfStale` without another.
+    static let freshness: Double = 1
 
     init(
         list: @escaping () async -> [HerdrSessionEntry]?,
@@ -38,7 +51,8 @@ final class ServerPicker {
         heldBy: @escaping @MainActor (String) -> String? = { _ in nil },
         switchingTo: @escaping () -> String? = { nil },
         stop: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
-        delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) }
+        delete: @escaping (String) async -> Result<Void, HerdrSessionControl.Failure> = { _ in .failure(.notFound) },
+        now: @escaping () -> Double = { Date().timeIntervalSinceReferenceDate }
     ) {
         self.list = list
         self.start = start
@@ -50,6 +64,7 @@ final class ServerPicker {
         self.switchingTo = switchingTo
         self.stop = stop
         self.delete = delete
+        self.now = now
     }
 
     /// What the Servers list offers for `entry`, from the last refresh's
@@ -71,16 +86,48 @@ final class ServerPicker {
     }
 
     /// A failed listing keeps the entries already shown and returns false.
+    /// Always lists anew, for callers about to act on what is listed.
     @discardableResult
     func refresh() async -> Bool {
+        await freshListing() != nil
+    }
+
+    /// For readers that only want a recent list, such as ⌥`, whose key
+    /// repeats: joins a listing in flight, and skips one when the last ended
+    /// within `freshness`.
+    @discardableResult
+    func refreshIfStale() async -> Bool {
+        if let inFlight { return await inFlight.value != nil }
+        if let ended = lastRefreshEnded, now() - ended < Self.freshness { return hasListed }
+        return await refresh()
+    }
+
+    /// This call's own listing, which `entries` may not show if a newer one
+    /// finished first.
+    private func freshListing() async -> [HerdrSessionEntry]? {
+        let task = Task { await self.performRefresh() }
+        inFlight = task
+        let listed = await task.value
+        if inFlight == task { inFlight = nil }
+        return listed
+    }
+
+    private func performRefresh() async -> [HerdrSessionEntry]? {
+        listingsStarted += 1
+        let listing = listingsStarted
+        defer { lastRefreshEnded = now() }
         let listed = await list()
-        if let listed { entries = listed }
+        if let listed, listing > listingShown {
+            listingShown = listing
+            entries = listed
+            hasListed = true
+        }
         var held: [String: String] = [:]
         for entry in entries {
             if let app = heldBy(entry.socketPath) { held[entry.socketPath] = app }
         }
         holders = held
-        return listed != nil
+        return listed
     }
 
     func choose(_ entry: HerdrSessionEntry) async {
@@ -141,19 +188,21 @@ final class ServerPicker {
         name: String, expecting expected: HerdrServerAction,
         with run: (String) async -> Result<Void, HerdrSessionControl.Failure>
     ) async {
-        if !(await refresh()) {
+        if let listing = await freshListing() {
+            if let refusal = refusal(name: name, expecting: expected, in: listing) {
+                failure = refusal
+            } else if case .failure(let error) = await run(name) {
+                failure = error.message
+            }
+        } else {
             failure = "Couldn't check herdr's servers, so \"\(name)\" wasn't \(expected == .stop ? "stopped" : "deleted")."
-        } else if let refusal = refusal(name: name, expecting: expected) {
-            failure = refusal
-        } else if case .failure(let error) = await run(name) {
-            failure = error.message
         }
         failureIsFromServerList = failure != nil
         await refresh()
     }
 
-    private func refusal(name: String, expecting expected: HerdrServerAction) -> String? {
-        guard let entry = entries.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
+    private func refusal(name: String, expecting expected: HerdrServerAction, in listing: [HerdrSessionEntry]) -> String? {
+        guard let entry = listing.first(where: { $0.name == name }) else { return "\"\(name)\" isn't listed any more." }
         let verb = expected == .stop ? "stop" : "delete"
         if let target = switchingTo(),
            case .unavailable(let reason) = HerdrServerActions.action(for: entry, currentSocket: target, home: home, heldBy: heldBy) {

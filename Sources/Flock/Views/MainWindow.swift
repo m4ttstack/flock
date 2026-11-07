@@ -11,6 +11,8 @@ struct MainWindow: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
     @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
     @Environment(BoardStore.self) private var boardStore
     @Environment(HerdProgressStore.self) private var herdProgress
@@ -21,6 +23,7 @@ struct MainWindow: View {
     let sessionLabel: String
     let herdrMousePatchStore: HerdrMousePatchStore
     var isDevBuild = BuildFlavor.isDev
+    var machineNotice: MachineNotice? = nil
 
     private var theme: Theme { themeStore.active }
 
@@ -55,7 +58,11 @@ struct MainWindow: View {
         }
         // Below the protocol banner deliberately: a herdr too old to talk
         // to at all outranks an optional capability of one that works.
-        if let reason = herdrMousePatchStore.restartReason {
+        // The patch is for this Mac's herdr, which a machine session's
+        // panes do not run on.
+        if viewModel.isRemoteMachine {
+            EmptyView()
+        } else if let reason = herdrMousePatchStore.restartReason {
             HerdrMousePatchRestartBanner(theme: theme, reason: reason)
         } else if herdrMousePatchStore.showsBanner {
             HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
@@ -82,7 +89,8 @@ struct MainWindow: View {
                     WorkspaceRail(
                         theme: theme,
                         viewModel: viewModel,
-                        onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
+                        onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } },
+                        profileDot: viewModel.isRemoteMachine ? .forMachine(hasNotice: machineNotice != nil) : nil
                     )
                     .padding(.top, ChromeMetrics.TitleBar.height)
                     VStack(spacing: 0) {
@@ -95,7 +103,8 @@ struct MainWindow: View {
                             banners
                             StartScreenView(
                                 theme: theme, viewModel: viewModel, folders: startingFolders,
-                                serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel
+                                serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel,
+                                showsFolder: !viewModel.isRemoteMachine
                             )
                         } else {
                             // In the title bar's own row: the bar draws only
@@ -149,7 +158,8 @@ struct MainWindow: View {
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
                 isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel,
                 leadingDragWidth: dragCoordinator.isGridShown ? nil : railWidth.width,
-                onTrailingWidth: { titleBarTrailingWidth = $0 }
+                onTrailingWidth: { titleBarTrailingWidth = $0 },
+                machineNotice: machineNotice
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -196,7 +206,13 @@ struct MainWindow: View {
             }
         }
         .onChange(of: viewModel.renameEditorIsOnScreen) { _, renaming in
-            if renaming { commandPalette.close(); switcher.cancel(); tabSwitcher.cancel() }
+            if renaming {
+                commandPalette.close()
+                switcher.cancel()
+                tabSwitcher.cancel()
+                profileSwitcher?.cancel()
+                serverSwitcher?.cancel()
+            }
         }
         .onChange(of: viewModel.selectedWorkspaceID, initial: true) { _, id in
             if let id { switcher.note(id) }
@@ -384,6 +400,8 @@ private struct TopBarOverlayExclusion: ViewModifier {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
 
     func body(content: Content) -> some View {
         content
@@ -392,11 +410,15 @@ private struct TopBarOverlayExclusion: ViewModifier {
                 commandPalette.close()
                 switcher.cancel()
                 tabSwitcher.cancel()
+                profileSwitcher?.cancel()
+                serverSwitcher?.cancel()
                 if viewModel.rt.modal != nil { Task { await viewModel.rt.closeModal() } }
             }
             .onChange(of: viewModel.rt.modal != nil) { _, shown in if shown { viewModel.topBarOverlay.close() } }
             .onChange(of: commandPalette.isOpen) { _, open in if open { viewModel.topBarOverlay.close() } }
-            .onChange(of: switcher.isShown || tabSwitcher.isShown) { _, shown in
+            .onChange(
+                of: switcher.isShown || tabSwitcher.isShown || profileSwitcher?.isShown == true || serverSwitcher?.isShown == true
+            ) { _, shown in
                 if shown { viewModel.topBarOverlay.close() }
             }
     }
@@ -419,6 +441,8 @@ struct TitleBar: View {
     /// How much of the bar's trailing end the cluster takes, so the tab strip
     /// stops short of it.
     var onTrailingWidth: ((CGFloat) -> Void)? = nil
+    /// A machine profile's connection line, which replaces "herdr · label".
+    var machineNotice: MachineNotice? = nil
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
@@ -426,6 +450,8 @@ struct TitleBar: View {
     @Environment(HerdrUpdateStore.self) private var herdrUpdate: HerdrUpdateStore?
     @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
     @Environment(\.openSettings) private var openSettings
+
+    @State private var showsMachineNoticeDetail = false
 
     private var hasTopBarWorkspaces: Bool {
         viewModel?.railSections(board: nil)?.topBar.isEmpty == false
@@ -457,8 +483,14 @@ struct TitleBar: View {
     }
 
     private var hasNotices: Bool {
-        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
-            || herdrUpdate?.displayedNotice != nil
+        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil || machineNotice != nil
+            || herdrUpdateNotice != nil
+    }
+
+    /// An update compares this Mac's herdr with the connected server and
+    /// hands off to it, which a machine's server is not.
+    private var herdrUpdateNotice: HerdrUpdateNotice? {
+        viewModel?.isRemoteMachine == true ? nil : herdrUpdate?.displayedNotice
     }
 
     /// One even gap between whichever of these show, so a missing one leaves
@@ -475,7 +507,7 @@ struct TitleBar: View {
                     } else if let devRebuild {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
-                    if let notice = herdrUpdate?.displayedNotice {
+                    if let notice = herdrUpdateNotice {
                         HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
                             settingsSelection?.tab = .herdr
                             openSettings()
@@ -494,13 +526,49 @@ struct TitleBar: View {
         .frame(height: ChromeMetrics.TitleBar.height)
         .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onTrailingWidth?($0) }
+        .onChange(of: machineNotice?.text) { showsMachineNoticeDetail = false }
     }
 
     /// Only while the session is not live, so a connected window's bar carries
     /// nothing but its title.
     @ViewBuilder
     private var connectionNotice: some View {
-        if let color = noticeColor {
+        if let machineNotice {
+            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                Circle()
+                    .fill(ProfileConnectionDot.attention.color(in: theme))
+                    .frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
+                Button { showsMachineNoticeDetail.toggle() } label: {
+                    Text(MachineConnectionCopy.short(machineNotice.text))
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.textLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: ChromeMetrics.TitleBar.machineNoticeMaxWidth, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(machineNotice.text)
+                .popover(isPresented: $showsMachineNoticeDetail, arrowEdge: .bottom) {
+                    Text(machineNotice.text)
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.textStrong)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(width: ChromeMetrics.TitleBar.machineNoticePopoverWidth, alignment: .leading)
+                        .padding(ChromeMetrics.TitleBar.machineNoticePopoverPadding)
+                        .background(theme.chrome)
+                        .accessibilityIdentifier("flock.titleBar.machineNoticeDetail")
+                }
+                .accessibilityIdentifier("flock.titleBar.machineNotice")
+                if let action = machineNotice.action {
+                    Button(action.title, action: action.perform)
+                        .buttonStyle(.plain)
+                        .font(ChromeType.connectionNotice)
+                        .foregroundStyle(theme.accent)
+                        .accessibilityIdentifier("flock.titleBar.machineNoticeAction")
+                }
+            }
+        } else if let color = noticeColor {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
                 Circle().fill(color).frame(width: ChromeMetrics.TitleBar.noticeDot, height: ChromeMetrics.TitleBar.noticeDot)
                 Text("herdr · \(sessionLabel)")

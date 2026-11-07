@@ -369,7 +369,7 @@ final class PinnedRailRenderTests: XCTestCase {
             let emptyPin = try XCTUnwrap(viewModel.pins.pins.first { $0.workspace == nil })
             let switcher = WorkspaceSwitcher(userDefaults: session.defaults)
             let view = SwitcherView(
-                theme: theme, switcher: switcher, trigger: .control, accessibilityPrefix: "flock.switcher", heading: "Workspaces",
+                theme: theme, switcher: switcher, trigger: .controlTab, accessibilityPrefix: "flock.switcher", heading: "Workspaces",
                 row: { SwitcherOverlay.workspaceRow($0, viewModel: viewModel) },
                 candidates: { SwitcherOverlay.workspaceCandidates(viewModel: viewModel) },
                 current: { viewModel.selectedWorkspaceID },

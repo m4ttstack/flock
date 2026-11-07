@@ -1,4 +1,5 @@
 import AppKit
+import FlockCore
 import XCTest
 
 /// The AppKit half of the paste rule, driven over a pasteboard of this test's
@@ -140,6 +141,104 @@ final class PasteboardPasteTextTests: XCTestCase {
         XCTAssertTrue(pasteboard.offersPasteText)
 
         XCTAssertEqual(try stagedFileCount(), before)
+    }
+
+    // MARK: - Pasting into a machine pane
+
+    private actor Sent {
+        var uploads: [(bytes: Data, path: String)] = []
+        func add(_ bytes: Data, _ path: String) { uploads.append((bytes, path)) }
+    }
+
+    /// Stands in for the machine, which chooses the directory.
+    private nonisolated static let remoteDirectory = "/var/acme/flock-paste-501"
+
+    private func uploader(sent: Sent, failing: Bool = false) -> RemoteFileUploader {
+        RemoteFileUploader(target: "acme-mini", label: "acme-mini") { bytes, fileName in
+            if failing { throw RemoteFileUploader.Failure(detail: "no route") }
+            let path = "\(Self.remoteDirectory)/\(fileName)"
+            await sent.add(bytes, path)
+            return path
+        }
+    }
+
+    @MainActor
+    func testARemotePasteUploadsTheFileAndPastesItsPathOnTheMachine() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("acme remote \(UUID().uuidString).txt")
+        try Data("hello".utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([file as NSURL])
+        let sent = Sent()
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: sent))
+
+        let uploads = await sent.uploads
+        XCTAssertEqual(uploads.count, 1)
+        XCTAssertEqual(uploads.first?.bytes, Data("hello".utf8))
+        let remote = try XCTUnwrap(uploads.first?.path)
+        XCTAssertTrue(remote.hasPrefix("\(Self.remoteDirectory)/"))
+        XCTAssertTrue(remote.hasSuffix("-acme_remote_\(file.lastPathComponent.dropFirst("acme remote ".count))"))
+        XCTAssertEqual(outcome, .text(ClipboardPaste.escape(remote)))
+    }
+
+    @MainActor
+    func testARemotePasteOfImageBytesUploadsThemWithoutStagingLocally() async throws {
+        let bytes = Data([0x89, 0x50, 0x4E, 0x47, 0x01])
+        write([imageItem(bytes)])
+        let before = try stagedFileCount()
+        let sent = Sent()
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: sent))
+
+        let uploads = await sent.uploads
+        XCTAssertEqual(uploads.first?.bytes, bytes)
+        XCTAssertTrue(try XCTUnwrap(uploads.first?.path).hasSuffix("-clipboard.png"))
+        XCTAssertEqual(outcome, .text(ClipboardPaste.escape(try XCTUnwrap(uploads.first?.path))))
+        XCTAssertEqual(try stagedFileCount(), before)
+    }
+
+    @MainActor
+    func testARemotePasteOfTextUploadsNothing() async {
+        pasteboard.clearContents()
+        pasteboard.setString("ls *.txt", forType: .string)
+        let sent = Sent()
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: sent))
+
+        XCTAssertEqual(outcome, .text("ls *.txt"))
+        let uploads = await sent.uploads
+        XCTAssertTrue(uploads.isEmpty)
+    }
+
+    @MainActor
+    func testAFailedRemoteUploadPastesNothingAndNamesTheMachine() async {
+        write([imageItem(Data([0x89, 0x50]))])
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: Sent(), failing: true))
+
+        XCTAssertEqual(outcome, .failed("Couldn't copy that to acme-mini."))
+    }
+
+    /// Declares an image flavor and never supplies its bytes.
+    private final class EmptyProvider: NSObject, NSPasteboardItemDataProvider {
+        func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {}
+    }
+
+    @MainActor
+    func testAnImageWhoseBytesCannotBeReadPastesNothingAndSaysSo() async {
+        let provider = EmptyProvider()
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.png])
+        write([item])
+        let sent = Sent()
+
+        let outcome = await pasteboard.remotePasteText(uploader: uploader(sent: sent))
+        withExtendedLifetime(provider) {}
+
+        XCTAssertEqual(outcome, .failed("Couldn't copy that to acme-mini."))
+        let uploads = await sent.uploads
+        XCTAssertTrue(uploads.isEmpty)
     }
 
     private func stagedFileCount() throws -> Int {

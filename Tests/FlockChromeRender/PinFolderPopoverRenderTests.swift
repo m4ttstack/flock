@@ -59,6 +59,45 @@ final class PinFolderPopoverRenderTests: XCTestCase {
         }
     }
 
+    /// With no Other action, the list ends at the
+    /// last choice with no rule.
+    func testOnAHerdrMachineTheQuestionHasNoOther() async throws {
+        ChromeType.install()
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let ask = PinFolderAsk(pin: PinID(rawValue: "p1"), choices: [
+            PinFolderAsk.Choice(folder: "/Users/acme/code/training-plan", reason: .shellNow),
+            PinFolderAsk.Choice(folder: "/Users/acme/code", reason: .shellStarted),
+        ])
+        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let view = PinFolderPopover(theme: theme, name: "training-plan", ask: ask, onChoose: { _ in }, onOther: nil)
+                .padding(20)
+                .frame(width: Self.column, height: Self.size.height, alignment: .topLeading)
+                .background(theme.pane)
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: CGSize(width: Self.column, height: Self.size.height)),
+                styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.colorSpace = .sRGB
+            window.contentView = NSHostingView(rootView: view)
+            defer { window.close() }
+            for _ in 0..<6 {
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pin-folder-ask-machine-\(scheme).png"))
+            }
+            XCTAssertEqual(
+                hex(image, CGPoint(x: 20 + ChromeMetrics.PinFolderPopover.width - 4, y: 162)), hex(image, CGPoint(x: 5, y: 5)),
+                "\(scheme): nothing is drawn where Other would be"
+            )
+        }
+    }
+
     private func hex(_ image: NSBitmapImageRep, _ point: CGPoint) -> String {
         let x = Int(point.x * Self.scale), y = Int(point.y * Self.scale)
         guard let data = image.bitmapData, x >= 0, y >= 0, x < image.pixelsWide, y < image.pixelsHigh else { return "?" }
