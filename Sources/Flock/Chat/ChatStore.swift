@@ -20,6 +20,14 @@ struct ChatSlackAgentChat: Equatable, Codable {
     var name: String?
 }
 
+/// A chat start waiting to show up in rt's list. The open deadline runs from
+/// `acceptedAt`, since rt can take a minute to answer. `alreadyOpen` holds the
+/// ids of that pane's chats before the start, so one of them never ends the wait.
+private struct PendingSlackStart {
+    let alreadyOpen: Set<Int?>
+    var acceptedAt: ContinuousClock.Instant?
+}
+
 /// The one thing every chat view reads and drives: whether chat exists on
 /// this machine, each pane's cached sign-in status, and every headless verb,
 /// each landing as a toast on failure rather than a thrown error a view would
@@ -77,8 +85,8 @@ final class ChatStore {
     }
     /// What rt listed as open the last time it was asked.
     private var openSlackChats: [ChatSidebarChat] = []
-    /// Panes whose start rt accepted but whose chat it has not listed yet.
-    private var pendingSlackStarts: [PaneID: ContinuousClock.Instant] = [:]
+    /// Panes with a start under way or accepted whose chat rt has not listed yet.
+    private var pendingSlackStarts: [PaneID: PendingSlackStart] = [:]
     /// Panes whose requested chat has been told to close.
     @ObservationIgnored private var closingSlackChats: Set<PaneID> = []
     @ObservationIgnored private var slackWatches: [PaneID: Task<Void, Never>] = [:]
@@ -353,12 +361,15 @@ final class ChatStore {
     /// True once rt took the start. That says nothing about the chat:
     /// `noteSlackChats` hears about that from rt's list.
     func startSlackChat(_ pane: PaneID, person: String, problem: String, repo: ChatSlackRepo) async -> Bool {
+        guard isAvailable, ChatSlackStart.canStart(person: person, problem: problem) else { return false }
         let person = person.trimmingCharacters(in: .whitespacesAndNewlines)
         let brief = problem.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAvailable, !person.isEmpty, !brief.isEmpty else { return false }
-        pendingSlackStarts[pane] = now()
+        pendingSlackStarts[pane] = PendingSlackStart(
+            alreadyOpen: Set(openSlackChats.filter { $0.requesterPane == pane.rawValue }.map(\.id))
+        )
         switch await startSlack(person, brief, pane.rawValue, repo.path) {
         case .done:
+            pendingSlackStarts[pane]?.acceptedAt = now()
             return true
         case let .failed(reason):
             pendingSlackStarts[pane] = nil
@@ -384,10 +395,10 @@ final class ChatStore {
     /// one ends here.
     func noteSlackChats(_ open: [ChatSidebarChat]) async {
         openSlackChats = open
-        for (pane, startedAt) in pendingSlackStarts {
-            if open.contains(where: { $0.requesterPane == pane.rawValue }) {
+        for (pane, pending) in pendingSlackStarts {
+            if open.contains(where: { $0.requesterPane == pane.rawValue && !pending.alreadyOpen.contains($0.id) }) {
                 pendingSlackStarts[pane] = nil
-            } else if now() - startedAt > ChatSlackAgent.openDeadline {
+            } else if let acceptedAt = pending.acceptedAt, now() - acceptedAt > ChatSlackAgent.openDeadline {
                 pendingSlackStarts[pane] = nil
                 toasts.show("Slack chat didn't open", kind: .info)
             }

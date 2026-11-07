@@ -61,7 +61,7 @@ struct ChatSlackSupportView: View {
 
     private var canStart: Bool {
         guard !isStarting, repo != nil, let chosenPerson else { return false }
-        return ChatSlackCommand.line(person: chosenPerson, problem: problem) != nil
+        return ChatSlackStart.canStart(person: chosenPerson, problem: problem)
     }
 
     var body: some View {

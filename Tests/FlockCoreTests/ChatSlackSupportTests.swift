@@ -2,54 +2,14 @@ import XCTest
 @testable import FlockCore
 
 final class ChatSlackSupportTests: XCTestCase {
-    // MARK: - The typed line
+    // MARK: - The form
 
-    func testALineCarriesThePersonAndTheProblem() {
-        XCTAssertEqual(
-            ChatSlackCommand.line(person: "alex", problem: "the deck will not load"),
-            "/slack-support alex the deck will not load"
-        )
-    }
-
-    func testAPersonWithASpaceIsDoubleQuoted() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "Alex Example", problem: "hi"), #"/slack-support "Alex Example" hi"#)
-    }
-
-    /// The command's parser takes a bare leading `'` for an open quote.
-    func testAPersonStartingWithAnApostropheIsDoubleQuoted() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "'t Hooft", problem: "hi"), #"/slack-support "'t Hooft" hi"#)
-        XCTAssertEqual(ChatSlackCommand.line(person: "'Neil", problem: "hi"), #"/slack-support "'Neil" hi"#)
-    }
-
-    func testAnApostropheInsideANameGoesThroughIntact() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "O'Brien", problem: "hi"), "/slack-support O'Brien hi")
-    }
-
-    /// A `"` inside the person would end the quoted name early.
-    func testDoubleQuotesAreStrippedFromThePerson() {
-        XCTAssertEqual(ChatSlackCommand.line(person: #"Alex "Al" Example"#, problem: "hi"), #"/slack-support "Alex Al Example" hi"#)
-        XCTAssertEqual(ChatSlackCommand.line(person: #""alex""#, problem: "hi"), "/slack-support alex hi")
-    }
-
-    func testNewlinesInTheProblemCollapseToSpaces() {
-        XCTAssertEqual(
-            ChatSlackCommand.line(person: "alex", problem: "line one\nline two\r\n\n  line three\n"),
-            "/slack-support alex line one line two line three"
-        )
-    }
-
-    func testANewlineInThePersonCollapsesToo() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "  Alex\nExample ", problem: "hi"), #"/slack-support "Alex Example" hi"#)
-    }
-
-    func testDoubleQuotesInTheProblemAreLeftAlone() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "alex", problem: #"it says "nope""#), #"/slack-support alex it says "nope""#)
-    }
-
-    func testABlankPersonOrProblemMakesNoLine() {
-        XCTAssertNil(ChatSlackCommand.line(person: "  \n", problem: "hi"))
-        XCTAssertNil(ChatSlackCommand.line(person: #""""#, problem: "hi"))
-        XCTAssertNil(ChatSlackCommand.line(person: "alex", problem: " \n "))
+    func testAFormNeedsAPersonAndAProblem() {
+        XCTAssertTrue(ChatSlackStart.canStart(person: "U0TEST", problem: "the deck will not load"))
+        XCTAssertTrue(ChatSlackStart.canStart(person: "O'Brien", problem: "line one\nline two"))
+        XCTAssertFalse(ChatSlackStart.canStart(person: "  \n", problem: "hi"))
+        XCTAssertFalse(ChatSlackStart.canStart(person: "alex", problem: " \n "))
+        XCTAssertFalse(ChatSlackStart.canStart(person: "", problem: ""))
     }
 
     // MARK: - The send
@@ -268,10 +228,5 @@ final class ChatSlackSupportTests: XCTestCase {
         XCTAssertEqual(entry.highlighted, 2)
         entry.moveHighlight(by: 1, among: 3)
         XCTAssertEqual(entry.highlighted, 0)
-    }
-
-    /// A picked person is typed by id, which is one bare word.
-    func testAnIdGoesIntoTheLineBare() {
-        XCTAssertEqual(ChatSlackCommand.line(person: "U0TEST", problem: "hi"), "/slack-support U0TEST hi")
     }
 }

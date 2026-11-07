@@ -45,24 +45,12 @@ public enum ChatSlackRow: Equatable, Sendable {
     }
 }
 
-/// Nothing opens a chat by typing any more. `line` is how the form tells a
-/// usable person and problem from a blank one, and `rt pane send` still ends
-/// the agents an older Flock started.
+/// Nothing opens a chat by typing any more. `rt pane send` only ends the
+/// agents an older Flock started.
 public enum ChatSlackCommand {
     /// rt waits for the pane to take the prompt, nudges it once and waits
     /// again, so the text can land after any shorter deadline has fired.
     public static let sendDeadline: Duration = .seconds(20)
-
-    /// The command's parser reads the person as one word or a double-quoted
-    /// name: a `"` inside would end it early, and a bare leading `'` opens a
-    /// quote of its own. Apostrophes elsewhere are part of the name.
-    public static func line(person: String, problem: String) -> String? {
-        let person = oneLine(person.replacingOccurrences(of: "\"", with: ""))
-        let problem = oneLine(problem)
-        guard !person.isEmpty, !problem.isEmpty else { return nil }
-        let quoted = person.contains(" ") || person.hasPrefix("'")
-        return "/slack-support \(quoted ? "\"\(person)\"" : person) \(problem)"
-    }
 
     public static func sendArguments(pane: String, line: String) -> [String] {
         ["pane", "send", pane, "--text", line, "--json"]
@@ -88,10 +76,6 @@ public enum ChatSlackCommand {
     private struct SendReply: Decodable {
         let delivered: String
         let reason: String?
-    }
-
-    private static func oneLine(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
 
@@ -210,6 +194,11 @@ public enum ChatSlackOutcome: Equatable, Sendable {
 public enum ChatSlackStart {
     /// rt waits for the agent to launch and settle before it answers.
     public static let deadline: Duration = .seconds(60)
+
+    public static func canStart(person: String, problem: String) -> Bool {
+        !person.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !problem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     public static func arguments(person: String, requesterPane: String) -> [String] {
         ["chat", "slack-start", person, "--brief", "-", "--requester-pane", requesterPane, "--json"]

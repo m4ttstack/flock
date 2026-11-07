@@ -53,6 +53,18 @@ private final class ReadScript: @unchecked Sendable {
     func next() -> ChatSidebarChats { readings.count > 1 ? readings.removeFirst() : readings[0] }
 }
 
+/// A clock a test moves, including from inside a call the store is awaiting.
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant = ContinuousClock.now
+
+    var now: ContinuousClock.Instant { lock.withLock { instant } }
+
+    func advance(by duration: Duration) {
+        lock.withLock { instant = instant.advanced(by: duration) }
+    }
+}
+
 private actor SendLog {
     private(set) var lines: [(pane: String, line: String)] = []
 
@@ -88,7 +100,8 @@ final class ChatStoreSlackTests: XCTestCase {
     private func makeStore(
         _ script: SlackScript, started: ChatSlackOutcome = .done, resumed: ChatSlackOutcome = .done,
         sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil,
-        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
+        whileStarting: @escaping @Sendable () -> Void = {}
     ) async -> (ChatStore, ToastCenter) {
         let toasts = ToastCenter()
         let suite = defaults ?? UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
@@ -101,6 +114,7 @@ final class ChatStoreSlackTests: XCTestCase {
             },
             startSlack: { person, brief, pane, repo in
                 await starts.record(StartCall(person: person, brief: brief, pane: pane, repo: repo))
+                whileStarting()
                 return started
             },
             resumeSlack: { conversation in
@@ -230,6 +244,50 @@ final class ChatStoreSlackTests: XCTestCase {
 
         XCTAssertNotEqual(store.slackRow(for: pane), .opening)
         XCTAssertEqual(toasts.current?.message, "Slack chat didn't open")
+    }
+
+    func testTheOpenDeadlineRunsFromTheAcceptanceNotFromTheCall() async {
+        let clock = TestClock()
+        let (store, toasts) = await makeStore(
+            SlackScript(chats: [nil]), now: { clock.now },
+            whileStarting: { clock.advance(by: ChatSlackAgent.openDeadline + .seconds(30)) }
+        )
+
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        await store.noteSlackChats([])
+
+        XCTAssertEqual(store.slackRow(for: pane), .opening)
+        XCTAssertNil(toasts.current)
+
+        clock.advance(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([])
+        XCTAssertEqual(toasts.current?.message, "Slack chat didn't open")
+    }
+
+    func testAChatThatWasAlreadyOpenDoesNotEndTheWait() async {
+        let clock = TestClock()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), now: { clock.now })
+        await store.noteSlackChats([open(id: 4)])
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.noteSlackChats([open(id: 4)])
+        clock.advance(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([open(id: 4)])
+
+        XCTAssertEqual(toasts.current?.message, "Slack chat didn't open")
+    }
+
+    func testANewerChatOnTheSamePaneEndsTheWait() async {
+        let clock = TestClock()
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), now: { clock.now })
+        await store.noteSlackChats([open(id: 4)])
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        await store.noteSlackChats([open(id: 4), open(id: 5)])
+        clock.advance(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([open(id: 4), open(id: 5)])
+
+        XCTAssertNil(toasts.current)
     }
 
     func testAChatThatOpensLateStillShowsOnItsPane() async {
