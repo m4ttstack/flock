@@ -16,7 +16,7 @@ struct ViewTabBar: View {
     var body: some View {
         let selected = navigator.selected
         let inert = navigator.dragInFlight
-        HStack(spacing: 0) {
+        HStack(spacing: ChromeMetrics.TitleBar.tabGap) {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
@@ -24,13 +24,8 @@ struct ViewTabBar: View {
                 ) { navigator.choose(tab) }
             }
         }
-        // The viewer's tabs: flat cells the bar's full height, ruled apart.
-        .overlay(alignment: .leading) { rule }
+        .frame(maxHeight: .infinity)
         .allowsHitTesting(!inert)
-    }
-
-    private var rule: some View {
-        Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
     }
 }
 
@@ -44,13 +39,13 @@ struct ViewTabButton: View {
     var forced: ControlInteraction?
     let action: () -> Void
 
-    private static let shape = AnyShape(Rectangle())
+    private static let shape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.TitleBar.tabRadius))
 
     var body: some View {
         GridControlButton(
             theme: theme, shape: Self.shape,
-            restFill: isSelected ? theme.tabRest : .clear,
-            restForeground: isSelected ? theme.textStrong : theme.textDim,
+            restFill: isSelected ? theme.lift : .clear,
+            restForeground: isSelected ? theme.textStrong : theme.textLabel,
             hoverEnabled: hoverEnabled, forced: forced, action: action
         ) {
             HStack(spacing: ChromeMetrics.TitleBar.tabGlyphGap) {
@@ -59,7 +54,7 @@ struct ViewTabButton: View {
                 // low.
                 ViewTabGlyph(tab: tab)
                     .frame(width: ChromeMetrics.TitleBar.tabGlyphSize, height: ChromeMetrics.TitleBar.tabGlyphSize)
-                    .foregroundStyle(isSelected ? theme.accent : theme.textLabel)
+                    .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
                 Text(tab.title)
                     .font(ChromeType.viewTab(selected: isSelected))
                 if badge > 0 {
@@ -73,15 +68,7 @@ struct ViewTabButton: View {
                 }
             }
             .padding(.horizontal, ChromeMetrics.TitleBar.tabHorizontalPadding)
-            .frame(maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle().fill(theme.accent).frame(height: ChromeMetrics.TitleBar.tabUnderline)
-                }
-            }
-        }
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
+            .frame(height: ChromeMetrics.TitleBar.tabHeight)
         }
         .background(WindowDragExclusion())
         .help("\(tab.title) (\(ShortcutLabel.text(key: ViewCommand.show(tab).key, modifiers: ViewCommand.show(tab).modifiers)))")

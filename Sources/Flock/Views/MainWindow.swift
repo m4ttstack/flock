@@ -532,8 +532,8 @@ struct TitleBar: View {
     }
 }
 
-/// Flock Dev's mark beside the title, in the same amber as the band on its
-/// icon, so a glance at the window says which build it is.
+/// Flock Dev's mark beside the title, so a glance at the window says which
+/// build it is.
 private struct DevTag: View {
     let theme: Theme
 
@@ -541,10 +541,10 @@ private struct DevTag: View {
         Text("DEV")
             .font(ChromeType.devTag)
             .tracking(ChromeType.devTagTracking)
-            .foregroundStyle(theme.chrome)
+            .foregroundStyle(theme.textLabel)
             .padding(.horizontal, ChromeMetrics.TitleBar.devTagHorizontalPadding)
             .padding(.vertical, ChromeMetrics.TitleBar.devTagVerticalPadding)
-            .background(theme.yellow, in: Capsule())
+            .background(theme.lift, in: Capsule())
             .accessibilityIdentifier("flock.titleBar.devTag")
     }
 }

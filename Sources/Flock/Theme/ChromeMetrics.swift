@@ -47,13 +47,15 @@ enum ChromeMetrics {
         /// Clears the standard window buttons, which sit at the bar's
         /// leading edge.
         static let tabsLeadingInset: CGFloat = 86
-        static let tabHorizontalPadding: CGFloat = 14
+        static let tabHorizontalPadding: CGFloat = 10
+        static let tabHeight: CGFloat = 26
+        static let tabRadius: CGFloat = 6
+        static let tabGap: CGFloat = 2
         static let badgeHeight: CGFloat = 16
         static let badgeHorizontalPadding: CGFloat = 5
         static let badgeFillOpacity: Double = 0.18
         static let tabGlyphSize: CGFloat = 12
         static let tabGlyphGap: CGFloat = 7
-        static let tabUnderline: CGFloat = 2
         /// A top-bar workspace is a menu-bar extra: a rounded button centred
         /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it
         /// shows no name.

@@ -68,6 +68,14 @@ public struct ChromeRoles: Equatable, Sendable {
     public let textDim: RGB
     public let textLabel: RGB
     public let accent: RGB
+    /// A neutral step off `chrome` for a selected pill, row or chip: no accent
+    /// tint, so selection reads by weight and lift alone.
+    public let lift: RGB
+    /// A resting pane border and the quiet chrome rules, as an opaque blend
+    /// over `pane` so it draws the same over a ghostty surface and the canvas.
+    public let hair: RGB
+    /// The focused pane's border: `hair`, several steps stronger.
+    public let hairFocus: RGB
 
     /// The grid's tab handle strip, as one pair. The band has to read against
     /// a thumbnail's `canvas` body, which only `paneBorder` does; the title on
@@ -88,6 +96,11 @@ public struct ChromeRoles: Equatable, Sendable {
 
     /// How much of the accent tints chrome to make a selected surface.
     public static let selectionAccentAmount = 0.27
+    /// White over a dark theme, black over a light one, as the share each
+    /// neutral role blends in.
+    public static let liftAmount = (dark: 0.07, light: 0.05)
+    public static let hairAmount = (dark: 0.09, light: 0.10)
+    public static let hairFocusAmount = (dark: 0.30, light: 0.28)
     /// The brightest channel a light theme's lifted chrome may reach, so it
     /// never lands on pure white.
     static let lightChromeCeiling = 250.0
@@ -103,19 +116,25 @@ public struct ChromeRoles: Equatable, Sendable {
     }
 
     public static func derive(panelBg: RGB, accent: RGB, selectionOverride: RGB? = nil) -> ChromeRoles {
-        let ladder = isLight(panelBg: panelBg) ? lightLadder(panelBg: panelBg) : darkLadder(panelBg: panelBg)
+        let light = isLight(panelBg: panelBg)
+        let ladder = light ? lightLadder(panelBg: panelBg) : darkLadder(panelBg: panelBg)
+        let pane = terminalGround(panelBg: panelBg)
+        let ink = light ? RGB(0, 0, 0) : RGB(255, 255, 255)
         return ChromeRoles(
             chrome: ladder.chrome,
             rule: ladder.rule,
             canvas: ladder.canvas,
-            pane: terminalGround(panelBg: panelBg),
+            pane: pane,
             paneBorder: ladder.paneBorder,
             tabRest: ladder.tabRest,
             selection: selectionOverride ?? ladder.chrome.mixed(with: accent, amount: selectionAccentAmount),
             textStrong: ladder.textStrong,
             textDim: ladder.textDim,
             textLabel: ladder.textLabel,
-            accent: accent
+            accent: accent,
+            lift: ladder.chrome.mixed(with: ink, amount: light ? liftAmount.light : liftAmount.dark),
+            hair: pane.mixed(with: ink, amount: light ? hairAmount.light : hairAmount.dark),
+            hairFocus: pane.mixed(with: ink, amount: light ? hairFocusAmount.light : hairFocusAmount.dark)
         )
     }
 
