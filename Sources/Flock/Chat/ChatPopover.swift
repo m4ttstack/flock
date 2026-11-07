@@ -179,13 +179,13 @@ struct ChatPopover: View {
         HStack(spacing: 0) {
             Text("Chat")
                 .font(ChromeType.chatPopoverTitle)
-                .foregroundStyle(theme.text)
+                .foregroundStyle(theme.textStrong)
             Spacer(minLength: 0)
             Button(action: openViewer) {
                 Image(systemName: "arrow.up.forward.square")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                     .frame(
                         width: ChromeMetrics.ChatPopover.Header.iconSize.width,
                         height: ChromeMetrics.ChatPopover.Header.iconSize.height
@@ -235,13 +235,13 @@ struct ChatPopover: View {
                 if let name = status?.displayName {
                     Text(name)
                         .font(ChromeType.chatPopoverHandle)
-                        .foregroundStyle(theme.text)
+                        .foregroundStyle(theme.textStrong)
                 }
                 // rt's own vocabulary, never re-worded; empty until a status
                 // has actually loaded for this pane.
                 Text(status?.state ?? "")
                     .font(ChromeType.chatPopoverStateWord)
-                    .foregroundStyle(theme.subtext0)
+                    .foregroundStyle(theme.textLabel)
                 Spacer(minLength: 0)
             }
             if hasRooms {
@@ -314,11 +314,11 @@ struct ChatPopover: View {
         return Group {
             switch row {
             case let .open(person):
-                Text("Talking to \(name(person)) on Slack").foregroundStyle(theme.text)
+                Text("Talking to \(name(person)) on Slack").foregroundStyle(theme.textStrong)
             case let .closing(person):
-                Text("Closing chat with \(name(person))").foregroundStyle(theme.subtext0)
+                Text("Closing chat with \(name(person))").foregroundStyle(theme.textLabel)
             case .opening, .available:
-                Text("Opening Slack chat…").foregroundStyle(theme.subtext0)
+                Text("Opening Slack chat…").foregroundStyle(theme.textLabel)
             }
         }
         .font(ChromeType.chatPopoverFeatureName)
@@ -359,7 +359,7 @@ struct ChatPopover: View {
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(ChromeType.chatPopoverSectionLabel)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, ChromeMetrics.ChatPopover.SectionLabel.topPadding)
             .padding(.trailing, ChromeMetrics.ChatPopover.SectionLabel.trailingPadding)
@@ -458,7 +458,7 @@ struct ChatPopover: View {
             if signOutIsBlocked {
                 Text("End the Slack chat first")
                     .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                     .frame(height: ChromeMetrics.ChatPopover.SignButtons.hintHeight)
             }
         }
