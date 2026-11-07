@@ -381,6 +381,7 @@ enum ChromeMetrics {
         static let dropDistance: CGFloat = 6
         static let openDuration: Double = 0.12
         static let closeDuration: Double = 0.08
+        static let surfaceLift: Double = 0.045
     }
 
     enum ChatPopover {

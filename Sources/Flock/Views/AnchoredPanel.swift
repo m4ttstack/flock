@@ -1,5 +1,17 @@
+import FlockCore
 import AppKit
 import SwiftUI
+
+extension Theme {
+    /// The ground of a panel hung over the terminal: the terminal's own,
+    /// lifted just enough to read as a layer and keep its labels legible.
+    var panelSurface: Color {
+        let isDark = !ChromeRoles.isLight(panelBg: palette.panelBg)
+        return Color(palette.terminalGround.mixed(
+            with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: ChromeMetrics.AnchoredPanel.surfaceLift
+        ))
+    }
+}
 
 extension View {
     /// A popover of flock's own: a borderless panel hung from this view's

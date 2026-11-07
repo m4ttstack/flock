@@ -141,7 +141,7 @@ struct ChatPopover: View {
             case let .feature(feature): featureBody(feature)
             }
         }
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(LauncherStripStyle(theme: theme).band))
+        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(theme.panelSurface))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius)
                 .strokeBorder(theme.hair, lineWidth: 1)
@@ -413,12 +413,12 @@ struct ChatPopover: View {
                 if let shortcut = feature.shortcut {
                     Text(shortcut)
                         .font(ChromeType.chatPopoverFeatureShortcut)
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                 } else if !isDisabled {
                     Image(systemName: "chevron.right")
                         .resizable()
                         .scaledToFit()
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                         .frame(width: ChromeMetrics.ChatPopover.Features.chevronSize.width, height: ChromeMetrics.ChatPopover.Features.chevronSize.height)
                 }
             }

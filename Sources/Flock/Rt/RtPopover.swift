@@ -42,7 +42,7 @@ struct RtPopover: View {
             }
         }
         .frame(width: Metrics.width)
-        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(LauncherStripStyle(theme: theme).band))
+        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(theme.panelSurface))
         .overlay(
             RoundedRectangle(cornerRadius: Metrics.cornerRadius)
                 .strokeBorder(theme.hair, lineWidth: ChromeMetrics.ruleWidth)
@@ -99,7 +99,7 @@ struct RtPopover: View {
                 Image(systemName: Self.symbolName(command.kind))
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isHovered ? theme.accent : theme.overlay0)
+                    .foregroundStyle(isHovered ? theme.textStrong : theme.textLabel)
                     .frame(width: Metrics.Row.glyphSize, height: Metrics.Row.glyphSize)
                 Text(command.name)
                     .font(ChromeType.rtPopoverRow)
@@ -108,7 +108,7 @@ struct RtPopover: View {
                 Spacer(minLength: 0)
                 Text(command.title)
                     .font(ChromeType.rtPopoverDetail)
-                    .foregroundStyle(Color(theme.palette.overlay1))
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
             }
             .padding(.horizontal, Metrics.Row.horizontalPadding)
@@ -130,7 +130,7 @@ struct RtPopover: View {
         Text("RUNS")
             .font(ChromeType.rtPopoverLabel)
             .tracking(ChromeType.rtPopoverLabelTracking)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, Metrics.RunsLabel.topPadding)
             .padding(.trailing, Metrics.RunsLabel.trailingPadding)
