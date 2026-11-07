@@ -37,6 +37,18 @@ struct PanesSettingsSection: View {
             }
             .disabled(store.focusStyle != .dimOthers && store.focusStyle != .drainColour)
             .accessibilityIdentifier("flock.settings.paneDimness")
+            LabeledContent {
+                Slider(
+                    value: Binding(get: { store.desaturation }, set: { store.setDesaturation($0) }),
+                    in: PaneAppearanceStore.desaturationRange
+                )
+                .frame(maxWidth: 200)
+            } label: {
+                Text("Desaturation")
+                Text("How much colour panes without focus lose, under Drain colour.")
+            }
+            .disabled(store.focusStyle != .drainColour)
+            .accessibilityIdentifier("flock.settings.paneDesaturation")
             Picker(selection: Binding(get: { store.statusLine }, set: { store.select($0) })) {
                 ForEach(PaneStatusLineStyle.allCases, id: \.self) { value in
                     Text(value.displayName).tag(value)

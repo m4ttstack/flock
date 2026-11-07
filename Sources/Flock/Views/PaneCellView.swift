@@ -475,7 +475,9 @@ struct PaneCellView: View {
         let ground = NSColor(theme.pane).cgColor
         switch focusStyle {
         case .dimOthers: return SurfaceShade(drain: 0, veil: dimness, ground: ground)
-        case .drainColour: return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: dimness, ground: ground)
+        case .drainColour:
+            let drain = appearance?.desaturation ?? PaneAppearanceStore.standardDesaturation
+            return SurfaceShade(drain: drain, veil: dimness, ground: ground)
         case .brighterBorder, .quietChrome, .lift: return .none
         }
     }
