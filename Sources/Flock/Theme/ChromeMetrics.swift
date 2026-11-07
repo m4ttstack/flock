@@ -302,7 +302,7 @@ enum ChromeMetrics {
             static let cometTravelShare: Double = 0.62
             static let cometBurstShare: Double = 0.26
             /// Above 1 the head gathers speed on its way across.
-            static let cometAcceleration: Double = 1.25
+            static let cometAcceleration: Double = 2.2
             static let cometFadeIn: Double = 0.1
             /// The share of the burst the tail takes to pull into the impact.
             static let cometTailRetract: Double = 0.35
