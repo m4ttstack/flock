@@ -29,16 +29,39 @@ public enum PaneLayoutStyle: String, CaseIterable, Sendable {
     }
 }
 
-/// Both Settings choices, persisted across launches in the same UserDefaults
+/// The line under a pane's header that carries its agent's status. Working
+/// takes the chosen motion; blocked always breathes red and done is a faint
+/// still line, whatever is picked here.
+public enum PaneStatusLineStyle: String, CaseIterable, Sendable {
+    case off
+    case glint
+    case comet
+    case aurora
+    case breathe
+
+    public var displayName: String {
+        switch self {
+        case .off: "Off"
+        case .glint: "Glint"
+        case .comet: "Comet"
+        case .aurora: "Aurora"
+        case .breathe: "Breathe"
+        }
+    }
+}
+
+/// Every Settings choice, persisted across launches in the same UserDefaults
 /// pattern as `RearrangeAfterMoveStore`.
 @MainActor
 @Observable
 public final class PaneAppearanceStore {
     public static let focusStyleKey = "flock.paneFocusStyle"
     public static let layoutKey = "flock.paneLayout"
+    public static let statusLineKey = "flock.paneStatusLine"
 
     public private(set) var focusStyle: PaneFocusStyle
     public private(set) var layout: PaneLayoutStyle
+    public private(set) var statusLine: PaneStatusLineStyle
 
     @ObservationIgnored private let userDefaults: UserDefaults
 
@@ -46,6 +69,7 @@ public final class PaneAppearanceStore {
         self.userDefaults = userDefaults
         focusStyle = userDefaults.string(forKey: Self.focusStyleKey).flatMap(PaneFocusStyle.init(rawValue:)) ?? .brighterBorder
         layout = userDefaults.string(forKey: Self.layoutKey).flatMap(PaneLayoutStyle.init(rawValue:)) ?? .boxed
+        statusLine = userDefaults.string(forKey: Self.statusLineKey).flatMap(PaneStatusLineStyle.init(rawValue:)) ?? .glint
     }
 
     public func select(_ value: PaneFocusStyle) {
@@ -56,5 +80,10 @@ public final class PaneAppearanceStore {
     public func select(_ value: PaneLayoutStyle) {
         layout = value
         userDefaults.set(value.rawValue, forKey: Self.layoutKey)
+    }
+
+    public func select(_ value: PaneStatusLineStyle) {
+        statusLine = value
+        userDefaults.set(value.rawValue, forKey: Self.statusLineKey)
     }
 }

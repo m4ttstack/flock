@@ -376,6 +376,10 @@ struct PaneCellView: View {
                 focusInHerdr()
             }
             .background(theme.pane)
+            .overlay(alignment: .top) {
+                PaneStatusLine(theme: theme, status: pane.agentStatus, style: appearance?.statusLine ?? .glint)
+                    .padding(.top, ChromeMetrics.Pane.StatusLine.top)
+            }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }

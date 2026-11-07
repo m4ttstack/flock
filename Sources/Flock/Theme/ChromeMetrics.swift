@@ -281,6 +281,31 @@ enum ChromeMetrics {
             static let liftWashOpacity: Double = 0.05
         }
 
+        /// `PaneStatusLine`: the mock's shader values (R12), as points and seconds.
+        enum StatusLine {
+            /// Under the title row, clear of the chat chip's overhang and
+            /// above the first terminal row.
+            static let top: CGFloat = PaneChrome.contentTop - 4
+            static let height: CGFloat = 1
+            static let cometHeight: CGFloat = 1.5
+            static let frameInterval: Double = 1.0 / 30
+            static let glintPeriod: Double = 2.6
+            static let glintHalfWidth: CGFloat = 0.18
+            static let glintRest: Double = 0.12
+            static let glintPeak: Double = 0.85
+            static let cometPeriod: Double = 1.8
+            static let cometTail: CGFloat = 0.35
+            static let auroraStops = 16
+            static let auroraOpacity: Double = 0.55
+            static let workingBreathePeriod: Double = 3.4
+            static let workingLow: Double = 0.05
+            static let workingHigh: Double = 0.5
+            static let blockedPeriod: Double = 2.2
+            static let blockedLow: Double = 0.15
+            static let blockedHigh: Double = 0.75
+            static let doneOpacity: Double = 0.35
+        }
+
 
         /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn
         /// point, and the divider's grab band narrows to stay inside the

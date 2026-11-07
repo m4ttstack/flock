@@ -25,6 +25,15 @@ struct PanesSettingsSection: View {
                 Text("How the pane with the keyboard stands out from the rest.")
             }
             .accessibilityIdentifier("flock.settings.paneFocus")
+            Picker(selection: Binding(get: { store.statusLine }, set: { store.select($0) })) {
+                ForEach(PaneStatusLineStyle.allCases, id: \.self) { value in
+                    Text(value.displayName).tag(value)
+                }
+            } label: {
+                Text("Status line")
+                Text("A line under each pane's header while its agent works. Blocked always breathes red.")
+            }
+            .accessibilityIdentifier("flock.settings.paneStatusLine")
         }
     }
 }
