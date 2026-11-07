@@ -37,17 +37,40 @@ final class MachineFolderSheetRenderTests: XCTestCase {
                     window.contentView?.layoutSubtreeIfNeeded()
                     try await Task.sleep(for: .milliseconds(50))
                 }
-                let view2 = try XCTUnwrap(window.contentView)
-                let rep = try XCTUnwrap(view2.bitmapImageRepForCachingDisplay(in: view2.bounds))
-                view2.cacheDisplay(in: view2.bounds, to: rep)
+                let image = try snapshot(window)
                 if let directory {
-                    try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("machine-folder-\(name)-\(scheme).png"))
                 }
-                let corner = try XCTUnwrap(rep.colorAt(x: 6, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
-                let chrome = theme.palette.chromeRoles.chrome
-                XCTAssertEqual(Int((corner.redComponent * 255).rounded()), chrome.red, accuracy: 2, "\(scheme) \(name): the sheet sits on chrome")
+                XCTAssertEqual(
+                    hex(image, CGPoint(x: 4, y: MachineFolderSheet.size.height / 2)), theme.palette.chromeRoles.chrome.hex,
+                    "\(scheme) \(name): the sheet sits on chrome"
+                )
             }
         }
+    }
+
+    private static let scale: CGFloat = 2
+
+    private func hex(_ image: NSBitmapImageRep, _ point: CGPoint) -> String {
+        let x = Int(point.x * Self.scale), y = Int(point.y * Self.scale)
+        guard let data = image.bitmapData, x >= 0, y >= 0, x < image.pixelsWide, y < image.pixelsHigh else { return "?" }
+        let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
+        return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
+    }
+
+    private func snapshot(_ window: NSWindow) throws -> NSBitmapImageRep {
+        let view = try XCTUnwrap(window.contentView)
+        view.layoutSubtreeIfNeeded()
+        let bounds = view.bounds
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: Int(bounds.width * Self.scale), height: Int(bounds.height * Self.scale),
+            bitsPerComponent: 8, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.scaleBy(x: Self.scale, y: Self.scale)
+        view.displayIgnoringOpacity(bounds, in: NSGraphicsContext(cgContext: context, flipped: false))
+        return NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
     }
 }
