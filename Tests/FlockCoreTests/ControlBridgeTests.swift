@@ -247,6 +247,27 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertNil(ControlBridge.parseForwardableControlCommand(Data("{not json".utf8)))
     }
 
+    func testOnlyTheCapabilitiesRecordOfferingHostThemeAcceptsIt() {
+        XCTAssertTrue(ControlBridge.acceptsHostTheme(Data(#"{"type":"terminal.capabilities","host_theme":true}"#.utf8)))
+        XCTAssertFalse(ControlBridge.acceptsHostTheme(Data(#"{"type":"terminal.capabilities","host_theme":false}"#.utf8)))
+        XCTAssertFalse(ControlBridge.acceptsHostTheme(Data(#"{"type":"terminal.capabilities"}"#.utf8)))
+        XCTAssertFalse(ControlBridge.acceptsHostTheme(Data(#"{"type":"terminal.mouse_capture","host_theme":true}"#.utf8)))
+        XCTAssertFalse(ControlBridge.acceptsHostTheme(Data("{not json".utf8)))
+    }
+
+    func testAHostThemeCommandCarriesItsColorsAndAppearance() {
+        let theme = HostTerminalTheme(colors: GhosttyThemeColors(
+            background: GhosttyThemeColor(red: 0xEF, green: 0xF1, blue: 0xF5),
+            foreground: GhosttyThemeColor(red: 0x4C, green: 0x4F, blue: 0x69),
+            ansi: Array(repeating: GhosttyThemeColor(red: 0, green: 0, blue: 0), count: 16)
+        ))
+        XCTAssertTrue(theme.isLight)
+        XCTAssertEqual(theme.command["type"] as? String, ControlBridge.hostThemeCommandType)
+        XCTAssertEqual(theme.command["appearance"] as? String, "light")
+        XCTAssertEqual((theme.command["bg"] as? String)?.lowercased(), "#eff1f5")
+        XCTAssertEqual((theme.command["fg"] as? String)?.lowercased(), "#4c4f69")
+    }
+
     // MARK: - BridgeIO over anonymous pipes (fake control peer, no real herdr child)
 
     func testHerdrOutputFrameSplitAcrossHostilePointsStillDecodes() async throws {
@@ -470,6 +491,105 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(scrollObject["type"] as? String, "terminal.scroll")
         let inputObject = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(lines[1])) as? [String: Any])
         XCTAssertEqual(inputObject["type"] as? String, "terminal.input")
+    }
+
+    private static let capabilities = Data(#"{"type":"terminal.capabilities","host_theme":true}"#.utf8 + [0x0A])
+
+    private static func hostThemeLine(_ appearance: String) -> Data {
+        ControlBridge.encodeLine(["type": ControlBridge.hostThemeCommandType, "bg": "#eff1f5", "appearance": appearance])!
+    }
+
+    private static func types(in data: Data) -> [String] {
+        data.split(separator: 0x0A).compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])??["type"] as? String
+        }
+    }
+
+    private static func appearances(in data: Data) -> [String] {
+        data.split(separator: 0x0A).compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])??["appearance"] as? String
+        }
+    }
+
+    /// A stock herdr never announces the capability, so the theme never
+    /// reaches it to be refused on the pane; other commands still forward.
+    func testAHostThemeIsHeldFromAHerdrThatNeverOfferedIt() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let herdrOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(herdrOut.fileHandleForReading)
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        control.fileHandleForWriting.write(Self.hostThemeLine("light"))
+        control.fileHandleForWriting.write(ControlBridge.encodeLine(["type": "terminal.input", "bytes": "aGk="])!)
+
+        let forwarded = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        try await Task.sleep(for: .milliseconds(80))
+        let all = forwarded + readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(Self.types(in: all), ["terminal.input"])
+    }
+
+    /// The theme sent before herdr announced the capability is replayed the
+    /// moment it does, and later ones go straight through.
+    func testTheNewestHostThemeReachesHerdrOnceItOffersIt() async throws {
+        let control = Pipe()
+        let herdrIn = Pipe()
+        let herdrOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: herdrIn.fileHandleForWriting.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(herdrOut.fileHandleForReading)
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+
+        control.fileHandleForWriting.write(Self.hostThemeLine("dark"))
+        control.fileHandleForWriting.write(Self.hostThemeLine("light"))
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(readAllAvailableForTest(herdrIn.fileHandleForReading.fileDescriptor).count, 0)
+
+        herdrOut.fileHandleForWriting.write(Self.capabilities)
+        let replayed = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(Self.appearances(in: replayed), ["light"], "only the newest theme is replayed")
+
+        control.fileHandleForWriting.write(Self.hostThemeLine("dark"))
+        let direct = try await waitForNonEmptyRead(herdrIn.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(Self.appearances(in: direct), ["dark"])
+    }
+
+    /// A retake can land on a herdr without the patch: the previous child's
+    /// capability does not carry over to it.
+    func testANewHerdrChildMustOfferHostThemeItself() async throws {
+        let control = Pipe()
+        let first = Pipe()
+        let second = Pipe()
+        let firstOut = Pipe()
+        let secondOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: first.fileHandleForWriting.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(firstOut.fileHandleForReading)
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+        firstOut.fileHandleForWriting.write(Self.capabilities)
+        control.fileHandleForWriting.write(Self.hostThemeLine("light"))
+        _ = try await waitForNonEmptyRead(first.fileHandleForReading.fileDescriptor)
+
+        io.swapHerdrInput(to: second.fileHandleForWriting)
+        io.startHerdrOutput(secondOut.fileHandleForReading)
+        control.fileHandleForWriting.write(Self.hostThemeLine("dark"))
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(readAllAvailableForTest(second.fileHandleForReading.fileDescriptor).count, 0)
+
+        secondOut.fileHandleForWriting.write(Self.capabilities)
+        let replayed = try await waitForNonEmptyRead(second.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(Self.appearances(in: replayed), ["dark"])
     }
 
     func testStdinEncodesToTerminalInputThenReleaseOnEOF() async throws {
