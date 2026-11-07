@@ -139,6 +139,8 @@ enum ChromeType {
     static let missionCardTitle = inter(14.5, .medium)
     static let missionCardDetail = inter(12)
     static let missionCardMono = mono(11)
+    /// A pane header's repo @ branch, where its title would be.
+    static let paneTitlePlace = mono(11)
     static let missionGroupName = inter(11.5, .semibold)
     static let missionEmpty = inter(12.5)
     static let focusedBack = inter(12, .medium)

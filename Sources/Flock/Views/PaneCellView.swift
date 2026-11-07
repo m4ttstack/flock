@@ -533,12 +533,15 @@ struct PaneCellView: View {
     }
 
     /// A hidden title keeps its place and its clicks, so nothing beside it moves.
+    /// With no title of its own (the tab's stands for it), the row says
+    /// where the pane is instead: its checkout and branch, as Overview's
+    /// cards do, read from the files the repository keeps on disk.
     private var titleLabel: some View {
         let shown = shownTitle
-        return Text(shown ?? pane.displayTitle)
-            .font(ChromeType.paneTitle)
-            .foregroundStyle(shown == nil ? Color.clear : isFocused ? theme.textStrong : theme.textDim)
-            .accessibilityHidden(shown == nil)
+        let place = viewModel.repoBranches.repoBranch(for: pane.foregroundCwd ?? pane.cwd).text
+        return Text(shown ?? place)
+            .font(shown == nil ? ChromeType.paneTitlePlace : ChromeType.paneTitle)
+            .foregroundStyle(shown == nil ? theme.textLabel : isFocused ? theme.textStrong : theme.textDim)
             .lineLimit(1)
             .frame(height: ChromeMetrics.PaneBar.rowHeight)
             .contentShape(Rectangle())
