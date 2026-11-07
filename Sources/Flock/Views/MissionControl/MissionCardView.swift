@@ -135,7 +135,7 @@ struct MissionCardView: View {
     /// Selected wins over blocked, as on an Arrange mini pane: the dot and
     /// the state text still say blocked.
     private var outline: Color {
-        if isSelected { return theme.accent }
+        if isSelected { return theme.hairFocus }
         return card.status == .blocked ? theme.red : theme.rule
     }
 
