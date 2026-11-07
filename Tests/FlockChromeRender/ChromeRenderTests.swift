@@ -891,6 +891,7 @@ final class ChromeRenderTests: XCTestCase {
         // The tail end to end, through the real decode, on a tile big enough
         // to read (the claude mini pane is below `TileDetail.tail`): a tile
         // that drew and read nothing is what this render exists to catch.
+        await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
         let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
         XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
@@ -925,6 +926,7 @@ final class ChromeRenderTests: XCTestCase {
         harness.drag.selectGridPane(GridFixture.claudePane)
         await settle(window)
         XCTAssertEqual(harness.drag.gridSelection, GridFixture.claudePane, "the last click's pane")
+        await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
         XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         let image = try snapshot(window)
         if let directory {
@@ -958,7 +960,7 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            await settle(window)
+            await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
 
             let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
             XCTAssertEqual(tail.rows.map(\.columns).max(), AnsiTUIClient.columns)
@@ -3565,6 +3567,14 @@ final class ChromeRenderTests: XCTestCase {
         for _ in 0..<6 {
             window.contentView?.layoutSubtreeIfNeeded()
             try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    /// A tile's read is a round trip through the client, which a hosted
+    /// runner can leave unanswered past one settle. Returns as soon as it lands.
+    private func settle(_ window: NSWindow, untilTailOf pane: PaneID, in viewModel: SessionViewModel) async {
+        for _ in 0..<20 where viewModel.paneTails[pane] == nil {
+            await settle(window)
         }
     }
 
