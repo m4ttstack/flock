@@ -97,12 +97,16 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     /// Acts on a key's decision and says whether the key was used. A trigger
     /// press that starts nothing (one item, a locked window) is not, so it
     /// reaches the pane behind.
-    public func apply(_ decision: SwitcherKey.Decision, begin: (_ reverse: Bool) -> Bool, open: () -> Void) -> Bool {
+    /// `keepsUnopened`: a press that opens nothing is still held back from
+    /// the pane.
+    public func apply(
+        _ decision: SwitcherKey.Decision, keepsUnopened: Bool = false, begin: (_ reverse: Bool) -> Bool, open: () -> Void
+    ) -> Bool {
         switch decision {
         case .pass:
             return false
         case .next, .previous:
-            guard isActive else { return begin(decision == .previous) }
+            guard isActive else { return begin(decision == .previous) || keepsUnopened }
             step(decision == .next ? 1 : -1)
         case .commit:
             open()
@@ -187,6 +191,11 @@ public struct SwitcherTrigger: Equatable, Sendable {
     }
 
     public var keyGlyph: String { keyCode == SwitcherKey.tab ? "\u{21E5}" : "`" }
+
+    /// ⌥` is the grave accent's dead key and ⌃` types a NUL, so a backtick
+    /// press that opens nothing would leave the pane half-composing an accent
+    /// or reading a stray byte.
+    public var keepsUnopenedPress: Bool { keyCode == SwitcherKey.grave }
 
     /// As menus write a shortcut, for tooltips.
     public var label: String { modifierGlyph + keyGlyph }

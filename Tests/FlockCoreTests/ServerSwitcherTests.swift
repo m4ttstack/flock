@@ -171,4 +171,15 @@ final class ServerSwitcherTests: XCTestCase {
         XCTAssertFalse(SwitcherKey.isHeld(.optionBacktick, control: true, option: false))
         XCTAssertEqual(SwitcherTrigger.optionBacktick.label, "\u{2325}`")
     }
+
+    @MainActor
+    func testBacktickPressThatOpensNothingStaysOutOfThePane() {
+        let switcher = ServerSwitcher(userDefaults: UserDefaults(suiteName: "flock.tests.\(UUID().uuidString)")!)
+        XCTAssertTrue(SwitcherTrigger.optionBacktick.keepsUnopenedPress)
+        XCTAssertTrue(SwitcherTrigger.controlBacktick.keepsUnopenedPress)
+        XCTAssertFalse(SwitcherTrigger.optionTab.keepsUnopenedPress, "an unopened Tab still reaches the pane")
+        XCTAssertTrue(switcher.apply(.next, keepsUnopened: true, begin: { _ in false }, open: {}))
+        XCTAssertFalse(switcher.apply(.next, keepsUnopened: false, begin: { _ in false }, open: {}))
+        XCTAssertFalse(switcher.apply(.pass, keepsUnopened: true, begin: { _ in false }, open: {}))
+    }
 }

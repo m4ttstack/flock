@@ -55,6 +55,6 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
             trigger: trigger, keyCode: event.keyCode, control: flags.contains(.control), shift: flags.contains(.shift),
             command: flags.contains(.command), option: flags.contains(.option), active: switcher.isActive
         )
-        return switcher.apply(decision, begin: begin, open: open) ? nil : event
+        return switcher.apply(decision, keepsUnopened: trigger.keepsUnopenedPress, begin: begin, open: open) ? nil : event
     }
 }
