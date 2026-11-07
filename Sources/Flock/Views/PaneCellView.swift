@@ -590,7 +590,9 @@ struct PaneCellView: View {
         let place = viewModel.repoBranches.repoBranch(for: pane.foregroundCwd ?? pane.cwd).text
         return Text(shown ?? place)
             .font(shown == nil ? ChromeType.paneTitlePlace : ChromeType.paneTitle)
-            .foregroundStyle(shown == nil ? theme.textLabel : isFocused ? theme.textStrong : theme.textDim)
+            // A shell's own prompt already says where it is, so its compact
+            // header leaves the place out rather than repeat it.
+            .foregroundStyle(shown == nil ? (isCompact ? Color.clear : theme.textLabel) : isFocused ? theme.textStrong : theme.textDim)
             .lineLimit(1)
             .frame(height: ChromeMetrics.PaneBar.rowHeight)
             .contentShape(Rectangle())
