@@ -62,8 +62,8 @@ struct MainWindow: View {
         // panes do not run on.
         if viewModel.isRemoteMachine {
             EmptyView()
-        } else if let reason = herdrMousePatchStore.restartReason {
-            HerdrMousePatchRestartBanner(theme: theme, reason: reason)
+        } else if let reason = herdrMousePatchStore.restartPrompt {
+            HerdrMousePatchRestartBanner(theme: theme, store: herdrMousePatchStore, reason: reason)
         } else if herdrMousePatchStore.showsBanner {
             HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
         }
@@ -723,36 +723,72 @@ private struct HerdrMousePatchBanner: View {
     }
 }
 
+/// Restart herdr goes through the store's confirmation, which says the
+/// panes keep running and that Flock restarts after.
 private struct HerdrMousePatchRestartBanner: View {
     let theme: Theme
+    let store: HerdrMousePatchStore
     let reason: HerdrMousePatchCopy.RestartReason
+
+    private var restartsServer: Bool { store.needsServerRestart }
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Banner.spacing) {
             Image(systemName: "arrow.clockwise")
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.accent)
-            Text(HerdrMousePatchCopy.restartHeadline(for: reason))
-                .font(ChromeType.banner)
-                .foregroundStyle(theme.textStrong)
-            Text(HerdrMousePatchCopy.restartDetail(for: reason))
-                .font(ChromeType.banner)
-                .foregroundStyle(theme.textLabel)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: ChromeMetrics.Banner.spacing)
-            if HerdrMousePatchCopy.offersRestart(for: reason) {
-                BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
-                    .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+            if let message = store.serverRestartError {
+                Label(HerdrMousePatchCopy.serverRestartFailedBanner, systemImage: "exclamationmark.triangle.fill")
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.red)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(message)
+                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.error")
             } else {
-                BannerPillButton(theme: theme, title: HerdrMousePatchCopy.restartActionTitle) {}
-                    .hidden()
+                Text(HerdrMousePatchCopy.restartHeadline(for: reason))
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textStrong)
+                Text(HerdrMousePatchCopy.restartDetail(for: reason, restartsServer: restartsServer))
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            Spacer(minLength: ChromeMetrics.Banner.spacing)
+            trailing
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
         .accessibilityIdentifier("flock.herdrMousePatch.restartBanner")
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        let title = HerdrMousePatchCopy.restartActionTitle(restartsServer: restartsServer)
+        if store.serverRestarting {
+            ZStack(alignment: .trailing) {
+                BannerPillButton(theme: theme, title: title) {}
+                    .hidden()
+                Text(HerdrMousePatchCopy.serverRestartProgressTitle)
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textLabel)
+            }
+            .accessibilityIdentifier("flock.herdrMousePatch.banner.restarting")
+        } else if HerdrMousePatchCopy.offersRestart(for: reason) {
+            BannerPillButton(theme: theme, title: title) {
+                if restartsServer {
+                    store.requestServerRestart(source: .banner)
+                } else {
+                    AppRelaunch.relaunch()
+                }
+            }
+            .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+        } else {
+            BannerPillButton(theme: theme, title: title) {}
+                .hidden()
+        }
     }
 }
 

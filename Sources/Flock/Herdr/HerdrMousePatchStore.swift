@@ -22,13 +22,20 @@ final class HerdrMousePatchStore {
     /// so Install and Restore are withdrawn until it ends; only the update's
     /// own `reinstallAfterUpdate` runs meanwhile.
     private(set) var herdrUpdateInProgress = false
+    /// Which binary the connected server runs, read by `checkServer()`.
+    private(set) var serverBinary: HerdrServerBinary = .unknown
+    /// The version the last probe read from the binary on disk.
+    private(set) var binaryVersion: String?
+    /// A live handoff is running; Flock relaunches when it lands.
+    private(set) var serverRestarting = false
+    private(set) var serverRestartError: String?
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
     /// The banner and the Settings row both watch this store, and each
     /// presents only the confirmations it asked for.
     struct PendingConfirmation: Equatable {
-        enum Action: Equatable { case install, revert }
+        enum Action: Equatable { case install, revert, restartServer }
         enum Source: Equatable { case banner, settings }
         let action: Action
         let confirmation: HerdrMousePatchCopy.Confirmation
@@ -36,6 +43,8 @@ final class HerdrMousePatchStore {
     }
 
     @ObservationIgnored var installTask: Task<Void, Never>?
+    @ObservationIgnored var serverCheckTask: Task<Void, Never>?
+    @ObservationIgnored var serverRestartTask: Task<Void, Never>?
     @ObservationIgnored private let resolveBinaryPath: () -> String?
     @ObservationIgnored private let catalog: (String) -> HerdrMousePatchEntry?
     @ObservationIgnored private let downloader: HerdrMousePatchDownloader
@@ -43,6 +52,12 @@ final class HerdrMousePatchStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let probe: (String, FileManager) -> HerdrMousePatchInstaller.Probe
     @ObservationIgnored private var lastProbed: BinaryFingerprint?
+    /// The socket of the server this Flock is on, nil when that server is not
+    /// this Mac's (a machine session) and so not this herdr's to restart.
+    @ObservationIgnored private let serverSocketPath: () -> String?
+    @ObservationIgnored private let probeServer: @Sendable (String, String) -> HerdrServerBinary
+    @ObservationIgnored private let runner: HerdrCommandRunner
+    @ObservationIgnored private let relaunch: () -> Void
 
     /// The probe reads all of herdr (over 20 MB) and runs it on the main
     /// actor, and the app calls `refresh()` on every activation; these stat fields change
@@ -75,9 +90,17 @@ final class HerdrMousePatchStore {
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard,
         readVersionOutput: @escaping (String) -> String? = { HerdrVersionReader().read(binaryPath: $0) },
-        probe: ((String, FileManager) -> HerdrMousePatchInstaller.Probe)? = nil
+        probe: ((String, FileManager) -> HerdrMousePatchInstaller.Probe)? = nil,
+        serverSocketPath: @escaping () -> String? = { nil },
+        probeServer: @escaping @Sendable (String, String) -> HerdrServerBinary = HerdrServerBinary.probe(socketPath:binaryPath:),
+        runner: HerdrCommandRunner = ProcessHerdrCommandRunner(),
+        relaunch: @escaping () -> Void = { AppRelaunch.relaunch() }
     ) {
         self.resolveBinaryPath = resolveBinaryPath
+        self.serverSocketPath = serverSocketPath
+        self.probeServer = probeServer
+        self.runner = runner
+        self.relaunch = relaunch
         self.catalog = catalog
         self.downloader = downloader
         self.fileManager = fileManager
@@ -104,6 +127,20 @@ final class HerdrMousePatchStore {
     private(set) var bannerErrorMessage: String?
 
     var showsBanner: Bool { shouldOfferBanner || bannerErrorMessage != nil }
+
+    /// flock's current patch is on disk but the server still runs an older
+    /// binary, so the patch's server half is missing until herdr restarts.
+    var needsServerRestart: Bool {
+        HerdrServerRestart.isNeeded(
+            state: state, patchChangesServer: binaryVersion.flatMap(catalog)?.changesServer ?? false, server: serverBinary
+        )
+    }
+
+    /// What the restart banner and row show: the change flock just made, or
+    /// with none, a server found behind the patched binary on disk.
+    var restartPrompt: HerdrMousePatchCopy.RestartReason? {
+        restartReason ?? (needsServerRestart ? .serverBehind : nil)
+    }
 
     /// Wave the banner away for this herdr version. The settings row is
     /// unaffected and still offers Install: this silences the unprompted
@@ -134,12 +171,17 @@ final class HerdrMousePatchStore {
         guard let resolved else {
             lastProbed = nil
             if state != nil { state = nil }
+            checkServer()
             return
         }
+        // The server can be restarted while the binary stays put, so this
+        // runs whether or not the binary is probed again.
+        defer { checkServer() }
         let fingerprint = fingerprint(of: resolved)
         if !force, fingerprint == lastProbed { return }
         let probe = probe(resolved, fileManager)
         lastProbed = fingerprint
+        if binaryVersion != probe.version { binaryVersion = probe.version }
         let entry = probe.version.flatMap(catalog)
         let decided = HerdrMousePatchDecision.decide(
             hasVerbs: probe.hasVerbs,
@@ -151,6 +193,30 @@ final class HerdrMousePatchStore {
             newerRelease: entry.flatMap { $0.supersedes(sha256: probe.sha256) ? $0.releaseName : nil }
         )
         if state != decided { state = decided }
+    }
+
+    /// Reads which binary the connected server runs. Called on every refresh
+    /// and whenever the connection changes, since either can move it.
+    func checkServer() {
+        serverCheckTask?.cancel()
+        guard let binaryPath, let socket = serverSocketPath() else {
+            if serverBinary != .unknown { serverBinary = .unknown }
+            return
+        }
+        let probeServer = probeServer
+        serverCheckTask = Task {
+            let found = await Task.detached { probeServer(socket, binaryPath) }.value
+            guard !Task.isCancelled, found != serverBinary else { return }
+            serverBinary = found
+        }
+    }
+
+    /// Asks to hand the server off to the binary on disk.
+    func requestServerRestart(source: PendingConfirmation.Source) {
+        guard needsServerRestart, !serverRestarting, phase == .idle, !herdrUpdateInProgress else { return }
+        pendingConfirmation = PendingConfirmation(
+            action: .restartServer, confirmation: HerdrMousePatchCopy.serverRestartConfirmation, source: source
+        )
     }
 
     /// The herdr on disk right now, for telling whether a run replaced it.
@@ -239,6 +305,31 @@ final class HerdrMousePatchStore {
         switch pending.action {
         case .install: performInstall(startedFromBanner: pending.source == .banner)
         case .revert: performRevert()
+        case .restartServer: performServerRestart()
+        }
+    }
+
+    /// `--expected-version` makes the new server refuse the handoff, and the
+    /// old one keep running, if the binary on disk changed in between.
+    private func performServerRestart() {
+        guard needsServerRestart, !serverRestarting, let binaryPath = resolveBinaryPath(), let version = binaryVersion else {
+            return
+        }
+        serverRestartError = nil
+        serverRestarting = true
+        serverRestartTask = Task { [runner] in
+            let result = await runner.run(
+                binaryPath, HerdrUpdateRun.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
+            )
+            if HerdrUpdateRun.handedOff(status: result.status, output: result.output) {
+                relaunch()
+                return
+            }
+            serverRestarting = false
+            serverRestartError = HerdrMousePatchCopy.serverRestartFailure(
+                HerdrServerRestart.failureReason(output: result.output)
+            )
+            checkServer()
         }
     }
 

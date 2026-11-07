@@ -30,15 +30,32 @@ struct HerdrMousePatchRow: View {
                 Text(HerdrMousePatchCopy.rowTitle)
                 Text(bodyText)
             }
-            if let reason = store.restartReason {
+            if let reason = store.restartPrompt {
+                let restartsServer = store.needsServerRestart
                 LabeledContent {
-                    Button(HerdrMousePatchCopy.restartActionTitle) { AppRelaunch.relaunch() }
+                    if store.serverRestarting {
+                        ProgressView().controlSize(.small)
+                            .accessibilityIdentifier("flock.settings.herdrMousePatch.restarting")
+                    } else {
+                        Button(HerdrMousePatchCopy.restartActionTitle(restartsServer: restartsServer)) {
+                            if restartsServer {
+                                store.requestServerRestart(source: .settings)
+                            } else {
+                                AppRelaunch.relaunch()
+                            }
+                        }
                         .disabled(!HerdrMousePatchCopy.offersRestart(for: reason))
                         .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
+                    }
                 } label: {
                     Text(HerdrMousePatchCopy.restartHeadline(for: reason))
-                    Text(HerdrMousePatchCopy.restartDetail(for: reason))
+                    Text(HerdrMousePatchCopy.restartDetail(for: reason, restartsServer: restartsServer))
                 }
+            }
+            if let message = store.serverRestartError {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("flock.settings.herdrMousePatch.restartError")
             }
             if let message = store.lastErrorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")

@@ -194,7 +194,9 @@ struct FlockApp: App {
         FlockAppDelegate.onOpenURL = { url in
             FlockLinkOpener.open(url, session: { controller.session }, board: boardStore)
         }
-        let herdrMousePatchStore = HerdrMousePatchStore()
+        let herdrMousePatchStore = HerdrMousePatchStore(
+            serverSocketPath: { controller.session.isRemoteMachine ? nil : controller.socketPath }
+        )
         _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
         _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
             patchStore: herdrMousePatchStore, installedVersion: { controller.session.viewModel.model?.herdrVersion }
@@ -554,6 +556,7 @@ struct FlockApp: App {
                 // that would otherwise keep describing the old one.
                 .onChange(of: viewModel.model?.herdrVersion) { herdrMousePatchStore.refresh() }
                 .onChange(of: herdrStore.connection) {
+                    herdrMousePatchStore.checkServer()
                     if case .notRunning = herdrStore.connection { return }
                     session.isStartingHerdr = false
                     session.herdrStartFailure = nil

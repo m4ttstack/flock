@@ -31,6 +31,12 @@ private struct FailingHerdrRunner: HerdrCommandRunner {
     }
 }
 
+private struct RefusingHandoffRunner: HerdrCommandRunner {
+    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+        (1, #"{"error":{"code":"handoff_failed","message":"handoff replacement server did not become ready"}}"#)
+    }
+}
+
 /// Plays a successful `herdr update` by replacing the temp herdr's bytes.
 private struct RewritingHerdrRunner: HerdrCommandRunner {
     let path: String
@@ -3079,6 +3085,113 @@ final class ChromeRenderTests: XCTestCase {
                     .write(to: URL(fileURLWithPath: settingsDirectory).appendingPathComponent("settings-herdr-outdated-\(scheme).png"))
             }
             rowWindow.close()
+        }
+    }
+
+    /// flock's patch changes herdr's server, and the server still runs an
+    /// older binary: the banner and the herdr row offer Restart herdr, then
+    /// show the handoff running, then a refused one in red with the offer
+    /// back. Banner PNGs go to `FLOCK_CHROME_RENDER_DIR`, row PNGs to
+    /// `FLOCK_SETTINGS_RENDER_DIR`.
+    func testAServerBehindThePatchIsOfferedAHerdrRestart() async throws {
+        let chromeDirectory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let settingsDirectory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-server-behind-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: herdrDir) }
+        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
+        let herdr = herdrDir.appendingPathComponent("herdr").path
+        let older = Data("herdr 0.9.5 terminal.mouse_capture revision 1".utf8)
+        let current = Data("herdr 0.9.5 terminal.mouse_capture host_theme revision 2".utf8)
+        let olderSHA = SHA256.hash(data: older).map { String(format: "%02x", $0) }.joined()
+        let currentSHA = SHA256.hash(data: current).map { String(format: "%02x", $0) }.joined()
+        let suite = "flock-server-behind-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let pillBand = CGRect(x: Self.windowSize.width - 120, y: ChromeMetrics.TitleBar.height, width: 120, height: 40)
+        let messageBand = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width / 2, height: 40)
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            for stage in ["updated", "behind", "restarting", "failed"] {
+                try? FileManager.default.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: herdr))
+                try Data("herdr 0.9.5 stock".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
+                try (stage == "updated" ? older : current).write(to: URL(fileURLWithPath: herdr))
+                let runner: HerdrCommandRunner = stage == "failed" ? RefusingHandoffRunner() : HangingHerdrRunner()
+                let store = HerdrMousePatchStore(
+                    resolveBinaryPath: { herdr },
+                    catalog: {
+                        HerdrMousePatchEntry(
+                            version: $0, sha256: currentSHA, revision: 2, superseded: [olderSHA], changesServer: true
+                        )
+                    },
+                    downloader: HerdrMousePatchDownloader(
+                        cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: current)
+                    ),
+                    defaults: defaults,
+                    readVersionOutput: HerdrVersionFixture.read,
+                    serverSocketPath: { "/tmp/acme/herdr.sock" },
+                    probeServer: { _, _ in .other },
+                    runner: runner,
+                    relaunch: { XCTFail("relaunched") }
+                )
+                defer { store.serverRestartTask?.cancel() }
+                if stage == "updated" {
+                    store.requestInstall(source: .banner)
+                    store.confirmPendingAction()
+                    await store.installTask?.value
+                }
+                await store.serverCheckTask?.value
+                XCTAssertEqual(store.restartPrompt, stage == "updated" ? .updated : .serverBehind, "\(scheme) \(stage)")
+                XCTAssertTrue(store.needsServerRestart, "\(scheme) \(stage)")
+                if stage == "restarting" || stage == "failed" {
+                    store.requestServerRestart(source: .banner)
+                    store.confirmPendingAction()
+                }
+                if stage == "failed" { await store.serverRestartTask?.value }
+
+                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+                await settle(window)
+                let image = try snapshot(window)
+                if let chromeDirectory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: chromeDirectory).appendingPathComponent("server-restart-banner-\(stage)-\(scheme)-\(id).png"))
+                }
+                let pill = count(theme.palette.accent.hex, in: pillBand, of: image)
+                if stage == "restarting" {
+                    XCTAssertTrue(store.serverRestarting, "\(scheme): the handoff is not running")
+                    XCTAssertLessThan(pill, 200, "\(scheme): the Restart herdr pill is still drawn mid-handoff")
+                } else {
+                    XCTAssertGreaterThan(pill, 200, "\(scheme) \(stage): no Restart herdr pill at the right")
+                }
+                if stage == "failed" {
+                    XCTAssertNotNil(store.serverRestartError)
+                    XCTAssertGreaterThan(
+                        count(theme.palette.red.hex, in: messageBand, of: image), 20, "\(scheme): the refusal is not drawn in red"
+                    )
+                }
+                window.close()
+
+                guard stage != "restarting" else { continue }
+                let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
+                let rowWindow = NSWindow(
+                    contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
+                    styleMask: [.titled, .closable], backing: .buffered, defer: false
+                )
+                rowWindow.isReleasedWhenClosed = false
+                rowWindow.appearance = NSAppearance(named: appearance)
+                rowWindow.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
+                    .formStyle(.grouped)
+                    .frame(width: FlockSettingsView.size.width, height: stage == "failed" ? 380 : 300))
+                rowWindow.orderFront(nil)
+                await settle(rowWindow)
+                let rowImage = try snapshot(rowWindow)
+                if let settingsDirectory {
+                    try XCTUnwrap(rowImage.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: settingsDirectory).appendingPathComponent("settings-herdr-server-\(stage)-\(scheme).png"))
+                }
+                rowWindow.close()
+            }
         }
     }
 
