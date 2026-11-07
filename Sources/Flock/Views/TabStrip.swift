@@ -387,14 +387,17 @@ private struct NewTabAffordanceButton: View {
     @State private var isHovering: Bool
 
     var body: some View {
+        // A square the height of a tab pill, in the selected tab's own lift,
+        // so it reads as the next tab waiting rather than a drawn outline.
         RoundedRectangle(cornerRadius: ChromeMetrics.Tab.cornerRadius)
-            .strokeBorder(theme.hair, lineWidth: ChromeMetrics.ruleWidth)
+            .fill(theme.lift)
             .overlay(
                 Image(systemName: ChromeType.newTabSymbolName)
                     .font(ChromeType.newTabSymbol)
-                    .foregroundStyle(theme.textLabel)
+                    .foregroundStyle(theme.textStrong)
             )
-            .frame(width: NewTabAffordance.width, height: ChromeMetrics.Tab.height)
+            .frame(width: ChromeMetrics.Tab.height, height: ChromeMetrics.Tab.height)
+            .frame(width: NewTabAffordance.width, alignment: .leading)
             .opacity(isHovering ? 1 : 0)
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
