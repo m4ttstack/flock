@@ -356,6 +356,12 @@ struct PaneCellView: View {
             // clip eats the OLDEST lines off the top and leaves the newest
             // ones, which are the ones being watched, against the edge.
             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
+            // The box's own clip holds the header too, so without this a
+            // frozen surface taller than its slot rises under the header.
+            // Only while frozen: at rest the launcher strip runs past these
+            // edges. An inset rather than a conditional modifier keeps the
+            // surface's view identity.
+            .clipShape(Rectangle().inset(by: frozenTerminalSize == nil ? -ChromeMetrics.Pane.unclippedReach : 0))
             // The rows a box cannot fill whole are split above and below the
             // surface, so no dead strip collects at the bottom.
             .modifier(RowRemainderSplit(surfaceHeight: surfaceSize.height))

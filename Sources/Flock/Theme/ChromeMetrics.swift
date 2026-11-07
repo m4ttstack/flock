@@ -272,6 +272,9 @@ enum ChromeMetrics {
         static let scrollIndicatorWidth: CGFloat = 5
         static let scrollIndicatorInset: CGFloat = 4
         static let toastInset: CGFloat = 13
+        /// How far past the surface's slot its content clip reaches at rest:
+        /// far enough that nothing drawn around the surface is ever cut.
+        static let unclippedReach: CGFloat = 10_000
 
         /// The Pane focus styles' marks (`PaneFocusStyle`).
         enum Focus {
