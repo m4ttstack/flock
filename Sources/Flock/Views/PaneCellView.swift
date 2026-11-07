@@ -80,6 +80,9 @@ struct PaneCellView: View {
     /// `PaneCanvas`'s own window is mid live-resize. It freezes this pane's
     /// surface exactly as a divider drag does; see `frozenTerminalSize`.
     let windowIsResizing: Bool
+    /// The canvas's row-aware answer (`PaneChrome.compactPanes`); a cell
+    /// drawn on its own falls back to its pane's own.
+    let compactHeader: Bool?
 
     @Environment(ToastCenter.self) private var toastCenter
     @Environment(RearrangeMode.self) private var rearrangeMode
@@ -166,7 +169,7 @@ struct PaneCellView: View {
     init(
         theme: Theme, viewModel: SessionViewModel, pane: PaneRecord, isFocused: Bool, isZoomed: Bool,
         lastLine: String?, grid: PTYSize, surfaceSize: CGSize, fontSizePoints: Double,
-        windowIsResizing: Bool = false
+        windowIsResizing: Bool = false, compactHeader: Bool? = nil
     ) {
         self.theme = theme
         self.viewModel = viewModel
@@ -178,6 +181,7 @@ struct PaneCellView: View {
         self.surfaceSize = surfaceSize
         self.fontSizePoints = fontSizePoints
         self.windowIsResizing = windowIsResizing
+        self.compactHeader = compactHeader
         _ghosttySurface = State(initialValue: viewModel.ghosttySurface(for: pane.paneID))
     }
 
@@ -427,7 +431,7 @@ struct PaneCellView: View {
         )
     }
 
-    private var isCompact: Bool { PaneChrome.isCompact(agent: pane.agent) }
+    private var isCompact: Bool { compactHeader ?? PaneChrome.isCompact(agent: pane.agent) }
 
     private var focusFade: Animation { .easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration) }
 
