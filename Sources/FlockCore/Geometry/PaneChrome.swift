@@ -11,9 +11,12 @@ public enum PaneChrome {
     public static let titleRowHeight: CGFloat = 22
     /// Holds the header band below the title row plus room before the first
     /// terminal row; the chat chip's overhang stays inside the band.
-    public static let titleGap: CGFloat = 16
+    public static let titleGap: CGFloat = 18
     /// Centred on the title row, ending above the first terminal row.
-    public static var headerBandHeight: CGFloat { titleRowTop * 2 + titleRowHeight }
+    public static var headerBandHeight: CGFloat { titleRowTop * 2 + titleRowHeight + bandBottomExtra }
+    /// The chat chip sits lower than the title row's centre, so the band runs
+    /// this much further down for the chip's gaps to match.
+    public static let bandBottomExtra: CGFloat = 2
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.

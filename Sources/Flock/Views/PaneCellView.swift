@@ -446,12 +446,9 @@ struct PaneCellView: View {
         let tone = theme.palette.terminalGround.mixed(
             with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: ChromeMetrics.Pane.headerBandTint
         )
-        return VStack(spacing: 0) {
-            Color(tone)
-                .frame(height: PaneChrome.headerBandHeight - ChromeMetrics.ruleWidth)
-            theme.hair.frame(height: ChromeMetrics.ruleWidth)
-        }
-        .allowsHitTesting(false)
+        return Color(tone)
+            .frame(height: PaneChrome.headerBandHeight)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
