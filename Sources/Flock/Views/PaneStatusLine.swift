@@ -134,7 +134,10 @@ struct PaneStatusLine: View {
         let phase = fraction(cycles)
         let pass = Int(cycles.rounded(.down).truncatingRemainder(dividingBy: 100_000))
         if phase < M.cometTravelShare {
-            let head = pow(phase / M.cometTravelShare, M.cometAcceleration)
+            let p = phase / M.cometTravelShare
+            // Part steady speed, part a constant push: it leaves moving and
+            // speeds up evenly, never from a standstill.
+            let head = (1 - M.cometAcceleration) * p + M.cometAcceleration * p * p
             return CometFlight(head: head, envelope: smoothstep(0, M.cometFadeIn, head), burst: nil)
         }
         let burst = (phase - M.cometTravelShare) / M.cometBurstShare

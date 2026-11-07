@@ -288,7 +288,7 @@ enum ChromeMetrics {
             static let top: CGFloat = (PaneChrome.titleRowTop + PaneChrome.titleRowHeight / 2) * 2
             static let height: CGFloat = 1
             static let cometHeight: CGFloat = 1.5
-            static let frameInterval: Double = 1.0 / 30
+            static let frameInterval: Double = 1.0 / 60
             /// One full sweep, right and back.
             static let glintPeriod: Double = 4.4
             static let glintHalfWidth: CGFloat = 0.45
@@ -301,8 +301,10 @@ enum ChromeMetrics {
             /// Each period: crossing, then the impact burst, then a rest.
             static let cometTravelShare: Double = 0.62
             static let cometBurstShare: Double = 0.26
-            /// Above 1 the head gathers speed on its way across.
-            static let cometAcceleration: Double = 2.2
+            /// How much of the crossing is a constant push rather than steady
+            /// speed: 0 crosses evenly, 1 leaves from a standstill. The head
+            /// ends `(1 + this) / (1 - this)` times faster than it started.
+            static let cometAcceleration: Double = 0.6
             static let cometFadeIn: Double = 0.1
             /// The share of the burst the tail takes to pull into the impact.
             static let cometTailRetract: Double = 0.35
