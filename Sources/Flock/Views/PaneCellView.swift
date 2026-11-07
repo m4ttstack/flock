@@ -59,15 +59,6 @@ extension EnvironmentValues {
 /// attach badge covers that whole wait. The status card (glyph/cwd) is
 /// only for an app with no ghostty host.
 struct PaneCellView: View {
-    /// What the canvas subtracts from a box before deriving the whole-cell
-    /// grid, so the chrome never eats a terminal cell. Must agree with
-    /// `contentInsets` exactly.
-    static let chrome = PaneChrome.size
-
-    private static let contentInsets = EdgeInsets(
-        top: PaneChrome.contentTop, leading: PaneChrome.horizontalPadding,
-        bottom: PaneChrome.verticalPadding, trailing: PaneChrome.horizontalPadding
-    )
 
     let theme: Theme
     let viewModel: SessionViewModel
@@ -361,7 +352,7 @@ struct PaneCellView: View {
             // The rows a box cannot fill whole are split above and below the
             // surface, so no dead strip collects at the bottom.
             .modifier(RowRemainderSplit(surfaceHeight: surfaceSize.height))
-            .padding(Self.contentInsets)
+            .padding(contentInsets)
             // While the launcher shows, the surface claims no point at all
             // (`GhosttySurfaceView.hitTest`), which also removes ITS own
             // click-to-focus -- this is that route's SwiftUI equivalent,
@@ -400,8 +391,8 @@ struct PaneCellView: View {
             // leave the thumb unable to reach the last row.
             .overlay(alignment: .trailing) {
                 PaneScrollIndicator(theme: theme, scroll: pane.scroll)
-                    .padding(.top, Self.contentInsets.top)
-                    .padding(.bottom, Self.contentInsets.bottom)
+                    .padding(.top, contentInsets.top)
+                    .padding(.bottom, contentInsets.bottom)
                     .padding(.trailing, ChromeMetrics.Pane.scrollIndicatorInset)
             }
             .overlay {
@@ -420,6 +411,15 @@ struct PaneCellView: View {
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
+    }
+
+    /// Must agree exactly with what the canvas subtracts from the box before
+    /// deriving the whole-cell grid (`PaneChrome.size(flush:)`), so the
+    /// chrome never eats a terminal cell.
+    private var contentInsets: EdgeInsets {
+        let flush = PaneChrome.isFlush(agent: pane.agent)
+        let side = PaneChrome.horizontalPadding(flush: flush)
+        return EdgeInsets(top: PaneChrome.contentTop, leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side)
     }
 
     private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .standard }
@@ -487,9 +487,9 @@ struct PaneCellView: View {
         return GeometryReader { proxy in
             Path { path in
                 path.addRect(CGRect(origin: .zero, size: proxy.size))
-                let available = proxy.size.height - Self.contentInsets.top - Self.contentInsets.bottom
+                let available = proxy.size.height - contentInsets.top - contentInsets.bottom
                 let split = RowRemainderSplit.offset(available: available, surfaceHeight: surfaceSize.height)
-                path.addRect(box.offsetBy(dx: Self.contentInsets.leading, dy: Self.contentInsets.top + split))
+                path.addRect(box.offsetBy(dx: contentInsets.leading, dy: contentInsets.top + split))
             }
             .fill(theme.pane.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
         }
