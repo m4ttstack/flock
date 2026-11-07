@@ -19,7 +19,7 @@ final class RtModalChromeRenderTests: XCTestCase {
     // MARK: - Parts
 
     /// The size control's three glyphs sit left to right before the close
-    /// glyph: only the selected one is filled in the accent, the others are
+    /// glyph: only the selected one is filled in `textStrong`, the others are
     /// outlines in `textDim`.
     func testTheTitleRowDrawsItsTitleItsSizeControlAndOnlyTheServiceViewLeadsWithTheBackControl() async throws {
         ChromeType.install()
@@ -46,14 +46,17 @@ final class RtModalChromeRenderTests: XCTestCase {
 
                     for size in ModalSize.allCases {
                         let glyph = Self.sizeGlyph(size, rowTrailing: Self.inset + rowWidth, rowTop: Self.inset)
-                        let accent = count(palette.accent, in: image, within: glyph)
-                        let dim = count(roles.textDim, in: image, within: glyph)
+                        // textDim sits close to textStrong, so a loose match
+                        // would count each as the other.
+                        let fill = count(roles.textStrong, tolerance: 6, in: image, within: glyph)
+                        let dim = count(roles.textDim, tolerance: 6, in: image, within: glyph)
+                        XCTAssertEqual(count(palette.accent, in: image, within: glyph), 0, "\(label): \(size.rawValue) drew accent")
                         if size == selected {
                             let area = glyph.width * glyph.height * 4
-                            XCTAssertGreaterThan(accent, Int(area * 0.8), "\(label): \(size.rawValue) is not filled in the accent")
-                            XCTAssertEqual(dim, 0, "\(label): the selected \(size.rawValue) is stroked")
+                            XCTAssertGreaterThan(fill, Int(area * 0.8), "\(label): \(size.rawValue) is not filled in textStrong")
+                            XCTAssertLessThan(dim, 16, "\(label): the selected \(size.rawValue) is stroked")
                         } else {
-                            XCTAssertEqual(accent, 0, "\(label): \(size.rawValue) drew accent while unselected")
+                            XCTAssertLessThan(fill, 16, "\(label): \(size.rawValue) filled while unselected")
                             XCTAssertGreaterThan(dim, 40, "\(label): \(size.rawValue) has no textDim outline")
                         }
                     }

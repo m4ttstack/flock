@@ -69,7 +69,7 @@ enum ChromeMetrics {
         static let tabGlyphStroke: CGFloat = 1.3
         static let iconTabGap: CGFloat = 4
         /// The Needs-you count on an icon-only Overview tab rides its corner.
-        static let iconBadgeOffset = CGSize(width: 5, height: -4)
+        static let iconBadgeOffset = CGSize(width: 2, height: -1)
         static let tabGlyphGap: CGFloat = 7
         /// A top-bar workspace is a menu-bar extra: a rounded button centred
         /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it
