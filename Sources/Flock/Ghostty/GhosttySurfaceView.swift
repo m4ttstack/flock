@@ -58,7 +58,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// `window` still nil -- silently lost, never retried, because nothing
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
-    var wantsFocus = false
+    /// Also gates link hover: an unfocused pane matches, underlines and
+    /// offers no links, so a pointer crossing it stays quiet.
+    var wantsFocus = false {
+        didSet {
+            guard oldValue, !wantsFocus else { return }
+            hoverPoint = nil
+            session.linkChip.dismiss()
+            setOverLink(nil)
+        }
+    }
     /// Set by `GhosttySurfaceRepresentable` from `RearrangeMode.active`.
     /// While true, `mouseDecision` forces every `MouseForwarding` result to
     /// `.drop` and `rightMouseDown` forces `RightClickDisposition` to
@@ -318,7 +327,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// Shift, Control and Option presses are a selection's, and a second
     /// press of a double click selects a word.
     private func linkUnderPress(_ event: NSEvent) -> PaneLink? {
-        guard !rearrangeActive, event.clickCount == 1,
+        guard wantsFocus, !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
         return session.link(at: event)
@@ -510,6 +519,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// chip, or the gap between it and its link, is the chip's, or the hover
     /// would follow the pointer onto whatever text the chip covers.
     private func trackLink(_ event: NSEvent) {
+        guard wantsFocus else { return }
         let point = topLeftPoint(event)
         let chip = session.linkChip.frame?.insetBy(dx: 0, dy: -ChromeMetrics.LinkChip.gap)
         if chip?.contains(point) == true { return }
@@ -521,7 +531,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// The pane drew again, and the text under a pointer that has not moved
     /// may no longer be the link it was.
     func refreshLinkHover() {
-        guard let hoverPoint, !rearrangeActive else { return }
+        guard wantsFocus, let hoverPoint, !rearrangeActive else { return }
         updateLink(at: hoverPoint)
     }
 
