@@ -117,6 +117,9 @@ public enum HerdrMousePatchCatalog {
             x86_64: "c1e4b5b2999044ec333aa29a518aab52cfe2373bb3a5f7de8db3a52447035aa4",
             changesServer: true
         ),
+        HerdrMousePatchRelease(
+            version: "0.9.5", revision: 3, arm64: awaitingPublication, x86_64: awaitingPublication, changesServer: true
+        ),
     ]
 
     /// The patches that can run on this Mac.
