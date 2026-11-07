@@ -15,6 +15,23 @@ final class PaneLinkTests: XCTestCase {
         .file(URL(fileURLWithPath: path))
     }
 
+    func testARemotePaneResolvesNoFileButStillOpensAddresses() {
+        let existing: Set<String> = ["/Users/acme/notes.md", "/Users/acme/work/app/main.swift"]
+        let exists: (String) -> Bool = { existing.contains($0) }
+        XCTAssertNil(PaneLink.resolve("/Users/acme/notes.md", folder: folder, home: home, isRemoteMachine: true, exists: exists))
+        XCTAssertNil(PaneLink.resolve("file:///Users/acme/notes.md", folder: folder, home: home, isRemoteMachine: true, exists: exists))
+        XCTAssertNil(PaneLink.match(inRow: "edit ./main.swift:12 now", column: 6, folder: folder, home: home, isRemoteMachine: true, exists: exists))
+        XCTAssertNil(PaneLink.match(inRow: "see ~/notes.md", column: 6, folder: folder, home: home, isRemoteMachine: true, exists: exists))
+        XCTAssertEqual(
+            PaneLink.resolve("https://example.com", folder: folder, home: home, isRemoteMachine: true, exists: exists),
+            .web(URL(string: "https://example.com")!)
+        )
+        XCTAssertEqual(
+            PaneLink.match(inRow: "go https://example.com", column: 6, folder: folder, home: home, isRemoteMachine: true, exists: exists)?.link,
+            .web(URL(string: "https://example.com")!)
+        )
+    }
+
     func testAWebAddressOpensAsIs() {
         XCTAssertEqual(resolve("https://example.com/a?b=1", existing: []), .web(URL(string: "https://example.com/a?b=1")!))
     }

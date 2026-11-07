@@ -26,6 +26,9 @@ struct StartScreenView: View {
     let folders: StartingFolderStore
     /// nil on the default server, which needs no naming.
     let serverName: String?
+    /// False on a herdr machine, where the workspace opens in the machine's
+    /// own home and a folder on this Mac means nothing.
+    var showsFolder = true
     var home = NSHomeDirectory()
 
     @FocusState private var isFocused: Bool
@@ -50,7 +53,7 @@ struct StartScreenView: View {
                 launcher(showsShortcuts: true)
                 launcher(showsShortcuts: false)
             }
-            folderLine
+            if showsFolder { folderLine }
         }
         .padding(.horizontal, ChromeMetrics.Launcher.hintHorizontalPadding)
         .padding(.bottom, ChromeMetrics.EmptyPin.lift * 2)

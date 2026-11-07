@@ -75,6 +75,9 @@ public final class RtCoordinator {
     /// Whether herdr's focus must stay where it is: no close, ending or cd
     /// moves it to the linked pane, and a cd's split opens unfocused.
     @ObservationIgnored public var leavesFocusAlone: @MainActor () -> Bool = { false }
+    /// rt runs on this Mac and talks to the pane through files here, neither
+    /// of which a remote machine's pane can reach.
+    @ObservationIgnored public var isRemoteMachine = false
 
     public init(
         client: any HerdrCommandClient,
@@ -110,7 +113,7 @@ public final class RtCoordinator {
     }
 
     public func buttonAppearance(linkedTo terminal: TerminalID?, rtInstalled: Bool) -> RtButtonModel.Appearance {
-        guard let terminal else { return .absent }
+        guard let terminal, !isRemoteMachine else { return .absent }
         return RtButtonModel.appearance(
             rtInstalled: rtInstalled,
             runningItems: runItems(linkedTo: terminal).filter(\.isRunning).count,
@@ -130,7 +133,7 @@ public final class RtCoordinator {
     // MARK: - opening
 
     public func open(_ kind: RtKind, from pane: PaneRecord, seed: String? = nil, reveal: Bool = true) async {
-        guard let terminal = pane.terminalID else { return }
+        guard let terminal = pane.terminalID, !isRemoteMachine else { return }
         if kind == .runner {
             if let existing = runner(linkedTo: terminal) {
                 await show(existing.id)

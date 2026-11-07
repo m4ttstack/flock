@@ -2,7 +2,8 @@ import FlockCore
 import SwiftUI
 
 /// Both hold-and-tap switchers over the tab area: ⌃Tab's workspaces and ⌥Tab's
-/// tabs in the selected workspace. Each blocks the other while it is up.
+/// tabs in the selected workspace. Each blocks the other, and ⌃`'s profiles
+/// and ⌥`'s servers block both, while either is up.
 struct SwitcherOverlay: View {
     let theme: Theme
     let viewModel: SessionViewModel
@@ -11,18 +12,27 @@ struct SwitcherOverlay: View {
     @Environment(TabSwitcher.self) private var tabs
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(ChatStore.self) private var chatStore
+    @Environment(ProfileSwitcher.self) private var profiles: ProfileSwitcher?
+    @Environment(ServerSwitcher.self) private var servers: ServerSwitcher?
+    @Environment(ProfilePickerContext.self) private var profilePicker: ProfilePickerContext?
 
     var body: some View {
         let palette = commandPalette
-        let busy = { [viewModel] in palette.isOpen || viewModel.renameEditorIsOnScreen || viewModel.rt.modal != nil }
+        let blockers = { [viewModel, workspaces, tabs, profiles, servers, profilePicker] in
+            SwitcherBlockers(
+                paletteOpen: palette.isOpen, renaming: viewModel.renameEditorIsOnScreen, rtModal: viewModel.rt.modal != nil,
+                profilePickerOpen: profilePicker?.isOpen ?? false,
+                active: SwitcherKind.active(workspaces: workspaces, tabs: tabs, profiles: profiles, servers: servers)
+            )
+        }
         ZStack {
             SwitcherView(
-                theme: theme, switcher: workspaces, trigger: .control, accessibilityPrefix: "flock.switcher",
+                theme: theme, switcher: workspaces, trigger: .controlTab, accessibilityPrefix: "flock.switcher",
                 heading: "Workspaces",
                 row: { [viewModel] id in Self.workspaceRow(id, viewModel: viewModel) },
                 candidates: { [viewModel] in Self.workspaceCandidates(viewModel: viewModel) },
                 current: { [viewModel] in viewModel.selectedWorkspaceID },
-                blocked: { [tabs] in busy() || tabs.isActive },
+                blocked: { blockers().blocks(.workspaces) },
                 go: { [viewModel] id in
                     Task {
                         if let pin = PinID(switcherID: id) {
@@ -41,7 +51,7 @@ struct SwitcherOverlay: View {
             // rt the box keeps its narrow width and no row asks after anyone.
             let chat = chatStore.isAvailable ? chatStore : nil
             SwitcherView(
-                theme: theme, switcher: tabs, trigger: .option, accessibilityPrefix: "flock.tabSwitcher",
+                theme: theme, switcher: tabs, trigger: .optionTab, accessibilityPrefix: "flock.tabSwitcher",
                 heading: "Tabs",
                 width: chat == nil ? ChromeMetrics.Switcher.width : ChromeMetrics.Switcher.chatWidth,
                 scope: { [viewModel] in
@@ -58,7 +68,7 @@ struct SwitcherOverlay: View {
                 onBegin: { if let chat { Task { await chat.refreshBuddies() } } },
                 candidates: { [viewModel] in viewModel.tabsForSelectedWorkspace.map(\.tabID) },
                 current: { [viewModel] in viewModel.selectedTabID },
-                blocked: { [workspaces] in busy() || workspaces.isActive },
+                blocked: { blockers().blocks(.tabs) },
                 go: { [viewModel] id in Task { await viewModel.jumpToHerdr(tab: id) } }
             )
         }
@@ -80,6 +90,20 @@ struct SwitcherOverlay: View {
     }
 }
 
+extension SwitcherKind {
+    @MainActor
+    static func active(
+        workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?, servers: ServerSwitcher?
+    ) -> Set<SwitcherKind> {
+        var active: Set<SwitcherKind> = []
+        if workspaces?.isActive == true { active.insert(.workspaces) }
+        if tabs?.isActive == true { active.insert(.tabs) }
+        if profiles?.isActive == true { active.insert(.profiles) }
+        if servers?.isActive == true { active.insert(.servers) }
+        return active
+    }
+}
+
 struct SwitcherRow {
     let status: AgentStatus
     let label: String
@@ -89,9 +113,29 @@ struct SwitcherRow {
     /// Drawn as the rail draws an empty pin: no dot, the name dimmed, no
     /// count.
     var isEmptyPin = false
+    /// Drawn as the profile picker draws a profile: a machine's marker where
+    /// the status dot goes, the current machine's connection dot after the
+    /// name, no count.
+    var profile: Profile? = nil
+    /// Drawn as Settings' Server menu draws a server: a check on the current
+    /// one where the status dot goes, its running state where the count goes.
+    var server: ServerSwitcherRow? = nil
+
+    struct Profile {
+        let isMachine: Bool
+        let dot: ProfileConnectionDot?
+    }
 
     static func emptyPin(label: String) -> SwitcherRow {
         SwitcherRow(status: .unknown, label: label, count: 0, isEmptyPin: true)
+    }
+
+    static func server(_ row: ServerSwitcherRow) -> SwitcherRow {
+        SwitcherRow(status: .unknown, label: row.label, count: 0, server: row)
+    }
+
+    static func profile(_ row: ProfilePickerRow) -> SwitcherRow {
+        SwitcherRow(status: .unknown, label: row.title, count: 0, profile: Profile(isMachine: row.isMachine, dot: row.dot))
     }
 }
 
@@ -105,7 +149,7 @@ struct SwitcherLine<ID: Hashable> {
 /// One switcher's panel: the items most recently used first, the one letting
 /// go of the trigger will open selected. Draws nothing until the switcher
 /// shows, so a quick tap never flashes it; the key monitor that starts it
-/// lives as long as the tab area does.
+/// lives as long as the view does.
 struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     let theme: Theme
     let switcher: RecentsSwitcher<ID>
@@ -120,6 +164,8 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     /// Runs as the trigger first goes down, before the box shows.
     var onBegin: () -> Void = {}
     let candidates: () -> [ID]
+    /// Candidates offered after all the others; see `RecentsSwitcher.begin`.
+    var last: () -> Set<ID> = { [] }
     let current: () -> ID?
     let blocked: () -> Bool
     let go: (ID) -> Void
@@ -148,20 +194,27 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 open: { if let target = switcher.finish() { go(target) } }
             )
         }
-        .onDisappear { monitor.remove() }
+        // A switcher held open by a monitor that is gone would block the
+        // others until the app next resigns.
+        .onDisappear {
+            monitor.remove()
+            switcher.cancel()
+        }
     }
 
     /// Only items that draw a row are offered, so `selection`, which counts
     /// `order`, counts the rows as drawn.
-    func begin(reverse: Bool) {
+    @discardableResult
+    func begin(reverse: Bool) -> Bool {
         let items = candidates().filter { row($0) != nil }
-        guard switcher.begin(items: items, current: current(), reverse: reverse) else { return }
+        guard switcher.begin(items: items, current: current(), reverse: reverse, last: last()) else { return false }
         onBegin()
         let session = switcher.session
         Task {
             try? await Task.sleep(for: ChromeMetrics.Switcher.showDelay)
             switcher.show(session: session)
         }
+        return true
     }
 
     private var scrim: some View {
@@ -211,7 +264,19 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func rowView(_ id: ID, _ item: SwitcherRow, selected: Bool) -> some View {
         HStack(spacing: Metrics.rowGap) {
-            if item.isEmptyPin {
+            if let server = item.server {
+                Image(systemName: "checkmark")
+                    .font(ChromeType.switcherCheck)
+                    .foregroundStyle(theme.textStrong)
+                    .frame(width: ChromeMetrics.Switcher.checkWidth)
+                    .opacity(server.isCurrent ? 1 : 0)
+            } else if let profile = item.profile {
+                if profile.isMachine {
+                    ProfileMachineMarker(theme: theme)
+                } else {
+                    Color.clear.frame(width: ChromeMetrics.ProfilePicker.marker, height: ChromeMetrics.ProfilePicker.marker)
+                }
+            } else if item.isEmptyPin {
                 Color.clear.frame(width: ChromeMetrics.WorkspaceRow.statusDot, height: ChromeMetrics.WorkspaceRow.statusDot)
             } else {
                 StatusDot(status: item.status, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
@@ -221,6 +286,9 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .foregroundStyle(item.isEmptyPin ? theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity) : theme.textStrong)
                 .lineLimit(1)
                 .layoutPriority(1)
+            if let dot = item.profile?.dot {
+                ProfileDot(theme: theme, dot: dot)
+            }
             Spacer(minLength: 0)
             if let chat = item.chat {
                 HStack(spacing: ChromeMetrics.Switcher.chatGap) {
@@ -233,7 +301,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .foregroundStyle(theme.textLabel)
                 .padding(.trailing, ChromeMetrics.Switcher.chatCountGap)
             }
-            if !item.isEmptyPin {
+            if let status = item.server?.status {
+                Text(status)
+                    .font(ChromeType.paletteShortcut)
+                    .foregroundStyle(theme.textLabel)
+            } else if !item.isEmptyPin, item.profile == nil, item.server == nil {
                 Text("\(item.count)")
                     .font(ChromeType.paletteShortcut)
                     .foregroundStyle(theme.textLabel)
@@ -267,18 +339,41 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     }
 
     private var footer: some View {
-        let glyph = switch trigger {
-        case .control: "⌃"
-        case .option: "⌥"
-        }
-        return HStack(spacing: Metrics.footerGap) {
-            ForEach(["⇥ next", "⇧⇥ back", "release \(glyph) to open", "esc cancel"], id: \.self) { hint in
-                Text(hint).font(ChromeType.paletteFooter).foregroundStyle(theme.textLabel)
-            }
+        HStack(spacing: Metrics.footerGap) {
+            hint(keys: [trigger.keyGlyph], after: "next")
+            hint(keys: ["\u{21E7}", trigger.keyGlyph], after: "back")
+            hint(before: "release", keys: [trigger.modifierGlyph], after: "to open")
+            hint(keys: ["esc"], after: "cancel")
             Spacer(minLength: 0)
         }
+        .font(ChromeType.paletteFooter)
+        .foregroundStyle(theme.textLabel)
         .padding(.horizontal, Metrics.searchPadding)
         .frame(height: Metrics.footerHeight)
+    }
+
+    private func hint(before: String? = nil, keys: [String], after: String) -> some View {
+        HStack(spacing: ChromeMetrics.Switcher.keycapLabelGap) {
+            if let before { Text(before) }
+            HStack(spacing: ChromeMetrics.Switcher.keycapGap) {
+                ForEach(keys, id: \.self) { keycap($0) }
+            }
+            Text(after)
+        }
+    }
+
+    private func keycap(_ glyph: String) -> some View {
+        typealias Switcher = ChromeMetrics.Switcher
+        let isBacktick = glyph == SwitcherTrigger.controlBacktick.keyGlyph
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.tiny)
+        return Text(verbatim: glyph)
+            .font(isBacktick ? ChromeType.switcherBacktick : ChromeType.switcherKeycap)
+            .offset(y: isBacktick ? Switcher.backtickDrop : 0)
+            .padding(.horizontal, glyph.count > 1 ? Switcher.keycapPadding : 0)
+            .frame(minWidth: Switcher.keycapHeight, minHeight: Switcher.keycapHeight, maxHeight: Switcher.keycapHeight)
+            .background(shape.fill(theme.textLabel.opacity(Switcher.keycapFillOpacity)))
+            .overlay(shape.strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
+            .clipShape(shape)
     }
 
     private func open(_ id: ID) {

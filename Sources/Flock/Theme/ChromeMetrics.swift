@@ -32,6 +32,11 @@ enum ChromeMetrics {
         static let height: CGFloat = 36
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
+        /// The bar shows a machine notice's first sentence; the whole text is
+        /// the tooltip and the popover a click opens.
+        static let machineNoticeMaxWidth: CGFloat = 440
+        static let machineNoticePopoverWidth: CGFloat = 320
+        static let machineNoticePopoverPadding: CGFloat = 12
         static let noticeTrailingPadding: CGFloat = 13
         /// The design sets the title 1.5pt below the bar's center; the inset
         /// is twice that because the frame centers the padded label.
@@ -1117,6 +1122,19 @@ enum ChromeMetrics {
 
         /// The title row naming what the list holds, and the rule under it.
         static let headerHeight: CGFloat = 30
+
+        /// The footer's key hints, each key on a small cap.
+        static let keycapHeight: CGFloat = 16
+        static let keycapPadding: CGFloat = 4
+        static let keycapGap: CGFloat = 2
+        static let keycapLabelGap: CGFloat = 4
+        static let keycapFillOpacity: Double = 0.12
+        /// A backtick sits at the top of its line; this brings it to the
+        /// cap's middle.
+        static let backtickDrop: CGFloat = 5
+        /// The server switcher's leading slot, which holds the current
+        /// server's check.
+        static let checkWidth: CGFloat = 10
 
         /// The header, the footer and a rule under or over each.
         static var chromeHeight: CGFloat {

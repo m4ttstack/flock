@@ -6,7 +6,11 @@ import SwiftUI
 /// asks for the folder there and then; cancelling leaves the previous choice
 /// standing, since the picker reads the store back rather than its own state.
 struct StartingFolderSettingsSection: View {
+    static let machineNote = "Ignored on herdr machines."
+
     let store: StartingFolderStore
+    /// On a herdr machine nothing here is sent: the folders are this Mac's.
+    var isRemoteMachine = false
 
     var body: some View {
         Section("Starting Folder") {
@@ -18,7 +22,7 @@ struct StartingFolderSettingsSection: View {
                     }
                 } label: {
                     Text(kind.displayName)
-                    if let detail = Self.detail(for: choice) {
+                    if let detail = Self.detail(for: choice, isRemoteMachine: isRemoteMachine) {
                         Text(detail)
                     }
                 }
@@ -37,8 +41,9 @@ struct StartingFolderSettingsSection: View {
         }
     }
 
-    static func detail(for choice: StartingFolderChoice) -> String? {
-        choice.folder == .mainCheckout ? "Home outside a git repo" : nil
+    static func detail(for choice: StartingFolderChoice, isRemoteMachine: Bool = false) -> String? {
+        if isRemoteMachine, choice.folder == .custom || choice.folder == .mainCheckout { return machineNote }
+        return choice.folder == .mainCheckout ? "Home outside a git repo" : nil
     }
 
     static func customFolderLabel(for choice: StartingFolderChoice) -> String {

@@ -71,7 +71,7 @@ enum ToolPath {
     /// Read from whatever thread spawns a child, written from the main actor.
     private static let herdrSocket = OSAllocatedUnfairLock<String?>(initialState: nil)
 
-    static func setHerdrSocket(_ socketPath: String) {
+    static func setHerdrSocket(_ socketPath: String?) {
         herdrSocket.withLock { $0 = socketPath }
     }
 

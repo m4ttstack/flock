@@ -12,12 +12,22 @@ public struct ProfileSessionContext {
     public let socketPath: String
     public let preferences: UserDefaults
     public let idState: UserDefaults
+    /// False for a machine profile under a socket override, which then runs
+    /// as a plain socket session.
+    public let isRemoteMachine: Bool
 
-    public init(profile: FlockProfile, socketPath: String, preferences: UserDefaults, idState: UserDefaults) {
+    public init(
+        profile: FlockProfile,
+        socketPath: String,
+        preferences: UserDefaults,
+        idState: UserDefaults,
+        isRemoteMachine: Bool = false
+    ) {
         self.profile = profile
         self.socketPath = socketPath
         self.preferences = preferences
         self.idState = idState
+        self.isRemoteMachine = isRemoteMachine
     }
 }
 
@@ -30,9 +40,10 @@ public struct ProfileSessionEnvironment<Session: ProfileSession> {
     /// A nil suite name means `UserDefaults.standard`.
     public var defaults: @MainActor (_ suiteName: String?) -> UserDefaults
     /// false cancels the switch before anything is torn down or saved.
-    public var confirmAttach: @MainActor (_ socketPath: String, _ stayLabel: String) async -> Bool
-    public var register: @MainActor (_ socketPath: String) -> Void
-    public var setChildSocket: (_ socketPath: String) -> Void
+    public var confirmAttach: @MainActor (_ attachKey: String, _ targetLabel: String, _ stayLabel: String) async -> Bool
+    public var register: @MainActor (_ attachKey: String) -> Void
+    /// nil clears it: a machine profile's children must not inherit a local socket.
+    public var setChildSocket: (_ socketPath: String?) -> Void
     public var make: @MainActor (ProfileSessionContext) -> Session
 
     public init(
@@ -41,9 +52,9 @@ public struct ProfileSessionEnvironment<Session: ProfileSession> {
         home: String,
         socketOverride: String?,
         defaults: @escaping @MainActor (_ suiteName: String?) -> UserDefaults,
-        confirmAttach: @escaping @MainActor (_ socketPath: String, _ stayLabel: String) async -> Bool,
-        register: @escaping @MainActor (_ socketPath: String) -> Void,
-        setChildSocket: @escaping (_ socketPath: String) -> Void,
+        confirmAttach: @escaping @MainActor (_ attachKey: String, _ targetLabel: String, _ stayLabel: String) async -> Bool,
+        register: @escaping @MainActor (_ attachKey: String) -> Void,
+        setChildSocket: @escaping (_ socketPath: String?) -> Void,
         make: @escaping @MainActor (ProfileSessionContext) -> Session
     ) {
         self.bundleID = bundleID
@@ -68,9 +79,22 @@ public final class ProfileSessionController<Session: ProfileSession> {
     /// Bumped on every completed switch; the window keys its content on it.
     public private(set) var generation: Int = 0
     public private(set) var socketPath: String
+    /// What another Flock's record is compared against: the socket path, or a machine's key.
+    public private(set) var attachKey: String
     /// The socket a confirmed switch is moving onto, from confirmation until
     /// `socketPath` holds it; the old session's teardown runs in between.
     public private(set) var switchingTo: String?
+    /// The profile a confirmed switch is moving onto, over the same span as
+    /// `switchingTo`; nil for a server change within the current profile.
+    public private(set) var switchingToProfile: FlockProfile?
+    /// True from a confirmed server change until the next confirmed profile
+    /// switch: the loader names the server it attaches to, not the profile,
+    /// after the rebuild as well as before it.
+    public private(set) var lastChangeWasServer = false
+
+    /// The socket a confirmed server change is moving onto; nil during a
+    /// profile switch.
+    public var switchingToServer: String? { switchingToProfile == nil ? switchingTo : nil }
 
     @ObservationIgnored private let environment: ProfileSessionEnvironment<Session>
     @ObservationIgnored private var queue: Task<Bool, Never>?
@@ -83,9 +107,11 @@ public final class ProfileSessionController<Session: ProfileSession> {
         let profile = profiles.current
         let socket = environment.socketOverride.map { HerdrServerAddress.normalize($0, home: environment.home) }
             ?? HerdrServerAddress.normalize(profiles.socketPath(of: profile), home: environment.home)
-        environment.setChildSocket(socket)
+        let isMachine = Self.isMachineSession(profile, environment: environment)
+        environment.setChildSocket(isMachine ? nil : socket)
         session = environment.make(Self.context(for: profile, on: socket, environment: environment))
         socketPath = socket
+        attachKey = Self.attachKey(for: profile, on: socket, environment: environment)
     }
 
     @discardableResult
@@ -111,9 +137,17 @@ public final class ProfileSessionController<Session: ProfileSession> {
     private func performSwitch(to profileID: String) async -> Bool {
         guard !isLocked, profileID != profiles.currentID,
               let target = profiles.profiles.first(where: { $0.id == profileID }) else { return false }
+        profiles.hold(profileID)
+        defer { profiles.hold(nil) }
         let newSocket = normalize(profiles.socketPath(of: target))
-        guard await environment.confirmAttach(newSocket, profiles.current.name) else { return false }
+        let targetLabel = target.isMachine
+            ? target.name
+            : HerdrServerAddress(socketPath: newSocket, home: environment.home).label
+        let key = Self.attachKey(for: target, on: newSocket, environment: environment)
+        guard await environment.confirmAttach(key, targetLabel, profiles.current.name) else { return false }
         switchingTo = newSocket
+        switchingToProfile = target
+        lastChangeWasServer = false
         await session.shutdown()
         profiles.select(profileID)
         await rebuild(on: newSocket)
@@ -122,10 +156,12 @@ public final class ProfileSessionController<Session: ProfileSession> {
 
     private func performChangeServer(to requested: String?) async -> Bool {
         let newSocket = normalize(requested ?? environment.defaultSocketPath)
-        guard !isLocked, newSocket != socketPath else { return false }
+        guard !isLocked, !profiles.current.isMachine, newSocket != socketPath else { return false }
         let stayLabel = HerdrServerAddress(socketPath: socketPath, home: environment.home).label
-        guard await environment.confirmAttach(newSocket, stayLabel) else { return false }
+        let targetLabel = HerdrServerAddress(socketPath: newSocket, home: environment.home).label
+        guard await environment.confirmAttach(newSocket, targetLabel, stayLabel) else { return false }
         switchingTo = newSocket
+        lastChangeWasServer = true
         await session.shutdown()
         let isDefault = newSocket == normalize(environment.defaultSocketPath)
         profiles.setSocket(isDefault ? nil : newSocket, for: profiles.currentID)
@@ -134,11 +170,15 @@ public final class ProfileSessionController<Session: ProfileSession> {
     }
 
     private func rebuild(on newSocket: String) async {
-        environment.setChildSocket(newSocket)
-        session = environment.make(Self.context(for: profiles.current, on: newSocket, environment: environment))
+        let profile = profiles.current
+        let key = Self.attachKey(for: profile, on: newSocket, environment: environment)
+        environment.setChildSocket(Self.isMachineSession(profile, environment: environment) ? nil : newSocket)
+        session = environment.make(Self.context(for: profile, on: newSocket, environment: environment))
         socketPath = newSocket
+        attachKey = key
         switchingTo = nil
-        environment.register(newSocket)
+        switchingToProfile = nil
+        environment.register(key)
         generation += 1
         await session.start()
     }
@@ -147,13 +187,28 @@ public final class ProfileSessionController<Session: ProfileSession> {
         HerdrServerAddress.normalize(path, home: environment.home)
     }
 
+    /// An override binds the session to its socket, whatever the current profile is.
+    private static func isMachineSession(_ profile: FlockProfile, environment: ProfileSessionEnvironment<Session>) -> Bool {
+        environment.socketOverride == nil && profile.isMachine
+    }
+
+    private static func attachKey(
+        for profile: FlockProfile,
+        on socket: String,
+        environment: ProfileSessionEnvironment<Session>
+    ) -> String {
+        isMachineSession(profile, environment: environment)
+            ? ProfileSuites.attachKey(for: profile, socketPath: socket)
+            : socket
+    }
+
     private static func context(
         for profile: FlockProfile,
         on socket: String,
         environment: ProfileSessionEnvironment<Session>
     ) -> ProfileSessionContext {
         let preferences = environment.defaults(
-            ProfileSuites.preferencesSuiteName(bundleID: environment.bundleID, profileID: profile.id)
+            ProfileSuites.preferencesSuiteName(bundleID: environment.bundleID, profile: profile)
         )
         let idSuite = environment.socketOverride != nil
             ? ProfileSuites.overrideSuiteName(bundleID: environment.bundleID)
@@ -167,7 +222,8 @@ public final class ProfileSessionController<Session: ProfileSession> {
             profile: profile,
             socketPath: socket,
             preferences: preferences,
-            idState: environment.defaults(idSuite)
+            idState: environment.defaults(idSuite),
+            isRemoteMachine: isMachineSession(profile, environment: environment)
         )
     }
 }

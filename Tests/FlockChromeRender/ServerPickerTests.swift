@@ -33,6 +33,127 @@ final class ServerPickerTests: XCTestCase {
         )
     }
 
+    func testRefreshIfStaleJoinsOneInFlightAndSkipsAFreshList() async {
+        var calls = 0
+        var waiting: CheckedContinuation<Void, Never>?
+        var clock: Double = 100
+        let picker = ServerPicker(
+            list: {
+                calls += 1
+                await withCheckedContinuation { waiting = $0 }
+                return [Self.defaultEntry, Self.acmeEntry]
+            },
+            start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" }, isLocked: false, home: Self.home,
+            now: { clock }
+        )
+        let first = Task { await picker.refreshIfStale() }
+        while waiting == nil { await Task.yield() }
+        let second = Task { await picker.refreshIfStale() }
+        let third = Task { await picker.refreshIfStale() }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 1, "presses while a listing runs join it")
+        waiting?.resume()
+        waiting = nil
+        let results = [await first.value, await second.value, await third.value]
+        XCTAssertEqual(results, [true, true, true])
+        XCTAssertEqual(picker.entries, [Self.defaultEntry, Self.acmeEntry])
+
+        clock += ServerPicker.freshness / 2
+        let fresh = await picker.refreshIfStale()
+        XCTAssertTrue(fresh)
+        XCTAssertEqual(calls, 1, "a list that just ended answers without another")
+
+        clock += ServerPicker.freshness
+        let stale = Task { await picker.refreshIfStale() }
+        while waiting == nil { await Task.yield() }
+        XCTAssertEqual(calls, 2, "a stale list is read again")
+        waiting?.resume()
+        _ = await stale.value
+    }
+
+    /// A listing per call, each held until the test releases it.
+    @MainActor
+    private final class ScriptedListings {
+        var results: [[HerdrSessionEntry]]
+        var waiting: [CheckedContinuation<Void, Never>] = []
+        var calls = 0
+
+        init(_ results: [[HerdrSessionEntry]]) {
+            self.results = results
+        }
+
+        func list() async -> [HerdrSessionEntry]? {
+            let call = calls
+            calls += 1
+            await withCheckedContinuation { waiting.append($0) }
+            return results[call]
+        }
+
+        func waitForCalls(_ count: Int) async {
+            while waiting.count < count { await Task.yield() }
+        }
+    }
+
+    func testAnOlderListingFinishingLastDoesNotReplaceANewerOne() async {
+        let older = [Self.defaultEntry]
+        let newer = [Self.defaultEntry, Self.acmeEntry]
+        let listings = ScriptedListings([older, newer])
+        let picker = ServerPicker(
+            list: { await listings.list() },
+            start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" }, isLocked: false, home: Self.home
+        )
+        let first = Task { await picker.refresh() }
+        await listings.waitForCalls(1)
+        let second = Task { await picker.refresh() }
+        await listings.waitForCalls(2)
+
+        listings.waiting[1].resume()
+        let secondListed = await second.value
+        XCTAssertTrue(secondListed)
+        XCTAssertEqual(picker.entries, newer)
+        listings.waiting[0].resume()
+        let firstListed = await first.value
+        XCTAssertTrue(firstListed, "the older listing still succeeded")
+        XCTAssertEqual(picker.entries, newer)
+    }
+
+    func testControlDecidesFromItsOwnListingWhileAnOlderOneFinishesAroundIt() async {
+        let running = HerdrSessionEntry(
+            name: "build", isRunning: true, socketPath: Self.home + "/.config/herdr/sessions/build/herdr.sock", isDefault: false
+        )
+        let older = [Self.defaultEntry]
+        let controls = [Self.defaultEntry, running]
+        let after = [Self.defaultEntry]
+        let listings = ScriptedListings([older, controls, after])
+        let picker = ServerPicker(
+            list: { await listings.list() },
+            start: { _ in .success(()) }, choose: { _ in true },
+            currentSocket: { Self.home + "/.config/herdr/herdr.sock" }, isLocked: false, home: Self.home,
+            stop: { [unowned self] name in
+                stopped.append(name)
+                return .success(())
+            }
+        )
+        let plain = Task { await picker.refresh() }
+        await listings.waitForCalls(1)
+        let stop = Task { await picker.stopServer(name: "build") }
+        await listings.waitForCalls(2)
+
+        listings.waiting[1].resume()
+        listings.waiting[0].resume()
+        _ = await plain.value
+        await listings.waitForCalls(3)
+        XCTAssertEqual(picker.entries, controls, "the older listing is dropped")
+        listings.waiting[2].resume()
+        await stop.value
+
+        XCTAssertEqual(stopped, ["build"])
+        XCTAssertNil(picker.failure)
+        XCTAssertEqual(picker.entries, after)
+    }
+
     func testChoosingDefaultPassesNil() async {
         let picker = makePicker()
         await picker.choose(Self.defaultEntry)

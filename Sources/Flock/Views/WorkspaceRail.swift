@@ -9,6 +9,8 @@ struct WorkspaceRail: View {
     let theme: Theme
     let viewModel: SessionViewModel
     let onSelect: (WorkspaceID) -> Void
+    /// The current machine profile's connection; nil on a local profile.
+    var profileDot: ProfileConnectionDot? = nil
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(RailWidthStore.self) private var railWidth
@@ -16,6 +18,8 @@ struct WorkspaceRail: View {
     @Environment(HerdProgressStore.self) private var herdProgress
     @Environment(WorkspaceIdentityStore.self) private var identity
     @Environment(StartingFolderStore.self) private var startingFolders: StartingFolderStore?
+    @Environment(ProfilePickerContext.self) private var profilePicker: ProfilePickerContext?
+    @Environment(\.machineFolderLister) private var machineFolders
     @State private var scrollPosition = ScrollPosition()
     @State private var isNewWorkspaceRowHovered = false
     @State private var symbolPickerRow: WorkspaceID?
@@ -31,9 +35,7 @@ struct WorkspaceRail: View {
     private var sections: RailSections? {
         viewModel.railSections(board: board.names, herdProgress: herdProgress.progress)
     }
-    private var herdLabels: Set<String> {
-        Set(viewModel.model?.workspaces.map(\.label).filter(HerdWorkspace.isHerd(label:)) ?? [])
-    }
+    private var herdLabels: Set<String> { viewModel.herdLabels }
     /// The rows this rail lists, drags and reorders. Board's workspaces and
     /// herds are not among them: they sit in their own sections below.
     private var workspaces: [WorkspaceRecord] { sections?.workspaces ?? [] }
@@ -44,6 +46,15 @@ struct WorkspaceRail: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Above the lists rather than inside them: `railFrame` is every
+            // rail drop target's bounds, and the picker takes no drop.
+            if let profilePicker {
+                ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
+                    .padding(.top, ChromeMetrics.Rail.verticalPadding)
+                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
+                    .frame(width: railWidth.width)
+                    .padding(.trailing, ChromeMetrics.ruleWidth)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 // The headings are scroll content, so PINNED and WORKSPACES
                 // scroll alike, and so is the horizontal padding, so the
@@ -369,9 +380,10 @@ struct WorkspaceRail: View {
         let current = viewModel.pins.pin(pin.id)?.folder ?? pin.folder
         viewModel.answerPinFolder(pin.id, with: nil)
         DispatchQueue.main.async {
-            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?") {
-                viewModel.setPinFolder(pin.id, to: folder)
-            }
+            FolderPanel.choose(
+                current: current, message: "Where should \"\(pin.name)\" open?",
+                machine: MachineFolderPick(lister: machineFolders, viewModel: viewModel, theme: theme)
+            ) { viewModel.setPinFolder(pin.id, to: $0) }
         }
     }
 

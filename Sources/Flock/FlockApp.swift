@@ -77,11 +77,17 @@ struct FlockApp: App {
     @State private var herdrMousePatchStore: HerdrMousePatchStore
     @State private var herdrUpdateStore: HerdrUpdateStore
     @State private var serverPicker: ServerPicker
+    @State private var profilePicker: ProfilePickerContext
     @State private var settingsTabSelection = SettingsTabSelection()
+    /// Here rather than on the session, which every switch replaces.
+    @State private var profileSwitcher = ProfileSwitcher()
+    /// Here for the same reason: a switch's rebuild must not restart its loader.
+    @State private var switchLoader = SwitchLoaderPresenter()
     /// The window's content is rebuilt on every switch, which reruns its
     /// tasks; the launch guard and first start belong to launch alone, since
     /// a switch has already asked and started its own session.
     @State private var launchSettled = false
+    @State private var machinesSynced = false
     @State private var commandLineToolStore = CommandLineToolStore()
     #if FLOCK_SPARKLE
     @State private var updater = Updater()
@@ -138,30 +144,42 @@ struct FlockApp: App {
         _boardStore = State(initialValue: boardStore)
         let herdProgressStore = HerdProgressStore()
         _herdProgressStore = State(initialValue: herdProgressStore)
+        let bundleTag = MachineTunnelPaths.bundleTag(for: bundleID)
+        MachineSources.sweepStaleDirectories(bundleTag: bundleTag)
         let controller = ProfileSessionController<FlockSession>(
-            profiles: ProfileStore(bundleID: bundleID, defaultSocketPath: defaultSocketPath),
+            profiles: ProfileStore(
+                bundleID: bundleID, defaultSocketPath: defaultSocketPath,
+                machineSocketPath: { MachineSources.paths(for: $0, bundleTag: bundleTag).apiSocket }
+            ),
             environment: ProfileSessionEnvironment(
                 bundleID: bundleID,
                 defaultSocketPath: defaultSocketPath,
                 home: home,
                 socketOverride: socketOverride,
                 defaults: { suiteName in suiteName.flatMap { UserDefaults(suiteName: $0) } ?? .standard },
-                confirmAttach: { socketPath, stayLabel in
+                confirmAttach: { attachKey, targetLabel, stayLabel in
                     await FlockClientGuard.confirmAttach(
-                        socketPath: socketPath, defaultSocketPath: defaultSocketPath, stayLabel: stayLabel
+                        attachKey: attachKey, targetLabel: targetLabel,
+                        defaultSocketPath: defaultSocketPath, stayLabel: stayLabel
                     )
                 },
-                register: { FlockClientGuard.register(socketPath: $0) },
+                register: { FlockClientGuard.register(attachKey: $0) },
                 setChildSocket: { ToolPath.setHerdrSocket($0) },
                 make: { context in
                     FlockSession(
                         context: context, ghosttyHost: ghosttyHost, board: boardStore,
-                        herdProgress: herdProgressStore, resnapshotInterval: resnapshotInterval
+                        herdProgress: herdProgressStore, resnapshotInterval: resnapshotInterval,
+                        makeTunnel: { MachineSources.tunnel(for: $0, bundleTag: bundleTag) }
                     )
                 }
             )
         )
         _controller = State(initialValue: controller)
+        _profilePicker = State(initialValue: ProfilePickerContext(
+            profiles: controller.profiles, isLocked: controller.isLocked,
+            switchProfile: { await controller.switchTo(profileID: $0) },
+            listMachines: { await MachineSources.list() }
+        ))
         // These read the session through the controller each time, so none of
         // them holds on to one a switch has replaced.
         ghosttyHost?.onClipboardWrite = { text, paneID in
@@ -171,6 +189,7 @@ struct FlockApp: App {
             initialValue: BuildFlavor.isDev ? DevRebuild(notice: { controller.session.toastCenter.show($0, kind: .info) }) : nil
         )
         FlockAppDelegate.onTerminate.append { controller.session.viewModel.flushPaneTitles() }
+        FlockAppDelegate.onTerminate.append { controller.session.machineTunnel?.stopNow() }
         FlockAppDelegate.onOpenURL = { url in
             FlockLinkOpener.open(url, session: { controller.session }, board: boardStore)
         }
@@ -264,10 +283,120 @@ struct FlockApp: App {
         return NoHerdrScreen.Copy(headline: copy.headline, body: copy.body, hint: herdrStartFailure)
     }
 
+    /// Nil off a machine session. A machine profile's window says only this
+    /// about its connection, and never offers to start a local server.
+    private var machineNotice: MachineNotice? {
+        guard session.isRemoteMachine, let tunnel = session.machineTunnel,
+              let label = session.profile.machine?.label else { return nil }
+        let removed = controller.profiles.currentMachineMissing
+        guard let text = MachineConnectionCopy.notice(
+            label: label, tunnel: tunnel.state, store: viewModel.connectionState,
+            local: session.localHerdrVersion?.version, remote: viewModel.model?.herdrVersion, removed: removed,
+            tunnelUpGraceActive: session.machineConnection?.graceActive ?? false
+        ) else { return nil }
+        guard removed else { return MachineNotice(text: text) }
+        return MachineNotice(text: text, action: .init(title: "Switch to Default") {
+            Task { await controller.switchTo(profileID: FlockProfile.defaultID) }
+        })
+    }
+
+    /// The dot the rail's picker and the profile switcher show for the
+    /// current profile.
+    private var currentProfileDot: ProfileConnectionDot? {
+        guard session.isRemoteMachine else { return nil }
+        if case .notRunning = viewModel.connectionState { return .attention }
+        return .forMachine(hasNotice: machineNotice != nil)
+    }
+
+    /// A machine's server is fixed by herdr, and an override pins the window
+    /// to its socket.
+    private var canChangeServer: Bool {
+        !controller.isLocked && !controller.profiles.current.isMachine
+    }
+
+    /// What the switch loader reads: the target while a switch tears the old
+    /// session down, the current session otherwise. A server change names the
+    /// server throughout, a profile switch the profile.
+    private var switchLoaderSnapshot: SwitchLoaderPresenter.Snapshot {
+        if let target = controller.switchingToServer {
+            return SwitchLoaderPresenter.Snapshot(
+                input: SwitchLoaderInput(
+                    label: HerdrServerAddress(socketPath: target, home: NSHomeDirectory()).label, isMachine: false,
+                    isDefaultProfile: session.profile.id == FlockProfile.defaultID, store: .connecting
+                ),
+                switchPending: true, generation: controller.generation
+            )
+        }
+        if let target = controller.switchingToProfile {
+            return SwitchLoaderPresenter.Snapshot(
+                input: SwitchLoaderInput(
+                    label: target.machine?.label ?? target.name, isMachine: target.isMachine,
+                    isDefaultProfile: target.id == FlockProfile.defaultID, tunnel: .connecting, store: .connecting
+                ),
+                switchPending: true, generation: controller.generation
+            )
+        }
+        let profile = session.profile
+        return SwitchLoaderPresenter.Snapshot(
+            input: SwitchLoaderInput(
+                label: SwitchLoaderPresenter.label(
+                    for: profile, serverLabel: session.address.label,
+                    isRemoteMachine: session.isRemoteMachine, lastChangeWasServer: controller.lastChangeWasServer
+                ),
+                isMachine: session.isRemoteMachine,
+                isDefaultProfile: profile.id == FlockProfile.defaultID,
+                tunnel: session.machineTunnel?.state ?? .stopped,
+                store: herdrStore.connection,
+                tunnelUpGraceActive: session.machineConnection?.graceActive ?? false,
+                currentMachineMissing: controller.profiles.currentMachineMissing
+            ),
+            switchPending: false, generation: controller.generation
+        )
+    }
+
+    private var loaderBlocksInput: Bool { switchLoader.blocksInput && !showsMissingHerdr }
+
+    private var showsMissingHerdr: Bool {
+        HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound)
+    }
+
+    /// What the switch loader covers, and what shows through as it fades. A
+    /// machine's server is not this Mac's to start, so only a local session
+    /// gets the not-running screen.
+    @ViewBuilder private var sessionContent: some View {
+        if showsMissingHerdr {
+            NoHerdrScreen(theme: themeStore.active)
+        } else if case .notRunning = viewModel.connectionState, !session.isRemoteMachine {
+            NoHerdrScreen(
+                theme: themeStore.active, copy: notRunningCopy,
+                primaryAction: NoHerdrScreen.startTitle(
+                    for: session.address, isOverride: controller.isLocked, isStarting: session.isStartingHerdr
+                ).map {
+                    .init(title: $0, isDisabled: session.isStartingHerdr, perform: startHerdr)
+                }
+            )
+        } else {
+            MainWindow(
+                viewModel: viewModel,
+                sessionLabel: session.address.label,
+                herdrMousePatchStore: herdrMousePatchStore,
+                machineNotice: machineNotice
+            )
+            .environment(\.machineFolderLister, machineFolderLister)
+        }
+    }
+
+    private var machineFolderLister: MachineFolderLister? {
+        guard session.isRemoteMachine, let machine = session.profile.machine else { return nil }
+        return MachineFolderLister(target: machine.target)
+    }
+
     /// Nil for a picked custom path: herdr only attaches to a custom socket,
     /// so only an override (which binds `herdr server` to its path) starts one.
+    /// Nil for a machine, whose server is not this Mac's to start.
     private var startTarget: HerdrServerLauncher.Target? {
         if controller.isLocked { return .overrideSocket(session.socketPath) }
+        if session.isRemoteMachine { return nil }
         switch session.address {
         case .defaultServer: return .defaultServer
         case .named(let name): return .named(name)
@@ -297,26 +426,59 @@ struct FlockApp: App {
 
     var body: some Scene {
         WindowGroup("Flock") {
-            Group {
-                if HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound) {
-                    NoHerdrScreen(theme: themeStore.active)
-                } else if case .notRunning = viewModel.connectionState {
-                    NoHerdrScreen(
-                        theme: themeStore.active, copy: notRunningCopy,
-                        primaryAction: NoHerdrScreen.startTitle(
-                            for: session.address, isOverride: controller.isLocked, isStarting: session.isStartingHerdr
-                        ).map {
-                            .init(title: $0, isDisabled: session.isStartingHerdr, perform: startHerdr)
-                        }
-                    )
-                } else {
-                    MainWindow(
-                        viewModel: viewModel,
-                        sessionLabel: session.address.label,
-                        herdrMousePatchStore: herdrMousePatchStore
+            ZStack {
+                if !switchLoader.coversWindow || showsMissingHerdr {
+                    sessionContent
+                        .allowsHitTesting(!loaderBlocksInput)
+                        .environment(\.profilePickerPresentsPopover, !loaderBlocksInput)
+                }
+                if let run = switchLoader.run, !showsMissingHerdr {
+                    SwitchLoaderScreen(
+                        theme: themeStore.active, run: run, isSettled: switchLoader.isSettled,
+                        profilePicker: profilePicker, profileDot: currentProfileDot,
+                        onSwitchToDefault: { Task { await controller.switchTo(profileID: FlockProfile.defaultID) } }
                     )
                 }
             }
+                .background(WindowKeySink(isActive: loaderBlocksInput && !switchLoader.coversWindow))
+                .onChange(of: switchLoaderSnapshot, initial: true) { _, snapshot in switchLoader.update(snapshot) }
+                // The popover changes hands between the rail's picker and the
+                // loader's here, so an open one closes rather than jumping.
+                .onChange(of: loaderBlocksInput) { profilePicker.isOpen = false }
+                .overlay {
+                    ProfileSwitcherOverlay(
+                        theme: themeStore.active, switcher: profileSwitcher, profiles: controller.profiles,
+                        isLocked: controller.isLocked, currentDot: currentProfileDot,
+                        blocked: { [controller, profilePicker, profileSwitcher] in
+                            SwitcherBlockers.window(
+                                session: controller.session, profilePicker: profilePicker, profiles: profileSwitcher
+                            ).blocks(.profiles)
+                        },
+                        choose: { [profilePicker] in profilePicker.choose($0) }
+                    )
+                }
+                .overlay {
+                    ServerSwitcherOverlay(
+                        theme: themeStore.active, switcher: session.serverSwitcher, picker: serverPicker,
+                        canChangeServer: canChangeServer,
+                        currentSocket: { [controller] in controller.socketPath },
+                        blocked: { [controller, profilePicker, profileSwitcher] in
+                            SwitcherBlockers.window(
+                                session: controller.session, profilePicker: profilePicker, profiles: profileSwitcher
+                            ).blocks(.servers)
+                        }
+                    )
+                }
+                // Inside the `.id` below, so a rebuild runs it too: a switch
+                // made from anywhere ends a switcher still up.
+                .onChange(of: controller.profiles.currentID, initial: true) { _, id in
+                    profileSwitcher.cancel()
+                    profileSwitcher.note(currentProfile: id)
+                }
+                .onChange(of: controller.socketPath, initial: true) { _, socket in
+                    guard canChangeServer else { return }
+                    session.serverSwitcher.note(currentSocket: socket, home: NSHomeDirectory())
+                }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
@@ -331,6 +493,7 @@ struct FlockApp: App {
                 .environment(devBuildWatcher)
                 .environment(herdrUpdateStore)
                 .environment(settingsTabSelection)
+                .environment(profilePicker)
                 .environment(devRebuild)
                 .environment(herdProgressStore)
                 .environment(toastCenter)
@@ -349,6 +512,8 @@ struct FlockApp: App {
                 .environment(paletteRecents)
                 .environment(workspaceSwitcher)
                 .environment(tabSwitcher)
+                .environment(profileSwitcher)
+                .environment(session.serverSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
                 .id(controller.generation)
                 .task {
@@ -357,9 +522,14 @@ struct FlockApp: App {
                     // A switch can land while settle waits on a quitting
                     // Flock, and it starts its own session.
                     let generation = controller.generation
-                    await FlockClientGuard.settle(socketPath: controller.socketPath, defaultSocketPath: defaultSocketPath)
+                    await FlockClientGuard.settle(attachKey: controller.attachKey, defaultSocketPath: defaultSocketPath)
                     guard controller.generation == generation else { return }
                     await controller.session.start()
+                }
+                .task {
+                    guard !machinesSynced, let machines = await MachineSources.list() else { return }
+                    machinesSynced = true
+                    controller.profiles.syncMachines(machines)
                 }
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }
@@ -406,10 +576,7 @@ struct FlockApp: App {
             CheckForUpdatesCommands(updater: updater)
             #endif
             PasteboardCommands()
-            ProfileCommands(
-                profiles: controller.profiles, isLocked: controller.isLocked,
-                switchProfile: { await controller.switchTo(profileID: $0) }, selection: settingsTabSelection
-            )
+            ProfileCommands(picker: profilePicker, selection: settingsTabSelection)
             // Declared ahead of Chat: command menus take the menu bar in
             // declaration order.
             CommandMenu("Pane") {
@@ -757,6 +924,8 @@ struct FlockApp: App {
                 isLocked: controller.isLocked,
                 switchProfile: { await controller.switchTo(profileID: $0) },
                 changeServer: { await controller.changeServer(to: $0) },
+                isRemoteMachine: session.isRemoteMachine,
+                listMachines: { await MachineSources.list() },
                 selection: settingsTabSelection
             )
         }

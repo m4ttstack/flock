@@ -65,6 +65,10 @@ struct FlockSettingsView: View {
     let newProfileDraft: String
     let serverDraft: ServerSettingsSection.Draft?
     let profilesDraft: ProfilesSettingsSection.Draft?
+    /// The current session is on a herdr machine: this Mac's herdr binary and
+    /// servers are not what it runs on.
+    let isRemoteMachine: Bool
+    let listMachines: () async -> [HerdrMachine]?
 
     @Bindable var selection: SettingsTabSelection
 
@@ -77,7 +81,8 @@ struct FlockSettingsView: View {
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
         switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
-        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, profilesDraft: ProfilesSettingsSection.Draft? = nil, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
+        newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, profilesDraft: ProfilesSettingsSection.Draft? = nil, isRemoteMachine: Bool = false,
+        listMachines: @escaping () async -> [HerdrMachine]? = { nil }, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
         self.herdrMousePatchStore = herdrMousePatchStore
         self.notificationLifetimeStore = notificationLifetimeStore
@@ -102,13 +107,15 @@ struct FlockSettingsView: View {
         self.newProfileDraft = newProfileDraft
         self.serverDraft = serverDraft
         self.profilesDraft = profilesDraft
+        self.isRemoteMachine = isRemoteMachine
+        self.listMachines = listMachines
         _selection = Bindable(selection ?? SettingsTabSelection(tab: tab))
     }
 
     var body: some View {
         TabView(selection: $selection.tab) {
             pane(.general) {
-                StartingFolderSettingsSection(store: startingFolderStore)
+                StartingFolderSettingsSection(store: startingFolderStore, isRemoteMachine: isRemoteMachine)
                 NotificationSettingsSection(store: notificationLifetimeStore)
                 TitlesSettingsSection(store: oneTitleStore)
                 TopBarSettingsSection(store: topBarLabelStore)
@@ -122,7 +129,7 @@ struct FlockSettingsView: View {
                     ProfilesSettingsSection(
                         profiles: profiles, picker: serverPicker, isLocked: isLocked,
                         switchProfile: switchProfile ?? { _ in false }, changeServer: changeServer ?? { _ in false },
-                        selection: selection, draftName: newProfileDraft, draft: profilesDraft
+                        selection: selection, draftName: newProfileDraft, draft: profilesDraft, listMachines: listMachines
                     )
                 }
             }
@@ -143,13 +150,19 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.tools.title, systemImage: SettingsTab.tools.symbol) }
             .tag(SettingsTab.tools)
             pane(.herdr) {
-                if let herdrUpdateStore {
-                    HerdrUpdateSection(store: herdrUpdateStore)
-                }
-                HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
-                if let serverPicker {
-                    ServerSettingsSection(picker: serverPicker, draft: serverDraft)
-                    ServersSettingsSection(picker: serverPicker, profiles: profiles)
+                if isRemoteMachine {
+                    if let serverPicker {
+                        ServerSettingsSection(picker: serverPicker, machineName: profiles?.current.name ?? "herdr machine")
+                    }
+                } else {
+                    if let herdrUpdateStore {
+                        HerdrUpdateSection(store: herdrUpdateStore)
+                    }
+                    HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
+                    if let serverPicker {
+                        ServerSettingsSection(picker: serverPicker, draft: serverDraft)
+                        ServersSettingsSection(picker: serverPicker, profiles: profiles)
+                    }
                 }
             }
             .tabItem { Label(SettingsTab.herdr.title, systemImage: SettingsTab.herdr.symbol) }
@@ -157,8 +170,9 @@ struct FlockSettingsView: View {
         }
         .background(SettingsWindowRegistration(contentSize: Self.size))
         .onAppear {
-            herdrMousePatchStore.refresh()
             commandLineToolStore.refresh()
+            guard !isRemoteMachine else { return }
+            herdrMousePatchStore.refresh()
             Task { await herdrUpdateStore?.checkIfDue() }
         }
     }

@@ -19,4 +19,14 @@ final class StartingFolderSettingsSectionTests: XCTestCase {
             XCTAssertNil(StartingFolderSettingsSection.detail(for: StartingFolderChoice(folder: folder, customPath: "/Users/acme")), "\(folder)")
         }
     }
+
+    func testOnAHerdrMachineCustomAndMainCheckoutSayTheyAreIgnored() {
+        for folder in [StartingFolder.custom, .mainCheckout] {
+            XCTAssertEqual(
+                StartingFolderSettingsSection.detail(for: StartingFolderChoice(folder: folder, customPath: "/Users/acme"), isRemoteMachine: true),
+                "Ignored on herdr machines.", "\(folder)"
+            )
+        }
+        XCTAssertNil(StartingFolderSettingsSection.detail(for: StartingFolderChoice(folder: .home), isRemoteMachine: true))
+    }
 }

@@ -107,3 +107,95 @@ public enum ClipboardPaste {
         pieces.isEmpty ? nil : pieces.joined(separator: " ")
     }
 }
+
+/// What one pasteboard item contributes to a paste into a pane on a herdr
+/// machine. A local path means nothing there, so a file or image is uploaded
+/// and the machine's own path is pasted instead.
+public enum RemotePasteItem: Equatable, Sendable {
+    case text(String)
+    case uploadFile(localPath: String)
+    case uploadImage(typeIdentifier: String, fileExtension: String)
+    case nothing
+}
+
+extension ClipboardPaste {
+    public static func remotePlan(for items: [PasteboardItemDescription]) -> [RemotePasteItem] {
+        items.map { item in
+            switch decide(item) {
+            case .text(let text):
+                if let path = item.fileURLPath, !path.isEmpty { return .uploadFile(localPath: path) }
+                return .text(text)
+            case .stageImage(let typeIdentifier, let fileExtension):
+                return .uploadImage(typeIdentifier: typeIdentifier, fileExtension: fileExtension)
+            case .nothing:
+                return .nothing
+            }
+        }
+    }
+
+    /// The machine picks the directory, so only the name is chosen here. It
+    /// travels inside a remote login shell's quoting, which may be fish's,
+    /// so anything but a few plain characters becomes `_`.
+    public static func remoteFileName(_ fileName: String, token: String) -> String {
+        let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-")
+        return "\(token)-" + String(fileName.map { plain.contains($0) ? $0 : "_" })
+    }
+}
+
+/// A planned item with its bytes in hand, ready to resolve.
+public enum RemotePasteEntry: Sendable {
+    case text(String)
+    case file(localPath: String)
+    case image(Data, fileExtension: String)
+}
+
+public enum RemotePasteOutcome: Equatable, Sendable {
+    case text(String)
+    case failed(String)
+    case nothing
+}
+
+public enum RemotePaste {
+    static let imageFileName = "clipboard"
+
+    /// Uploads in order. One failure pastes nothing: a half-pasted argument
+    /// list would run against files that are not all there. `upload` takes
+    /// a file name and returns the path the machine wrote it to.
+    public static func resolve(
+        _ entries: [RemotePasteEntry],
+        label: String,
+        token: () -> String,
+        readFile: @escaping @Sendable (String) throws -> Data,
+        upload: (Data, String) async throws -> String,
+        isolation: isolated (any Actor)? = #isolation
+    ) async -> RemotePasteOutcome {
+        var pieces: [String] = []
+        for entry in entries {
+            switch entry {
+            case .text(let text):
+                pieces.append(text)
+            case .file(let localPath):
+                let name = ClipboardPaste.remoteFileName((localPath as NSString).lastPathComponent, token: token())
+                do {
+                    let data = try await Task.detached { try readFile(localPath) }.value
+                    pieces.append(ClipboardPaste.escape(try await upload(data, name)))
+                } catch {
+                    return .failed(failureMessage(label))
+                }
+            case .image(let data, let fileExtension):
+                let name = ClipboardPaste.remoteFileName("\(imageFileName).\(fileExtension)", token: token())
+                do {
+                    pieces.append(ClipboardPaste.escape(try await upload(data, name)))
+                } catch {
+                    return .failed(failureMessage(label))
+                }
+            }
+        }
+        guard let text = ClipboardPaste.text(joining: pieces) else { return .nothing }
+        return .text(text)
+    }
+
+    public static func failureMessage(_ label: String) -> String {
+        "Couldn't copy that to \(label)."
+    }
+}

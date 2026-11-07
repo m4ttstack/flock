@@ -84,6 +84,12 @@ final class GhosttySession {
     /// The folder a relative path printed in this pane is relative to.
     var linkFolder: (() -> String?)?
     var linkTrust: LinkTrustStore?
+    /// The pane is on a herdr machine, so a path it prints names a file
+    /// there and never opens one here.
+    nonisolated(unsafe) var isRemoteMachine = false
+    /// Where this pane's pastes are uploaded. Set once at creation and read
+    /// from libghostty's own threads by the clipboard read, like `surface`.
+    nonisolated(unsafe) var remotePaste: RemotePasteTarget?
     /// Fired by `GhosttySurfaceView.keyDown` for the key that asks a pane to
     /// clear its screen, AFTER `onUserInput` for the same event: clearing is
     /// still typing, so the keystroke lands first and the clear is what
@@ -518,6 +524,24 @@ final class GhosttySession {
         controlChannel.paste(text)
     }
 
+    /// The clipboard as a paste into this pane. A machine session uploads
+    /// files and images and pastes their path there; a failed upload pastes
+    /// nothing and says so.
+    func pasteClipboard() {
+        guard isRemoteMachine else {
+            if let text = NSPasteboard.general.pasteText() { paste(text) }
+            return
+        }
+        guard let remote = remotePaste, NSPasteboard.general.offersPasteText else { return }
+        Task { [weak self] in
+            switch await NSPasteboard.general.remotePasteText(uploader: remote.uploader) {
+            case .text(let text): self?.paste(text)
+            case .failed(let message): remote.notify(message)
+            case .nothing: break
+            }
+        }
+    }
+
     /// Records the pane app's mouse-reporting state as reported by the bridge
     /// (called on the main actor from `statusChannel`'s reader). A true ->
     /// false transition tells the view to drop any pending wheel remainder:
@@ -684,7 +708,7 @@ final class GhosttySession {
         }
         let found = PaneLink.match(
             inRow: line, column: cell.column, folder: folder, home: NSHomeDirectory(),
-            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }, isRemoteMachine: isRemoteMachine
         ) {
             FileManager.default.fileExists(atPath: $0)
         }
@@ -695,7 +719,7 @@ final class GhosttySession {
     func link(for text: String?) -> PaneLink? {
         PaneLink.resolve(
             text, folder: linkFolder?(), home: NSHomeDirectory(),
-            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }
+            handled: { NSWorkspace.shared.urlForApplication(toOpen: $0) != nil }, isRemoteMachine: isRemoteMachine
         ) {
             FileManager.default.fileExists(atPath: $0)
         }
@@ -713,6 +737,7 @@ final class GhosttySession {
                 askToOpen(url)
             }
         case .file(let url):
+            guard !isRemoteMachine else { return }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             let runs = isDirectory.boolValue

@@ -53,8 +53,10 @@ public struct StartingFolderChoice: Equatable, Sendable {
     /// The `cwd` a create request carries, or nil to send none: herdr then
     /// follows the focused pane itself. `paneFolder` is that pane's live
     /// folder, read only when `folder.needsPaneFolder`. Touches the disk, so
-    /// it is run off the main actor.
-    public func cwd(paneFolder: String?, home: String) -> String? {
+    /// it is run off the main actor. A remote machine's session gets none:
+    /// every folder here is this Mac's.
+    public func cwd(paneFolder: String?, home: String, isRemoteMachine: Bool = false) -> String? {
+        guard !isRemoteMachine else { return nil }
         switch folder {
         case .currentPane:
             return nil

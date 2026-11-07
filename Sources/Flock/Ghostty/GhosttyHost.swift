@@ -413,6 +413,18 @@ private func ghosttyHostReadClipboard(
 ) -> Bool {
     guard location != GHOSTTY_CLIPBOARD_SELECTION else { return false }
     guard let session = ghosttySession(from: userdata), let surface = session.surface else { return false }
+    // A machine pane's paste waits on an upload, so the request is completed
+    // empty now and the paste lands from the hop once the upload is done.
+    if session.isRemoteMachine {
+        guard NSPasteboard.general.offersPasteText else { return false }
+        "".withCString { ptr in
+            ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+        }
+        Task { @MainActor in
+            session.pasteClipboard()
+        }
+        return true
+    }
     guard let text = NSPasteboard.general.pasteText() else { return false }
     "".withCString { ptr in
         ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
