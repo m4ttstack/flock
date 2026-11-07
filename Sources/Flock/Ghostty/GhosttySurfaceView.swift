@@ -7,11 +7,12 @@ import FlockCore
 /// The `NSView` libghostty draws a surface into, and the AppKit end of its
 /// input: keys (including input methods), mouse, scroll and the context menu.
 @MainActor
-/// How far a terminal is set back: the share of its colour drained and of
-/// black laid over it, each 0 to 1.
+/// How far a terminal is set back: the share of its colour drained, and of
+/// its own ground laid over it, each 0 to 1.
 struct SurfaceShade: Equatable {
     var drain: Double
     var veil: Double
+    var ground: CGColor? = nil
 
     static let none = SurfaceShade(drain: 0, veil: 0)
 }
@@ -58,7 +59,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
     /// Sets the terminal back while its pane has no focus: a saturation
-    /// blend drains its colour and a black veil darkens it, text included.
+    /// blend drains its colour and a veil in the terminal's own ground pulls
+    /// everything toward that ground, lowering contrast without darkening.
     /// Both sit in this view's own layer tree: a blend sees only what lies
     /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
     /// scrim could darken only the ground libghostty leaves clear.
@@ -74,7 +76,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             if drainLayer.superlayer == nil {
                 drainLayer.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
                 drainLayer.compositingFilter = CIFilter(name: "CISaturationBlendMode")
-                veilLayer.backgroundColor = NSColor.black.cgColor
                 for sublayer in [drainLayer, veilLayer] {
                     sublayer.frame = layer.bounds
                     sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
@@ -85,6 +86,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             drainLayer.opacity = Float(shade.drain)
+            veilLayer.backgroundColor = shade.ground
             veilLayer.opacity = Float(shade.veil)
             CATransaction.commit()
         }

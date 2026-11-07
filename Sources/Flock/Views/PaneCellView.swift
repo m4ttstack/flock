@@ -463,21 +463,23 @@ struct PaneCellView: View {
         }
     }
 
-    /// What an unfocused pane's terminal is shaded by: dim others darkens,
-    /// drain colour drains and darkens.
+    /// What an unfocused pane's terminal is shaded by: both styles pull it
+    /// toward its own ground, which lowers contrast where black would only
+    /// darken; drain colour also drains some colour.
     private var surfaceShade: SurfaceShade {
         guard !rearrangeMode.active, !isFocused else { return .none }
+        let ground = NSColor(theme.pane).cgColor
         switch focusStyle {
-        case .dimOthers: return SurfaceShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
+        case .dimOthers: return SurfaceShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity, ground: ground)
         case .drainColour:
-            return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
+            return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity, ground: ground)
         case .brighterBorder, .quietChrome, .lift: return .none
         }
     }
 
-    /// The same black over the rest of the box (padding, header ground),
-    /// with a hole where the surface shades itself, so nothing is darkened
-    /// twice.
+    /// The same ground over the rest of the box (the status line and wash in
+    /// the header), with a hole where the surface shades itself, so nothing
+    /// is veiled twice.
     private var chromeVeil: some View {
         let box = CGRect(origin: .zero, size: surfaceSize)
         return GeometryReader { proxy in
@@ -485,7 +487,7 @@ struct PaneCellView: View {
                 path.addRect(CGRect(origin: .zero, size: proxy.size))
                 path.addRect(box.offsetBy(dx: Self.contentInsets.leading, dy: Self.contentInsets.top))
             }
-            .fill(Color.black.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
+            .fill(theme.pane.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
         }
         .allowsHitTesting(false)
     }
