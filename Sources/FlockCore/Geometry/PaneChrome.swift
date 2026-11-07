@@ -32,7 +32,7 @@ public enum PaneChrome {
 
     public static let compactTitleRowTop: CGFloat = 6
     /// Under the compact header's rule, before the first terminal row.
-    public static let compactGapBelowRule: CGFloat = 4
+    public static let compactGapBelowRule: CGFloat = 6
 
     public static func titleRowTop(compact: Bool) -> CGFloat { compact ? compactTitleRowTop : titleRowTop }
 
