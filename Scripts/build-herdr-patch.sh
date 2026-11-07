@@ -88,10 +88,10 @@ if [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "$VERB_MARK")" -eq 0 ]; then
   echo "build-herdr-patch: built binary carries no terminal.mouse_capture verb" >&2
   exit 1
 fi
-# Only an error message is long enough to stay a whole string on both
-# architectures.
+# The verb itself is split into immediates on x86_64; the prefix of its
+# parse error stays a whole string on both architectures.
 if [ "$(grep -cF -- "terminal.host_theme" "$PATCH")" -gt 0 ] \
-  && [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "host_theme needs")" -eq 0 ]; then
+  && [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "invalid terminal.host_theme")" -eq 0 ]; then
   echo "build-herdr-patch: $PATCH adds terminal.host_theme but the built binary carries none" >&2
   exit 1
 fi
