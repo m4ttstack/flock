@@ -378,8 +378,10 @@ struct PaneCellView: View {
             .background(theme.pane)
             .overlay(alignment: .top) {
                 PaneStatusLine(
-                    theme: theme, status: pane.agentStatus, style: appearance?.statusLine ?? .glint,
-                    backgroundWork: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
+                    theme: theme, status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .glint,
+                    backgroundWork: DevStatusOverride.shared.backgroundWork(
+                        real: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
+                    )
                 )
                     .padding(.top, ChromeMetrics.Pane.StatusLine.top)
             }

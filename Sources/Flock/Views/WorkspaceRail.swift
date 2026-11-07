@@ -138,7 +138,7 @@ struct WorkspaceRail: View {
                 .frame(width: railWidth.width)
                 .padding(.trailing, ChromeMetrics.ruleWidth)
             if BuildFlavor.isDev {
-                DevTag(theme: theme)
+                DevStatusMenu(theme: theme)
                     .padding(.trailing, ChromeMetrics.Rail.devTagInset)
                     .padding(.bottom, ChromeMetrics.Rail.devTagInset)
                     .frame(width: railWidth.width, alignment: .trailing)

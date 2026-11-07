@@ -511,9 +511,11 @@ struct TitleBar: View {
 /// build it is.
 struct DevTag: View {
     let theme: Theme
+    /// What the tag is forcing, if anything (`DevStatusMenu`).
+    var suffix: String? = nil
 
     var body: some View {
-        Text("DEV")
+        Text(suffix.map { "DEV · \($0)" } ?? "DEV")
             .font(ChromeType.devTag)
             .tracking(ChromeType.devTagTracking)
             .foregroundStyle(theme.textLabel)
