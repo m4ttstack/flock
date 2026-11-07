@@ -97,9 +97,6 @@ struct TabStrip: View {
             // this frame, so a frame that included the rule would let the bar
             // cross it into the canvas.
             .reportsDragFrame { drag.stripFrame = $0 }
-            Rectangle()
-                .fill(theme.hair)
-                .frame(height: ChromeMetrics.ruleWidth)
         }
         .background(WindowDragExclusion())
         .boundedBackground(theme.chrome)

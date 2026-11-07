@@ -29,7 +29,12 @@ enum ChromeMetrics {
     static let statusUnknownRatio: CGFloat = 0.5
 
     enum TitleBar {
-        static let height: CGFloat = 36
+        static let height: CGFloat = 40
+        static let trailingInset: CGFloat = 10
+        static let clusterDividerHeight: CGFloat = 16
+        static let clusterDividerPadding: CGFloat = 8
+        /// An icon-only view tab, square so the three read as one control.
+        static let iconTabHorizontalPadding: CGFloat = 7
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
         static let noticeTrailingPadding: CGFloat = 13
@@ -272,7 +277,6 @@ enum ChromeMetrics {
             static let liftWashOpacity: Double = 0.05
         }
 
-        static let headerBandTint: Double = 0.04
 
         /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn
         /// point, and the divider's grab band narrows to stay inside the

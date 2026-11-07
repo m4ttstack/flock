@@ -376,7 +376,6 @@ struct PaneCellView: View {
                 focusInHerdr()
             }
             .background(theme.pane)
-            .overlay(alignment: .top) { headerBand }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
@@ -437,18 +436,6 @@ struct PaneCellView: View {
     private var headerOpacity: Double {
         guard !rearrangeMode.active, focusStyle == .dimOthers, !isFocused else { return 1 }
         return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
-    }
-
-    /// Half the quick launch band's lift: the same material, quieter, so the
-    /// header never competes with the selected tab.
-    private var headerBand: some View {
-        let isDark = !ChromeRoles.isLight(panelBg: theme.palette.panelBg)
-        let tone = theme.palette.terminalGround.mixed(
-            with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: ChromeMetrics.Pane.headerBandTint
-        )
-        return Color(tone)
-            .frame(height: PaneChrome.headerBandHeight)
-            .allowsHitTesting(false)
     }
 
     @ViewBuilder

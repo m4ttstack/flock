@@ -7,6 +7,9 @@ struct ViewTabBar: View {
     var blockedCount = 0
     /// Per tab, for renders.
     var forced: [ViewTab: ControlInteraction] = [:]
+    /// Off in the one-row title bar, where the tab strip needs the room; the
+    /// help tag still names each view.
+    var showsTitles = true
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
@@ -20,7 +23,8 @@ struct ViewTabBar: View {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
-                    badge: tab == .overview && selected != .overview ? blockedCount : 0, forced: forced[tab]
+                    badge: tab == .overview && selected != .overview ? blockedCount : 0, forced: forced[tab],
+                    showsTitle: showsTitles
                 ) { navigator.choose(tab) }
             }
         }
@@ -37,6 +41,7 @@ struct ViewTabButton: View {
     /// Needs-you cards waiting, on Overview's tab; none drawn at zero.
     var badge = 0
     var forced: ControlInteraction?
+    var showsTitle = true
     let action: () -> Void
 
     private static let shape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.TitleBar.tabRadius))
@@ -55,8 +60,10 @@ struct ViewTabButton: View {
                 ViewTabGlyph(tab: tab)
                     .frame(width: ChromeMetrics.TitleBar.tabGlyphSize, height: ChromeMetrics.TitleBar.tabGlyphSize)
                     .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
-                Text(tab.title)
-                    .font(ChromeType.viewTab(selected: isSelected))
+                if showsTitle {
+                    Text(tab.title)
+                        .font(ChromeType.viewTab(selected: isSelected))
+                }
                 if badge > 0 {
                     Text("\(badge)")
                         .font(ChromeType.viewTabBadge)
@@ -67,7 +74,7 @@ struct ViewTabButton: View {
                         .accessibilityLabel("\(badge) blocked")
                 }
             }
-            .padding(.horizontal, ChromeMetrics.TitleBar.tabHorizontalPadding)
+            .padding(.horizontal, showsTitle ? ChromeMetrics.TitleBar.tabHorizontalPadding : ChromeMetrics.TitleBar.iconTabHorizontalPadding)
             .frame(height: ChromeMetrics.TitleBar.tabHeight)
         }
         .background(WindowDragExclusion())

@@ -46,20 +46,27 @@ struct MainWindow: View {
         return MissionBoard.blockedCount(model: model.hiding(excluded), toasts: viewModel.attentionToasts)
     }
 
+    @State private var titleBarTrailingWidth: CGFloat = 0
+
+    @ViewBuilder
+    private var banners: some View {
+        if let banner = viewModel.unsupportedBanner {
+            UnsupportedBanner(theme: theme, mismatch: banner)
+        }
+        // Below the protocol banner deliberately: a herdr too old to talk
+        // to at all outranks an optional capability of one that works.
+        if let reason = herdrMousePatchStore.restartReason {
+            HerdrMousePatchRestartBanner(theme: theme, reason: reason)
+        } else if herdrMousePatchStore.showsBanner {
+            HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Color.clear.frame(height: ChromeMetrics.TitleBar.height)
-            if let banner = viewModel.unsupportedBanner {
-                UnsupportedBanner(theme: theme, mismatch: banner)
-            }
-            // Below the protocol banner deliberately: a herdr too old to talk
-            // to at all outranks an optional capability of one that works.
-            if let reason = herdrMousePatchStore.restartReason {
-                HerdrMousePatchRestartBanner(theme: theme, reason: reason)
-            } else if herdrMousePatchStore.showsBanner {
-                HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
-            }
             if dragCoordinator.isGridShown {
+                Color.clear.frame(height: ChromeMetrics.TitleBar.height)
+                banners
                 AllWorkspacesGrid(theme: theme, viewModel: viewModel)
                     // The grid covers the rail and its dock, so Arrange's
                     // notices float where the rail would be. Overview draws
@@ -77,15 +84,22 @@ struct MainWindow: View {
                         viewModel: viewModel,
                         onSelect: { id in Task { await viewModel.jumpToHerdr(workspace: id) } }
                     )
+                    .padding(.top, ChromeMetrics.TitleBar.height)
                     VStack(spacing: 0) {
                         if let pin = viewModel.shownEmptyPin.flatMap(viewModel.pins.pin) {
+                            Color.clear.frame(height: ChromeMetrics.TitleBar.height)
+                            banners
                             EmptyPinView(theme: theme, viewModel: viewModel, pin: pin)
                         } else if viewModel.showsStartScreen, let startingFolders {
+                            Color.clear.frame(height: ChromeMetrics.TitleBar.height)
+                            banners
                             StartScreenView(
                                 theme: theme, viewModel: viewModel, folders: startingFolders,
                                 serverName: sessionLabel == HerdrServerAddress.defaultServer.label ? nil : sessionLabel
                             )
                         } else {
+                            // In the title bar's own row: the bar draws only
+                            // its trailing cluster, which the strip stops short of.
                             TabStrip(
                                 theme: theme,
                                 viewModel: viewModel,
@@ -94,6 +108,8 @@ struct MainWindow: View {
                                 selectedTabID: viewModel.selectedTabID,
                                 onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
                             )
+                            .padding(.trailing, chatSidebar == nil ? titleBarTrailingWidth : 0)
+                            banners
                             PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                         }
                     }
@@ -131,7 +147,9 @@ struct MainWindow: View {
         .overlay(alignment: .top) {
             TitleBar(
                 theme: theme, sessionLabel: sessionLabel, connectionState: viewModel.connectionState,
-                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel
+                isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel,
+                leadingDragWidth: dragCoordinator.isGridShown ? nil : railWidth.width,
+                onTrailingWidth: { titleBarTrailingWidth = $0 }
             )
         }
         // What the rail's width is clamped against: a window too narrow for
@@ -395,118 +413,79 @@ struct TitleBar: View {
     var forcedTabs: [ViewTab: ControlInteraction] = [:]
     /// Draws the top-bar workspaces; none without it.
     var viewModel: SessionViewModel? = nil
+    /// The span that drags the window: the rail's width, so the tab strip
+    /// beside it keeps its clicks. The whole bar when nil (renders, the grid).
+    var leadingDragWidth: CGFloat? = nil
+    /// How much of the bar's trailing end the cluster takes, so the tab strip
+    /// stops short of it.
+    var onTrailingWidth: ((CGFloat) -> Void)? = nil
 
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
     @Environment(DevRebuild.self) private var devRebuild: DevRebuild?
-    @Environment(TopBarLabelStore.self) private var labels: TopBarLabelStore?
     @Environment(HerdrUpdateStore.self) private var herdrUpdate: HerdrUpdateStore?
     @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
     @Environment(\.openSettings) private var openSettings
-
-    @State private var barWidth: CGFloat = 0
-    @State private var titleWidth: CGFloat = 0
-    @State private var tabsMaxX: CGFloat = 0
-    @State private var trailingWidth: CGFloat = 0
-    @State private var noticesWidth: CGFloat = 0
-    @State private var namedStripWidth: CGFloat = 0
-
-    private var showsTitle: Bool {
-        TitleBarFit.showsTitle(
-            barWidth: barWidth, titleWidth: titleWidth, leadingEdge: tabsMaxX, trailingWidth: trailingWidth,
-            gap: ChromeMetrics.TitleBar.titleClearance
-        )
-    }
-
-    private var showsNames: Bool {
-        labels?.label == .iconAndName && TitleBarFit.showsNames(
-            barWidth: barWidth, leadingEdge: tabsMaxX, noticesWidth: noticesWidth,
-            namedStripWidth: namedStripWidth, gap: ChromeMetrics.TitleBar.titleClearance
-        )
-    }
 
     private var hasTopBarWorkspaces: Bool {
         viewModel?.railSections(board: nil)?.topBar.isEmpty == false
     }
 
-    private var hasNotices: Bool {
-        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
-            || herdrUpdate?.displayedNotice != nil
-    }
-
     var body: some View {
-        HStack(spacing: ChromeMetrics.TitleBar.devTagSpacing) {
-            Text("flock")
-                .font(ChromeType.windowTitle)
-                .foregroundStyle(theme.textStrong)
-            if isDevBuild {
-                DevTag(theme: theme)
-            }
+        ZStack(alignment: .topLeading) {
+            // Only the bar's empty span over the rail drags the window: the
+            // workspace's tab strip shares this row, and it must keep its clicks.
+            TitleBarMouseArea()
+                .frame(width: leadingDragWidth ?? .infinity, height: ChromeMetrics.TitleBar.height)
+            Rectangle()
+                .fill(theme.hair)
+                .frame(height: ChromeMetrics.ruleWidth)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .allowsHitTesting(false)
+            trailingCluster
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
-        .fixedSize()
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { titleWidth = $0 }
-        // Hidden rather than removed, so its width is still measured.
-        .opacity(showsTitle ? 1 : 0)
-        .accessibilityHidden(!showsTitle)
-        .padding(.top, ChromeMetrics.TitleBar.titleTopInset)
         .frame(maxWidth: .infinity)
         .frame(height: ChromeMetrics.TitleBar.height)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
-        .overlay { TitleBarMouseArea() }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.hair).frame(height: ChromeMetrics.ruleWidth).allowsHitTesting(false)
-        }
-        // Over the mouse area, which would otherwise take the tabs' and the
-        // restart pill's clicks for a title-bar drag.
-        .overlay(alignment: .bottomLeading) {
-            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs)
-                .frame(height: ChromeMetrics.TitleBar.height)
-                .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
-                .fixedSize(horizontal: true, vertical: false)
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .local).width } action: {
-                    tabsMaxX = $0
+    }
+
+    private var trailingCluster: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                if isDevBuild {
+                    DevTag(theme: theme)
                 }
-        }
-        .overlay(alignment: .trailing) {
-            HStack(spacing: 0) {
-                if let viewModel, hasTopBarWorkspaces {
-                    TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: showsNames)
-                        .frame(height: ChromeMetrics.TitleBar.height)
-                        .fixedSize()
-                        // Measured named whatever is drawn, so the fit rule
-                        // reads the width names would need.
-                        .background {
-                            TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: true, measuring: true)
-                                .fixedSize()
-                                .hidden()
-                                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { namedStripWidth = $0 }
-                        }
+                if let devBuild, devBuild.newerBuildReady {
+                    RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                } else if let devRebuild {
+                    DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                 }
-                HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                    if let devBuild, devBuild.newerBuildReady {
-                        RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
-                    } else if let devRebuild {
-                        DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
+                if let notice = herdrUpdate?.displayedNotice {
+                    HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
+                        settingsSelection?.tab = .herdr
+                        openSettings()
                     }
-                    if let notice = herdrUpdate?.displayedNotice {
-                        HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
-                            settingsSelection?.tab = .herdr
-                            openSettings()
-                        }
-                    }
-                    connectionNotice
                 }
-                .padding(.leading, hasTopBarWorkspaces && hasNotices ? ChromeMetrics.TitleBar.noticeTrailingPadding : 0)
-                .padding(
-                    .trailing,
-                    hasTopBarWorkspaces && !hasNotices ? ChromeMetrics.TitleBar.topBarEdgeInset : ChromeMetrics.TitleBar.noticeTrailingPadding
-                )
-                .fixedSize()
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { noticesWidth = $0 }
+                connectionNotice
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { trailingWidth = $0 }
+            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
+            .fixedSize()
+            if let viewModel, hasTopBarWorkspaces {
+                TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: false)
+                    .frame(height: ChromeMetrics.TitleBar.height)
+                    .fixedSize()
+                Rectangle()
+                    .fill(theme.hair)
+                    .frame(width: ChromeMetrics.ruleWidth, height: ChromeMetrics.TitleBar.clusterDividerHeight)
+                    .padding(.horizontal, ChromeMetrics.TitleBar.clusterDividerPadding)
+            }
+            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs, showsTitles: false)
+                .frame(height: ChromeMetrics.TitleBar.height)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         }
         .background(theme.chrome)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onTrailingWidth?($0) }
     }
 
     /// Only while the session is not live, so a connected window's bar carries
