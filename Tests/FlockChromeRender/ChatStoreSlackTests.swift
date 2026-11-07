@@ -44,6 +44,15 @@ private actor SlackScript: ChatRunning {
     }
 }
 
+/// Answers each liveness check with the next reading, the last repeating.
+private final class GoneScript: @unchecked Sendable {
+    private var readings: [Bool]
+
+    init(_ readings: [Bool]) { self.readings = readings }
+
+    func next() -> Bool { readings.count > 1 ? readings.removeFirst() : readings[0] }
+}
+
 private actor SendLog {
     private(set) var lines: [(pane: String, line: String)] = []
 
@@ -66,7 +75,8 @@ final class ChatStoreSlackTests: XCTestCase {
 
     private func makeStore(
         _ script: SlackScript, agent: String? = "bg:w9:p1", refusal: String? = nil, screen: String? = nil,
-        sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil
+        sends: SendLog = SendLog(), starts: StartLog = StartLog(), defaults: UserDefaults? = nil,
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, gone: [Bool] = [false]
     ) async -> (ChatStore, ToastCenter) {
         let toasts = ToastCenter()
         let suite = defaults ?? UserDefaults(suiteName: "ChatStoreSlackTests.\(UUID().uuidString)")!
@@ -86,6 +96,8 @@ final class ChatStoreSlackTests: XCTestCase {
                 return refusal
             },
             readAgentRefusal: { _ in screen },
+            agentIsGone: { [script = GoneScript(gone)] _ in script.next() },
+            now: now,
             defaults: suite
         )
         await store.probeTask.value
@@ -216,6 +228,81 @@ final class ChatStoreSlackTests: XCTestCase {
 
         XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
         XCTAssertNil(toasts.current)
+    }
+
+    func testAChatThatOpensLateKeepsItsOwner() async {
+        let sends = SendLog()
+        var clock = ContinuousClock.now
+        let (store, toasts) = await makeStore(SlackScript(chats: [nil]), sends: sends, now: { clock })
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+
+        clock = clock.advanced(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([])
+        await store.noteSlackChats([])
+
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertEqual(toasts.current?.message, "Slack chat didn't open")
+        if let id = toasts.current?.id { toasts.dismiss(id) }
+        await store.noteSlackChats([])
+        XCTAssertNil(toasts.current)
+
+        await store.noteSlackChats([open()])
+
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+        XCTAssertEqual(store.slackRow(for: pane), .open(name: "alex"))
+        let exits = await exitLines(sends)
+        XCTAssertTrue(exits.isEmpty)
+    }
+
+    /// Times the chat out, then runs one tick per reading.
+    private func tickThroughGone(_ readings: [Bool], sends: SendLog = SendLog()) async -> ChatStore {
+        var clock = ContinuousClock.now
+        let (store, _) = await makeStore(SlackScript(chats: [nil]), sends: sends, now: { clock }, gone: readings)
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        clock = clock.advanced(by: ChatSlackAgent.openDeadline + .seconds(1))
+        await store.noteSlackChats([])
+        for _ in readings { await store.noteSlackChats([]) }
+        return store
+    }
+
+    func testOneMissKeepsATimedOutChat() async {
+        let store = await tickThroughGone([true])
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+    }
+
+    func testTwoConsecutiveMissesRetireWithoutExit() async {
+        let sends = SendLog()
+        let store = await tickThroughGone([true, true], sends: sends)
+
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        XCTAssertNil(store.slackTransition(for: pane))
+        let exits = await exitLines(sends)
+        XCTAssertTrue(exits.isEmpty)
+    }
+
+    func testAMissThenPresentThenMissKeepsTheChat() async {
+        let store = await tickThroughGone([true, false, true])
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+    }
+
+    func testATimedOutChatWhoseAgentPaneLivesIsKept() async {
+        let store = await tickThroughGone([false, false])
+        XCTAssertEqual(store.slackOwner(ofAgent: "bg:w9:p1"), pane)
+    }
+
+    func testARefusedChatStillRetires() async {
+        let sends = SendLog()
+        var clock = ContinuousClock.now
+        let (store, _) = await makeStore(
+            SlackScript(chats: [nil]), screen: "already in a chat", sends: sends, now: { clock })
+        _ = await store.startSlackChat(pane, person: "alex", problem: "hi", repo: repo)
+        clock = clock.advanced(by: ChatSlackAgent.openDeadline + .seconds(1))
+
+        await store.noteSlackChats([])
+
+        XCTAssertNil(store.slackOwner(ofAgent: "bg:w9:p1"))
+        let exits = await exitLines(sends)
+        XCTAssertEqual(exits, [ChatSlackAgent.exitLine])
     }
 
     func testAChatThatClosedExitsItsAgent() async {

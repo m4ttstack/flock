@@ -426,7 +426,7 @@ final class PinnedRailRenderTests: XCTestCase {
                 distance(empty, dimmed), Self.textCoreTolerance, "\(scheme): the empty pin's name is dimmed textLabel (\(dimmed.hex)); drew \(empty.hex)"
             )
             let selection = try XCTUnwrap(sample(image, CGPoint(x: boxX + ChromeMetrics.Switcher.width - 30, y: rowY(1) + 4)))
-            XCTAssertEqual(selection, roles.selection, "\(scheme): the highlight is on the live pin, the row letting go opens")
+            XCTAssertEqual(selection, roles.lift, "\(scheme): the highlight is on the live pin, the row letting go opens")
         }
     }
 

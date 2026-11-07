@@ -2,8 +2,7 @@ import AppKit
 import FlockCore
 import SwiftUI
 
-/// The tab strip: square tabs for the selected workspace plus the protocol
-/// readout, over a rule. Read-only mirror, selection/jump, and the tab end of
+/// The tab strip: pill tabs for the selected workspace, over a rule. Read-only mirror, selection/jump, and the tab end of
 /// the drag layer.
 struct TabStrip: View {
     let theme: Theme
@@ -26,12 +25,12 @@ struct TabStrip: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
+            HStack(alignment: .center, spacing: ChromeMetrics.Strip.tabGap) {
                 // Tabs scroll once they overflow; the readout never does. The
                 // leading padding is scroll content, so overflowing tabs scroll
                 // to the rail's rule while a strip that fits keeps its inset.
                 ScrollView(.horizontal) {
-                    HStack(alignment: .bottom, spacing: ChromeMetrics.Strip.tabGap) {
+                    HStack(alignment: .center, spacing: ChromeMetrics.Strip.tabGap) {
                         ForEach(Array(openTabs.enumerated()), id: \.element.tabID) { index, tab in
                             tabCell(tab, index: index)
                         }
@@ -61,7 +60,7 @@ struct TabStrip: View {
                     // As wide as the viewport at least, so the complete group
                     // sits at the strip's far end while the tabs still fit.
                     .frame(minWidth: drag.stripViewport?.width ?? 0, alignment: .leading)
-                    .frame(height: ChromeMetrics.Strip.height, alignment: .bottom)
+                    .frame(height: ChromeMetrics.Strip.height, alignment: .center)
                     .coordinateSpace(.named(DragSpace.stripContent))
                     .reportsDragFrame { drag.setStripContentOrigin($0.origin) }
                 }
@@ -98,9 +97,6 @@ struct TabStrip: View {
             // this frame, so a frame that included the rule would let the bar
             // cross it into the canvas.
             .reportsDragFrame { drag.stripFrame = $0 }
-            Rectangle()
-                .fill(theme.rule)
-                .frame(height: ChromeMetrics.ruleWidth)
         }
         .background(WindowDragExclusion())
         .boundedBackground(theme.chrome)
@@ -118,11 +114,11 @@ struct TabStrip: View {
     /// The complete tabs as a stack of cards, each tucked under the next. The
     /// hovered or selected one comes to the front.
     private var completeGroup: some View {
-        HStack(alignment: .bottom, spacing: -ChromeMetrics.Tab.completeOverlap) {
+        HStack(alignment: .center, spacing: -ChromeMetrics.Tab.completeOverlap) {
             ForEach(Array(completeTabs.enumerated()), id: \.element.tabID) { offset, tab in
                 tabCell(tab, index: openTabs.count + offset)
                     .overlay(alignment: .leading) {
-                        Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth)
+                        Rectangle().fill(theme.hair).frame(width: ChromeMetrics.ruleWidth)
                     }
                     .zIndex(tab.tabID == hoveredTabID ? Double(tabs.count + 1) : tab.tabID == selectedTabID ? Double(tabs.count) : Double(offset))
             }
@@ -139,7 +135,7 @@ struct TabStrip: View {
             isComplete: viewModel.completedTabs.isComplete(tab.tabID),
             isLifted: hoveredTabID == tab.tabID && viewModel.completedTabs.isComplete(tab.tabID),
             isRenaming: viewModel.renameTarget == .tab(tab.tabID),
-            showsClose: hoveredTabID == tab.tabID && viewModel.renameTarget != .tab(tab.tabID),
+            showsClose: (hoveredTabID == tab.tabID || tab.tabID == selectedTabID) && viewModel.renameTarget != .tab(tab.tabID),
             renameText: viewModel.renameText(for: .tab(tab.tabID)),
             onCommitRename: { text in Task { await viewModel.commitRename(text, for: .tab(tab.tabID)) } },
             onCancelRename: { viewModel.cancelRename() },
@@ -275,8 +271,8 @@ private struct TabBlock: View {
     /// A complete tab under the pointer, drawn out of its stack.
     var isLifted = false
     var isRenaming = false
-    /// The hover-reveal close: laid out on every tab either way, so a tab
-    /// never reflows as the pointer crosses it.
+    /// The close, on the selected tab and under the pointer: laid out on
+    /// every tab either way, so a tab never reflows as the pointer crosses it.
     var showsClose = false
     var renameText = ""
     var onCommitRename: (String) -> Void = { _ in }
@@ -294,8 +290,10 @@ private struct TabBlock: View {
     /// back over the title.
     private var trailingSlot: some View {
         ZStack {
-            StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot, isBackground: isBackground)
-                .opacity(showsClose ? 0 : 1)
+            if Self.dotSaysSomething(tab.agentStatus, isBackground: isBackground) {
+                StatusDot(status: tab.agentStatus, theme: theme, size: ChromeMetrics.Tab.statusDot, isBackground: isBackground)
+                    .opacity(showsClose ? 0 : 1)
+            }
             HoverCloseButton(
                 theme: theme, isRevealed: showsClose, help: "Close tab",
                 accessibilityIdentifier: "flock.strip.close.\(tab.tabID.rawValue)", action: onClose
@@ -304,67 +302,63 @@ private struct TabBlock: View {
         .frame(width: ChromeMetrics.Tab.trailingSlot)
     }
 
+    /// Idle and unknown are the strip's resting state, so they draw nothing.
+    static func dotSaysSomething(_ status: AgentStatus, isBackground: Bool) -> Bool {
+        if isBackground { return true }
+        switch status {
+        case .working, .blocked, .done: return true
+        case .idle, .unknown: return false
+        }
+    }
+
     private var labelColor: Color { isSelected || isLifted ? theme.textStrong : theme.textDim }
+
+    /// A complete tab keeps a ground of its own, so the stacked cards still
+    /// hide the ones tucked under them.
+    private var fill: Color {
+        if isSelected || isLifted { return theme.lift }
+        return isComplete ? theme.chrome : .clear
+    }
 
     private var titleOpacity: Double { isComplete && !isLifted ? ChromeMetrics.Tab.completeTitleOpacity : 1 }
 
     var body: some View {
-        // The underline takes its height out of the selected block, so the
-        // selected label centers on the block above it; resting tabs have no
-        // underline slot at all.
-        VStack(spacing: 0) {
-            // No stack spacing here: the gap comes from the spacer's own
-            // minLength, so a tab with slack cannot double it up between the
-            // label and a spacer both.
-            HStack(spacing: 0) {
-                if isRenaming {
-                    InlineRenameField(
-                        theme: theme, font: ChromeType.tabLabel(selected: isSelected), initialText: renameText,
-                        accessibilityIdentifier: "flock.strip.rename.\(tab.tabID.rawValue)",
-                        onCommit: onCommitRename, onCancel: onCancelRename
-                    )
-                } else {
-                    if isComplete {
-                        Image(systemName: ChromeType.tabCompleteGlyphName)
-                            .font(ChromeType.tabCompleteGlyph)
-                            .foregroundStyle(theme.mauve)
-                            .frame(width: ChromeMetrics.Tab.completeGlyphWidth)
-                            .padding(.trailing, ChromeMetrics.Tab.completeGlyphGap)
-                            .accessibilityLabel("Complete")
-                    }
-                    if title.isFromPane {
-                        Image(systemName: ChromeType.tabPaneGlyphName)
-                            .font(ChromeType.tabPaneGlyph)
-                            .foregroundStyle(theme.textLabel)
-                            .opacity(titleOpacity)
-                            .frame(width: ChromeMetrics.Tab.paneGlyphWidth)
-                            .padding(.trailing, ChromeMetrics.Tab.paneGlyphGap)
-                            .accessibilityLabel("Named after its pane")
-                    }
-                    Text(title.text)
-                        .font(ChromeType.tabLabel(selected: isSelected))
-                        .foregroundStyle(labelColor)
-                        .opacity(titleOpacity)
-                        .lineLimit(1)
-                    Spacer(minLength: ChromeMetrics.Tab.labelDotGap)
-                    trailingSlot
+        // No stack spacing here: the gap comes from the spacer's own
+        // minLength, so a tab with slack cannot double it up between the
+        // label and a spacer both.
+        HStack(spacing: 0) {
+            if isRenaming {
+                InlineRenameField(
+                    theme: theme, font: ChromeType.tabLabel(selected: isSelected), initialText: renameText,
+                    accessibilityIdentifier: "flock.strip.rename.\(tab.tabID.rawValue)",
+                    onCommit: onCommitRename, onCancel: onCancelRename
+                )
+            } else {
+                if isComplete {
+                    Image(systemName: ChromeType.tabCompleteGlyphName)
+                        .font(ChromeType.tabCompleteGlyph)
+                        .foregroundStyle(theme.mauve)
+                        .frame(width: ChromeMetrics.Tab.completeGlyphWidth)
+                        .padding(.trailing, ChromeMetrics.Tab.completeGlyphGap)
+                        .accessibilityLabel("Complete")
                 }
-            }
-            .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .boundedBackground(isSelected || isLifted ? theme.selection : theme.tabRest)
-            if isSelected {
-                Rectangle()
-                    .fill(theme.accent)
-                    .frame(height: ChromeMetrics.Tab.underlineHeight)
+                Text(title.text)
+                    .font(ChromeType.tabLabel(selected: isSelected))
+                    .foregroundStyle(labelColor)
+                    .opacity(titleOpacity)
+                    .lineLimit(1)
+                Spacer(minLength: ChromeMetrics.Tab.labelDotGap)
+                trailingSlot
             }
         }
+        .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .boundedBackground(fill)
         // Sized off the tab's own label, not the editor's text: a rename in
         // flight must not resize the tab under the field, nor slide the tabs
         // after it along the strip with every keystroke.
         .frame(width: TabSizing.width(of: title, isComplete: isComplete, isSelected: isSelected), height: ChromeMetrics.Tab.height)
-        // Rounded on top only: the bottom edge meets the pane below.
-        .clipShape(UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface))
+        .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.Tab.cornerRadius))
         .shadow(color: .black.opacity(isLifted ? 0.35 : 0), radius: 4)
         .animation(.easeOut(duration: 0.12), value: isLifted)
         .contentShape(Rectangle())
@@ -393,14 +387,17 @@ private struct NewTabAffordanceButton: View {
     @State private var isHovering: Bool
 
     var body: some View {
-        UnevenRoundedRectangle(topLeadingRadius: ChromeRadius.surface, topTrailingRadius: ChromeRadius.surface)
-            .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
+        // A square the height of a tab pill, in the selected tab's own lift,
+        // so it reads as the next tab waiting rather than a drawn outline.
+        RoundedRectangle(cornerRadius: ChromeMetrics.Tab.cornerRadius)
+            .fill(theme.lift)
             .overlay(
                 Image(systemName: ChromeType.newTabSymbolName)
                     .font(ChromeType.newTabSymbol)
-                    .foregroundStyle(theme.textLabel)
+                    .foregroundStyle(theme.textStrong)
             )
-            .frame(width: NewTabAffordance.width, height: ChromeMetrics.Tab.height)
+            .frame(width: ChromeMetrics.Tab.height, height: ChromeMetrics.Tab.height)
+            .frame(width: NewTabAffordance.width, alignment: .leading)
             .opacity(isHovering ? 1 : 0)
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }

@@ -421,6 +421,37 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(model.workspaces.first { $0.workspaceID == workspace }?.activeTabID, second)
     }
 
+    /// A tab close that hands focus to another tab reports only `tab.focused`,
+    /// so the tab's own remembered pane is what holds focus.
+    func testTabFocusedRestoresTheTabsRememberedPane() throws {
+        var model = try seededModel()
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p3"))
+    }
+
+    /// Focus already on one of the tab's panes is newer than the layout's
+    /// remembered pane, so it stays put.
+    func testTabFocusedKeepsAFocusAlreadyOnTheTab() throws {
+        var model = try seededModel()
+        model.focusedPaneID = PaneID(rawValue: "w1:p2")
+
+        apply(.tabFocused(TabID(rawValue: "w1:t1")), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p2"))
+    }
+
+    func testTabFocusedIgnoresARememberedPaneThatIsGone() throws {
+        var model = try seededModel()
+        model.panes[PaneID(rawValue: "w1:p3")] = nil
+
+        apply(.tabFocused(TabID(rawValue: "w1:t2")), to: &model)
+
+        XCTAssertEqual(model.focusedPaneID, PaneID(rawValue: "w1:p1"))
+    }
+
     /// A focus in one workspace says nothing about where another should land.
     func testTabFocusedLeavesOtherWorkspacesAlone() throws {
         var model = try seededModel()

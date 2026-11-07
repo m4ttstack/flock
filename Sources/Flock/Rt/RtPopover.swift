@@ -42,10 +42,10 @@ struct RtPopover: View {
             }
         }
         .frame(width: Metrics.width)
-        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(Color(theme.palette.panelBg)))
+        .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(theme.panelSurface))
         .overlay(
             RoundedRectangle(cornerRadius: Metrics.cornerRadius)
-                .strokeBorder(Color(theme.palette.surface1), lineWidth: ChromeMetrics.ruleWidth)
+                .strokeBorder(theme.hair, lineWidth: ChromeMetrics.ruleWidth)
         )
         .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius))
         .background(PopoverAppearancePin(isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)))
@@ -60,7 +60,7 @@ struct RtPopover: View {
         .padding(.horizontal, Metrics.Header.horizontalPadding)
         .frame(width: Metrics.width, height: Metrics.Header.height)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(theme.palette.surface0)).frame(height: ChromeMetrics.ruleWidth)
+            Rectangle().fill(theme.hair).frame(height: ChromeMetrics.ruleWidth)
         }
     }
 
@@ -79,7 +79,7 @@ struct RtPopover: View {
         }
         .padding(.horizontal, Metrics.Header.chipHorizontalPadding)
         .frame(height: Metrics.Header.chipHeight)
-        .background(RoundedRectangle(cornerRadius: Metrics.Header.chipCornerRadius).fill(Color(theme.palette.surface0)))
+        .background(RoundedRectangle(cornerRadius: Metrics.Header.chipCornerRadius).fill(theme.lift))
     }
 
     private var commandBand: some View {
@@ -99,16 +99,16 @@ struct RtPopover: View {
                 Image(systemName: Self.symbolName(command.kind))
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isHovered ? theme.accent : theme.overlay0)
+                    .foregroundStyle(isHovered ? theme.textStrong : theme.textLabel)
                     .frame(width: Metrics.Row.glyphSize, height: Metrics.Row.glyphSize)
                 Text(command.name)
                     .font(ChromeType.rtPopoverRow)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(theme.textDim)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Text(command.title)
                     .font(ChromeType.rtPopoverDetail)
-                    .foregroundStyle(Color(theme.palette.overlay1))
+                    .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
             }
             .padding(.horizontal, Metrics.Row.horizontalPadding)
@@ -130,7 +130,7 @@ struct RtPopover: View {
         Text("RUNS")
             .font(ChromeType.rtPopoverLabel)
             .tracking(ChromeType.rtPopoverLabelTracking)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, Metrics.RunsLabel.topPadding)
             .padding(.trailing, Metrics.RunsLabel.trailingPadding)
@@ -170,7 +170,7 @@ struct RtPopover: View {
             .frame(height: Metrics.Row.height)
             .background(
                 RoundedRectangle(cornerRadius: Metrics.Row.cornerRadius)
-                    .fill(run.tone == .running ? Color(theme.palette.activeRowBg) : Color.clear)
+                    .fill(run.tone == .running ? theme.lift : Color.clear)
             )
             .contentShape(Rectangle())
         }

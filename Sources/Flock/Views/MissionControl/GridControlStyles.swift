@@ -62,7 +62,7 @@ struct GridStateWash: View {
 
     var body: some View {
         ZStack {
-            shape.fill(theme.accent).opacity(isActive ? ChromeMetrics.Grid.activeWashOpacity : 0)
+            shape.fill(theme.textStrong).opacity(isActive ? ChromeMetrics.Grid.activeWashOpacity : 0)
             shape.fill(theme.text).opacity(Self.liftOpacity(interaction))
         }
         .allowsHitTesting(false)
@@ -165,7 +165,7 @@ enum ThumbnailPart: Equatable {
     /// A mini pane's outline. Selected and blocked keep theirs; hover darkens
     /// the resting hairline only where neither already does.
     static func paneOutline(theme: Theme, status: AgentStatus, isSelected: Bool, pane: ControlInteraction) -> Color {
-        if isSelected { return theme.accent }
+        if isSelected { return theme.hairFocus }
         if status == .blocked { return theme.red }
         return pane.isHovering || pane.isPressed ? theme.textDim : theme.rule
     }

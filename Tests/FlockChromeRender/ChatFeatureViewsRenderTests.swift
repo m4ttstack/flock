@@ -74,9 +74,10 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     // MARK: - Peek: hex samples
 
     /// Every distinct surface Peek paints: the ground, the header rule, a
-    /// filled row (unread) beside an unfilled one, all five dot colours
-    /// (including the not-signed-in fallback), and both an unread pill on a
-    /// pane row and one on a room row.
+    /// `lift` row (unread) beside an unfilled one, all five dot colours
+    /// (including the not-signed-in fallback, and done in the pane-status
+    /// teal), and both an unread pill on a pane row and one on a room row,
+    /// each a `lift` capsule.
     func testChatPeekViewPaintsExactHex() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Self.theme
@@ -91,18 +92,18 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
 
         XCTAssertEqual(hex(image, CGPoint(x: 300, y: 10)), theme.palette.panelBg.hex, "ground")
         XCTAssertEqual(hex(image, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "header rule")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 93)), theme.palette.activeRowBg.hex, "claude row (unread) is filled")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 93)), theme.roles.lift.hex, "claude row (unread) is filled")
         XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 93)), theme.palette.yellow.hex, "claude dot: working")
         XCTAssertEqual(hex(image, CGPoint(x: 200, y: 135)), theme.palette.panelBg.hex, "codex row (no unread) is unfilled")
         XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 135)), theme.palette.green.hex, "codex dot: idle")
-        XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 177)), theme.palette.accent.hex, "kay dot: done")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 219)), theme.palette.activeRowBg.hex, "scout row (unread) is filled")
+        XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 177)), theme.palette.teal.hex, "kay dot: done")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 219)), theme.roles.lift.hex, "scout row (unread) is filled")
         XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 219)), theme.palette.red.hex, "scout dot: blocked")
         XCTAssertEqual(hex(image, CGPoint(x: 200, y: 261)), theme.palette.panelBg.hex, "ghost row (not signed in) is unfilled")
         XCTAssertEqual(hex(image, CGPoint(x: 17.5, y: 261)), theme.palette.overlay0.hex, "ghost dot: not signed in falls back to overlay0")
-        XCTAssertEqual(hex(image, CGPoint(x: 309, y: 93)), theme.palette.accent.hex, "claude's unread pill")
-        XCTAssertEqual(hex(image, CGPoint(x: 309, y: 219)), theme.palette.accent.hex, "scout's unread pill")
-        XCTAssertEqual(hex(image, CGPoint(x: 330, y: 327)), theme.palette.accent.hex, "#rt room's unread pill")
+        XCTAssertEqual(hex(image, CGPoint(x: 309, y: 93)), theme.roles.lift.hex, "claude's unread pill")
+        XCTAssertEqual(hex(image, CGPoint(x: 309, y: 219)), theme.roles.lift.hex, "scout's unread pill")
+        XCTAssertEqual(hex(image, CGPoint(x: 330, y: 327)), theme.roles.lift.hex, "#rt room's unread pill")
         window.close()
     }
 
@@ -161,11 +162,12 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
 
     // MARK: - Quick send: hex samples
 
-    /// The ground, the header rule, the field's `accent` stroke, the send
-    /// button's `accent` fill, and -- since a chip's own width is text-driven
-    /// rather than a fixed metric -- a region scan proving the selected chip
-    /// fills `accent` and an unselected one fills `surface0` somewhere in the
-    /// target row, rather than asserting either at a hand-picked point.
+    /// The ground, the header rule, the unfocused field's `hair` edge, the
+    /// send button's `lift` fill, and -- since a chip's own width is
+    /// text-driven rather than a fixed metric -- a region scan proving the
+    /// selected chip fills `lift` and an unselected one draws its `hair` edge
+    /// somewhere in the target row, rather than asserting either at a
+    /// hand-picked point.
     func testChatQuickSendViewPaintsExactHex() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Self.theme
@@ -182,15 +184,15 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         XCTAssertEqual(hex(image, CGPoint(x: 300, y: 10)), theme.palette.panelBg.hex, "ground")
         XCTAssertEqual(hex(image, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "header rule")
         XCTAssertTrue(
-            regionContainsHex(image, xRange: 14...346, yRange: 54...94, target: theme.palette.accent.hex),
-            "no accent chip fill found in the target row -- the selected chip did not draw"
+            regionContainsHex(image, xRange: 14...346, yRange: 54...94, target: theme.roles.lift.hex),
+            "no lift chip fill found in the target row -- the selected chip did not draw"
         )
         XCTAssertTrue(
-            regionContainsHex(image, xRange: 14...346, yRange: 54...94, target: theme.palette.surface0.hex),
-            "no surface0 chip fill found in the target row -- an unselected chip did not draw"
+            regionContainsHex(image, xRange: 14...346, yRange: 54...94, target: theme.roles.hair.hex),
+            "no hair chip edge found in the target row -- an unselected chip did not draw"
         )
-        XCTAssertEqual(hex(image, CGPoint(x: 180, y: 108.5)), theme.palette.accent.hex, "field stroke")
-        XCTAssertEqual(hex(image, CGPoint(x: 268, y: 205.5)), theme.palette.accent.hex, "send button fills accent")
+        XCTAssertEqual(hex(image, CGPoint(x: 180, y: 108.5)), theme.roles.hair.hex, "field edge, unfocused")
+        XCTAssertEqual(hex(image, CGPoint(x: 268, y: 205.5)), theme.roles.lift.hex, "send button fills lift")
         window.close()
     }
 
@@ -199,10 +201,11 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     /// The owner's own failure: about a dozen real targets, packed into the
     /// old fixed `HStack`, compressed every chip to one unreadable
     /// character. This renders the actual band at production width with
-    /// twelve targets and proves the widest run of one chip's own fill
-    /// colour in the render is at least as wide as that same chip measured
-    /// in isolation -- the direct way a render can show "the label kept its
-    /// full text" rather than "a chip drew some non-zero width".
+    /// twelve targets and proves the widest run of an unselected chip's own
+    /// `hair` top edge in the render is as long as that same chip's edge
+    /// measured in isolation (its width less the two corners) -- the direct
+    /// way a render can show "the label kept its full text" rather than "a
+    /// chip drew some non-zero width".
     func testChatQuickSendViewKeepsFullChipLabelsWithTwelveTargets() async throws {
         let theme = Self.theme
         let targets = [
@@ -212,9 +215,8 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: [])
         let view = ChatQuickSendView(theme: theme, status: status, onBack: {}, onClose: {}, previewTargets: targets)
 
-        // Not the first target, so it renders unselected (`surface0`-filled,
-        // never compressed by the selected chip's own background reading
-        // the same hex as the ground it sits on).
+        // Not the first target, so it renders unselected: no fill, a `hair`
+        // edge whose straight top run is the chip's width less its corners.
         let sample = "@herdglass"
         let naturalWidth = fittingWidth(view.chip(sample))
         let targetBandHeight = fittingHeight(view.targetBand)
@@ -224,12 +226,14 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         let image = try snapshot(window)
 
         let widestUnselectedRun = widestHorizontalRun(
-            image, target: theme.palette.surface0.hex,
+            image, target: theme.roles.hair.hex,
             xRange: 0...ChromeMetrics.ChatQuickSend.width,
-            yRange: ChromeMetrics.ChatSubviewHeader.height...(ChromeMetrics.ChatSubviewHeader.height + targetBandHeight - 2)
+            yRange: ChromeMetrics.ChatSubviewHeader.height...(ChromeMetrics.ChatSubviewHeader.height + targetBandHeight - 2),
+            step: 0.5
         )
+        let corners = 2 * ChromeMetrics.ChatQuickSend.TargetBand.chipCornerRadius
         XCTAssertGreaterThanOrEqual(
-            widestUnselectedRun, naturalWidth - 2,
+            widestUnselectedRun, naturalWidth - corners - 2,
             "no unselected chip rendered as wide as its own natural label -- a label was compressed"
         )
         window.close()
@@ -281,11 +285,10 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
 
     // MARK: - Broadcast: hex samples
 
-    /// The ground, the header and field-band rules, a checked row's fill and
-    /// tick, the ghost buddy (an unrecognised status string) checked and
-    /// filled the same as every other row, every dot colour, the field's
-    /// `accent` stroke, and the send button's `mauve` fill -- the one point
-    /// Broadcast and Quick send deliberately differ.
+    /// The ground, the header and field-band rules, a checked row's `lift`
+    /// fill and checkbox, the ghost buddy (an unrecognised status string)
+    /// checked and filled the same as every other row, every dot colour, the
+    /// unfocused field's `hair` edge, and the shared `lift` send button.
     func testChatBroadcastViewPaintsExactHex() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let theme = Self.theme
@@ -300,28 +303,28 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
 
         XCTAssertEqual(hex(image, CGPoint(x: 250, y: 10)), theme.palette.panelBg.hex, "ground")
         XCTAssertEqual(hex(image, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "header rule")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 93)), theme.palette.activeRowBg.hex, "claude row (checked) is filled")
-        XCTAssertEqual(hex(image, CGPoint(x: 21.5, y: 93)), theme.palette.accent.hex, "claude checkbox: checked fill")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 93)), theme.roles.lift.hex, "claude row (checked) is filled")
+        XCTAssertEqual(hex(image, CGPoint(x: 21.5, y: 93)), theme.roles.lift.hex, "claude checkbox: checked fill")
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 93)), theme.palette.yellow.hex, "claude dot: working")
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 135)), theme.palette.green.hex, "codex dot: idle")
-        XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 177)), theme.palette.accent.hex, "kay dot: done")
+        XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 177)), theme.palette.teal.hex, "kay dot: done")
         XCTAssertEqual(hex(image, CGPoint(x: 42.5, y: 219)), theme.palette.red.hex, "scout dot: blocked")
         // A buddy `peek` reports is on chat by definition, whatever its
         // agent-status string says, so the ghost row starts checked and
         // filled exactly like every other row -- only its dot colour reads
         // `status` at all.
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 261)), theme.palette.activeRowBg.hex, "ghost row is selectable and starts checked, so it is filled")
-        XCTAssertEqual(hex(image, CGPoint(x: 21.5, y: 261)), theme.palette.accent.hex, "ghost checkbox starts checked like any other pane")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 261)), theme.roles.lift.hex, "ghost row is selectable and starts checked, so it is filled")
+        XCTAssertEqual(hex(image, CGPoint(x: 21.5, y: 261)), theme.roles.lift.hex, "ghost checkbox starts checked like any other pane")
         let ghostDot = hex(image, CGPoint(x: 42.5, y: 261))
         let candidates: [(String, RGB)] = [
-            ("yellow", theme.palette.yellow), ("green", theme.palette.green), ("accent", theme.palette.accent),
+            ("yellow", theme.palette.yellow), ("green", theme.palette.green), ("teal", theme.palette.teal),
             ("red", theme.palette.red), ("overlay0", theme.palette.overlay0),
         ]
         let closest = candidates.min { channelDistance(ghostDot, $0.1.hex) < channelDistance(ghostDot, $1.1.hex) }
         XCTAssertEqual(closest?.0, "overlay0", "ghost dot: not signed in falls back to overlay0, closest was \(closest?.0 ?? "?")")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 282.5)), theme.palette.surface0.hex, "field-band rule")
-        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 296.5)), theme.palette.accent.hex, "field stroke")
-        XCTAssertEqual(hex(image, CGPoint(x: 278, y: 383.5)), theme.palette.mauve.hex, "send button fills mauve, not accent")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 282.5)), theme.roles.hair.hex, "field-band rule")
+        XCTAssertEqual(hex(image, CGPoint(x: 200, y: 296.5)), theme.roles.hair.hex, "field edge, unfocused")
+        XCTAssertEqual(hex(image, CGPoint(x: 278, y: 383.5)), theme.roles.lift.hex, "send button fills lift")
         window.close()
     }
 
@@ -337,7 +340,8 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
     /// send and Broadcast in a dark and a light theme, with kay a minted
     /// identity (`kay.k3f9`, named `kay`). PNGs land in
     /// `FLOCK_CHROME_RENDER_DIR` for a person to look at; the assertion only
-    /// proves each surface drew on its own theme's ground.
+    /// proves each surface drew on its own ground: the popover paints its
+    /// panel surface, the sub-views sit on the host's panel ground.
     func testChatIdentitySurfacesRenderInBothSchemes() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let status = ChatStatus(
@@ -375,8 +379,9 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
                 if let directory {
                     try writePNG(image, to: directory, name: "chat-identity-\(name)-\(scheme).png")
                 }
+                let ground = name == "popover" ? theme.panelSurfaceRGB : theme.palette.panelBg
                 XCTAssertEqual(
-                    hex(image, CGPoint(x: size.width * 0.6, y: 5)), theme.palette.panelBg.hex, "\(name), \(scheme): ground"
+                    hex(image, CGPoint(x: size.width * 0.6, y: 5)), ground.hex, "\(name), \(scheme): ground"
                 )
                 window.close()
             }
@@ -435,14 +440,15 @@ final class ChatFeatureViewsRenderTests: XCTestCase {
         )
     }
 
-    func testAnOpenChatAddsTheStatusLineAndTheSignOutHint() {
+    /// Sign out is blocked during a live chat by disabling the status-row
+    /// button, so no hint line grows the popover.
+    func testAnOpenChatAddsOnlyTheStatusLine() {
         let status = ChromeMetrics.ChatPopover.Status.self
-        let band = ChromeMetrics.ChatPopover.SignButtons.self
         for row in [ChatSlackRow.open(name: "Alex Example"), .closing(name: "Alex Example")] {
             XCTAssertEqual(
                 fittingHeight(slackPopover(row).statusRoute),
                 ChromeMetrics.ChatPopover.signedInHeight + ChromeMetrics.ChatPopover.Features.rowSize.height
-                    + status.slackLineHeight + status.slackLineGap + band.hintGap + band.hintHeight,
+                    + status.slackLineHeight + status.slackLineGap,
                 "\(row)"
             )
         }

@@ -52,6 +52,7 @@ struct FlockSettingsView: View {
     let linkTrustStore: LinkTrustStore
     let topBarLabelStore: TopBarLabelStore
     let rearrangeAfterMoveStore: RearrangeAfterMoveStore
+    let paneAppearanceStore: PaneAppearanceStore?
     let startingFolderStore: StartingFolderStore
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
@@ -77,6 +78,7 @@ struct FlockSettingsView: View {
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
         overviewInclusionStore: OverviewInclusionStore,
         oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, linkTrustStore: LinkTrustStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
+        paneAppearanceStore: PaneAppearanceStore? = nil,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
         commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
@@ -94,6 +96,7 @@ struct FlockSettingsView: View {
         self.linkTrustStore = linkTrustStore
         self.topBarLabelStore = topBarLabelStore
         self.rearrangeAfterMoveStore = rearrangeAfterMoveStore
+        self.paneAppearanceStore = paneAppearanceStore
         self.startingFolderStore = startingFolderStore
         self.rtModalTextSizeStore = rtModalTextSizeStore
         self.commandLineToolStore = commandLineToolStore
@@ -136,6 +139,9 @@ struct FlockSettingsView: View {
             .tabItem { Label(SettingsTab.profiles.title, systemImage: SettingsTab.profiles.symbol) }
             .tag(SettingsTab.profiles)
             pane(.views) {
+                if let paneAppearanceStore {
+                    PanesSettingsSection(store: paneAppearanceStore)
+                }
                 OverviewSettingsSection(
                     bottomLineStore: missionBottomLineStore, returnStore: overviewReturnStore, inclusionStore: overviewInclusionStore
                 )

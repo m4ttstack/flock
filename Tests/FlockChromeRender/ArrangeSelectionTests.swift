@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 import XCTest
 
-/// A click on a mini pane selects it: the accent outline marks it, Return
+/// A click on a mini pane selects it: the focus hairline marks it, Return
 /// opens it in Workspaces, and Esc puts it down before anything else.
 @MainActor
 final class ArrangeSelectionTests: XCTestCase {
@@ -11,7 +11,7 @@ final class ArrangeSelectionTests: XCTestCase {
     private static let scale: CGFloat = 2
     private static let migrations = PaneID(rawValue: "w1:p3")
 
-    func testTheSelectedMiniPaneTakesTheAccentOutline() async throws {
+    func testTheSelectedMiniPaneTakesTheFocusHairline() async throws {
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let arrange = try await ArrangeHarness(theme: theme, model: ArrangeFixture.model())
@@ -29,8 +29,8 @@ final class ArrangeSelectionTests: XCTestCase {
             }
             let box = try XCTUnwrap(arrange.drag.surfaces?.grid?.miniPaneFrame(of: pane))
             XCTAssertEqual(
-                hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.accent.hex,
-                "\(scheme): the selected pane carries no accent outline"
+                hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.chromeRoles.hairFocus.hex,
+                "\(scheme): the selected pane carries no focus hairline"
             )
             window.close()
         }

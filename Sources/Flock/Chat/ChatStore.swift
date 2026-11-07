@@ -18,6 +18,8 @@ struct ChatSlackAgentChat: Equatable, Codable {
     let repoName: String
     var name: String?
     var startedAt: ContinuousClock.Instant = .now
+    var timedOut = false
+    var missedTicks = 0
 
     private enum CodingKeys: String, CodingKey { case pane, repoName, name }
 }
@@ -85,7 +87,9 @@ final class ChatStore {
     @ObservationIgnored private let startAgent: @Sendable (_ repo: String) async -> String?
     @ObservationIgnored private let typeIntoAgent: @Sendable (_ pane: String, _ line: String) async -> String?
     @ObservationIgnored private let readAgentRefusal: @Sendable (_ pane: String) async -> String?
+    @ObservationIgnored private let agentIsGone: @Sendable (_ pane: String) async -> Bool
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     /// A pane drawn in more than one place asks once, not once per view.
     @ObservationIgnored private var followingAutoSignIn: Set<PaneID> = []
 
@@ -125,7 +129,9 @@ final class ChatStore {
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
+        agentIsGone: @escaping @Sendable (_ pane: String) async -> Bool = ChatToolLocator.slackAgentIsGone(pane:),
         loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
+        now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
         defaults: UserDefaults = .standard,
         isRemoteMachine: Bool = false
     ) {
@@ -137,7 +143,9 @@ final class ChatStore {
         self.typeIntoAgent = typeIntoAgent
         self.readAgentRefusal = readAgentRefusal
         self.loadFace = loadFace
+        self.agentIsGone = agentIsGone
         self.defaults = defaults
+        self.now = now
         slackAgents = Self.savedSlackAgents(in: defaults)
         // herdr-chat and rt run here against this Mac's herdr, which a remote
         // machine's panes are not on: chat stays unavailable, as when it is
@@ -351,7 +359,7 @@ final class ChatStore {
             exitAgent(agent, after: .zero)
             return false
         }
-        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil)
+        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil, startedAt: now())
         return true
     }
 
@@ -361,6 +369,7 @@ final class ChatStore {
         for (owner, agent) in slackAgents {
             if let chat = open.first(where: { $0.pane == agent.pane }) {
                 if agent.name != chat.shownName { slackAgents[owner]?.name = chat.shownName }
+                if agent.timedOut { slackAgents[owner]?.timedOut = false }
                 if slackTransitions[owner] == .opening { slackTransitions[owner] = nil }
             } else if agent.name != nil {
                 retire(owner, agent, after: ChatSlackAgent.exitDelay)
@@ -368,23 +377,35 @@ final class ChatStore {
                 guard slackAgents[owner] == agent else { continue }
                 retire(owner, agent, after: .zero)
                 toasts.show("Slack chat not started: \(refusal)", kind: .info)
-            } else if ContinuousClock.now - agent.startedAt > ChatSlackAgent.openDeadline {
-                retire(owner, agent, after: .zero)
+            } else if !agent.timedOut, now() - agent.startedAt > ChatSlackAgent.openDeadline {
+                slackAgents[owner]?.timedOut = true
                 toasts.show("Slack chat didn't open", kind: .info)
+            } else if agent.timedOut {
+                let gone = await agentIsGone(agent.pane)
+                guard slackAgents[owner] == agent else { continue }
+                if !gone {
+                    if agent.missedTicks != 0 { slackAgents[owner]?.missedTicks = 0 }
+                } else if agent.missedTicks + 1 >= Self.missedTicksToRetire {
+                    retire(owner, agent, exit: false)
+                } else {
+                    slackAgents[owner]?.missedTicks = agent.missedTicks + 1
+                }
             }
         }
     }
 
-    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration) {
+    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration = .zero, exit: Bool = true) {
         slackWatches[owner]?.cancel()
         slackAgents[owner] = nil
         slackTransitions[owner] = nil
-        exitAgent(agent.pane, after: delay)
+        if exit { exitAgent(agent.pane, after: delay) }
     }
 
     private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
     /// Just under the last recheck, so whichever follow wakes first asks again.
     private static let faceVerbRecheck: Duration = .seconds(290)
+    /// The daemon's pane list silently omits background panes when their server is down.
+    private static let missedTicksToRetire = 2
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {

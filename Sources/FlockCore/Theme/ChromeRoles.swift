@@ -41,6 +41,13 @@ public struct RGB: Hashable, Sendable, CustomStringConvertible {
         return RGB(clampByte(red + delta.0), clampByte(green + delta.1), clampByte(blue + delta.2))
     }
 
+    /// Toward the grey of the same lightness by `amount` (0 keeps the hue,
+    /// 1 is grey), so a theme's tint can leave text without dimming it.
+    public func desaturated(by amount: Double) -> RGB {
+        let grey = Int((0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)).rounded())
+        return mixed(with: RGB(grey, grey, grey), amount: amount)
+    }
+
     public func mixed(with other: RGB, amount: Double) -> RGB {
         func mix(_ a: Int, _ b: Int) -> Int { Int((Double(a) + (Double(b) - Double(a)) * amount).rounded()) }
         return RGB(mix(red, other.red), mix(green, other.green), mix(blue, other.blue))
@@ -48,12 +55,13 @@ public struct RGB: Hashable, Sendable, CustomStringConvertible {
 }
 
 /// The shell chrome palette: every non-terminal color the window paints.
+/// `chrome` is the terminal ground itself, so sidebar, strip and panes read as
+/// one surface; the ladder below supplies every other role.
 ///
 /// Dark themes take fixed per-channel offsets from `panelBg`, calibrated so
 /// Tokyo Night reproduces the approved hexes exactly. A light `panelBg` has no
 /// headroom for those offsets (they would clamp to white), so light themes
-/// run the ladder the other way: chrome is lifted slightly above the panel and
-/// every darker role is the panel's own color scaled toward black by the same
+/// run the ladder the other way: every darker role is the panel's own color scaled toward black by the same
 /// mean step its dark offset takes, which keeps the theme's hue instead of
 /// saturating it the way a flat subtraction from a tinted panel would.
 public struct ChromeRoles: Equatable, Sendable {
@@ -68,6 +76,14 @@ public struct ChromeRoles: Equatable, Sendable {
     public let textDim: RGB
     public let textLabel: RGB
     public let accent: RGB
+    /// A neutral step off `chrome` for a selected pill, row or chip: no accent
+    /// tint, so selection reads by weight and lift alone.
+    public let lift: RGB
+    /// A resting pane border and the quiet chrome rules, as an opaque blend
+    /// over `pane` so it draws the same over a ghostty surface and the canvas.
+    public let hair: RGB
+    /// The focused pane's border: `hair`, several steps stronger.
+    public let hairFocus: RGB
 
     /// The grid's tab handle strip, as one pair. The band has to read against
     /// a thumbnail's `canvas` body, which only `paneBorder` does; the title on
@@ -88,6 +104,14 @@ public struct ChromeRoles: Equatable, Sendable {
 
     /// How much of the accent tints chrome to make a selected surface.
     public static let selectionAccentAmount = 0.27
+    /// White over a dark theme, black over a light one, as the share each
+    /// neutral role blends in.
+    /// How much of the theme's tint the chrome's secondary text sheds:
+    /// labels read as grey, not as a lighter shade of the panel's hue.
+    public static let textDesaturation = 0.7
+    public static let liftAmount = (dark: 0.12, light: 0.08)
+    public static let hairAmount = (dark: 0.09, light: 0.10)
+    public static let hairFocusAmount = (dark: 0.30, light: 0.28)
     /// The brightest channel a light theme's lifted chrome may reach, so it
     /// never lands on pure white.
     static let lightChromeCeiling = 250.0
@@ -103,19 +127,25 @@ public struct ChromeRoles: Equatable, Sendable {
     }
 
     public static func derive(panelBg: RGB, accent: RGB, selectionOverride: RGB? = nil) -> ChromeRoles {
-        let ladder = isLight(panelBg: panelBg) ? lightLadder(panelBg: panelBg) : darkLadder(panelBg: panelBg)
+        let light = isLight(panelBg: panelBg)
+        let ladder = light ? lightLadder(panelBg: panelBg) : darkLadder(panelBg: panelBg)
+        let pane = terminalGround(panelBg: panelBg)
+        let ink = light ? RGB(0, 0, 0) : RGB(255, 255, 255)
         return ChromeRoles(
-            chrome: ladder.chrome,
+            chrome: pane,
             rule: ladder.rule,
             canvas: ladder.canvas,
-            pane: terminalGround(panelBg: panelBg),
+            pane: pane,
             paneBorder: ladder.paneBorder,
             tabRest: ladder.tabRest,
-            selection: selectionOverride ?? ladder.chrome.mixed(with: accent, amount: selectionAccentAmount),
+            selection: selectionOverride ?? pane.mixed(with: accent, amount: selectionAccentAmount),
             textStrong: ladder.textStrong,
-            textDim: ladder.textDim,
-            textLabel: ladder.textLabel,
-            accent: accent
+            textDim: ladder.textDim.desaturated(by: textDesaturation),
+            textLabel: ladder.textLabel.desaturated(by: textDesaturation),
+            accent: accent,
+            lift: pane.mixed(with: ink, amount: light ? liftAmount.light : liftAmount.dark),
+            hair: pane.mixed(with: ink, amount: light ? hairAmount.light : hairAmount.dark),
+            hairFocus: pane.mixed(with: ink, amount: light ? hairFocusAmount.light : hairFocusAmount.dark)
         )
     }
 

@@ -16,6 +16,8 @@ struct GhosttyPaneTerminalView: View {
     let grid: PTYSize
     let theme: Theme
     let isFocused: Bool
+    /// How far the surface is set back while its pane has no focus.
+    var shade = SurfaceShade.none
     /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
     /// Whether Option acts as Alt, and on which key, every pane shares.
@@ -62,8 +64,8 @@ struct GhosttyPaneTerminalView: View {
     private static let space = "flock.pane.terminal"
 
     init(
-        surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
-        optionAsAlt: OptionAsAlt,
+        surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, shade: SurfaceShade = .none,
+        fontSizePoints: Double, optionAsAlt: OptionAsAlt,
         rearrangeActive: Bool = false, rightClickMode: RightClickMode = .program,
         paneDragInProgress: Bool = false, isLauncherShowing: Bool = false,
         editorIsOpen: Bool = false,
@@ -75,6 +77,7 @@ struct GhosttyPaneTerminalView: View {
         self.grid = grid
         self.theme = theme
         self.isFocused = isFocused
+        self.shade = shade
         self.fontSizePoints = fontSizePoints
         self.optionAsAlt = optionAsAlt
         self.rearrangeActive = rearrangeActive
@@ -96,7 +99,7 @@ struct GhosttyPaneTerminalView: View {
         ZStack(alignment: .topTrailing) {
             GhosttySurfaceRepresentable(
                 surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
-                optionAsAlt: optionAsAlt,
+                optionAsAlt: optionAsAlt, shade: shade,
                 rearrangeActive: rearrangeActive, rightClickMode: rightClickMode,
                 paneDragInProgress: paneDragInProgress, isLauncherShowing: isLauncherShowing,
                 // The find field is an editor too: while it holds the
@@ -195,6 +198,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let isFocused: Bool
     let fontSizePoints: Double
     let optionAsAlt: OptionAsAlt
+    var shade = SurfaceShade.none
     var rearrangeActive: Bool = false
     var rightClickMode: RightClickMode = .program
     var paneDragInProgress: Bool = false
@@ -256,6 +260,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             handle.unpark()
             applyAppearanceIfStale(to: session, context: context)
             existingView.wantsFocus = isFocused
+            existingView.shade = shade
             existingView.rearrangeActive = rearrangeActive
             existingView.rightClickMode = rightClickMode
             existingView.paneDragInProgress = paneDragInProgress
@@ -270,6 +275,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         applyAppearanceIfStale(to: session, context: context)
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
+        view.shade = shade
         view.rearrangeActive = rearrangeActive
         view.rightClickMode = rightClickMode
         view.paneDragInProgress = paneDragInProgress
@@ -309,6 +315,7 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             )
         }
         ghosttyView.wantsFocus = isFocused
+        ghosttyView.shade = shade
         ghosttyView.rearrangeActive = rearrangeActive
         ghosttyView.rightClickMode = rightClickMode
         ghosttyView.paneDragInProgress = paneDragInProgress

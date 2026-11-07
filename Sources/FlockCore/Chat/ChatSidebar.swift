@@ -53,9 +53,10 @@ public struct ChatSidebarSelection: Equatable, Sendable {
     }
 
     /// A chat belongs to its pane, so it shows only on that pane's tab. A
-    /// background agent started outside Flock has no pane on any tab.
+    /// background agent started outside Flock has no pane on any tab, so its
+    /// chat shows on none.
     public func isLinked(toTab panes: Set<String>) -> Bool {
-        guard let pane = chat.homePane, !pane.hasPrefix("bg:") else { return true }
+        guard let pane = chat.homePane, !pane.hasPrefix("bg:") else { return false }
         return panes.contains(pane)
     }
 
@@ -107,6 +108,22 @@ public enum ChatSlackAgent {
 
     public static func peekArguments(pane: String) -> [String] {
         ["pane", "peek", pane, "--lines", "40", "--json"]
+    }
+
+    public static let listArguments = ["pane", "list", "--json"]
+
+    /// True only when rt's pane list answered and no longer holds `pane`.
+    public static func paneIsGone(_ pane: String, stdout: Data, exitCode: Int32) -> Bool {
+        guard exitCode == 0, let list = try? JSONDecoder().decode(PaneList.self, from: stdout) else { return false }
+        return !list.panes.contains { $0.paneId == pane }
+    }
+
+    private struct PaneList: Decodable {
+        let panes: [Pane]
+
+        struct Pane: Decodable {
+            let paneId: String
+        }
     }
 
     /// Why the agent's screen says the chat did not open, or nil. A long

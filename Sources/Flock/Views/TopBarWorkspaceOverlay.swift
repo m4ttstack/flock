@@ -113,8 +113,8 @@ struct TopBarOverlayCanvas: View {
                         .overlay {
                             if outlined {
                                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius).strokeBorder(
-                                    isFocused ? theme.accent : theme.paneBorder,
-                                    lineWidth: isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth
+                                    isFocused ? theme.hairFocus : theme.hair,
+                                    lineWidth: ChromeMetrics.ruleWidth
                                 )
                             }
                         }

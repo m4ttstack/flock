@@ -269,7 +269,7 @@ final class ProfilePickerRenderTests: XCTestCase {
                 top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth + Metrics.listPadding + CGFloat(index) * (Metrics.rowHeight + 1)
             }
             let boxX = (column.width - ChromeMetrics.Switcher.width) / 2
-            let selection = Color(theme.palette.chromeRoles.selection)
+            let selection = Color(theme.palette.chromeRoles.lift)
             for index in cases.indices {
                 let x = CGFloat(index) * column.width + boxX
                 let highlight = CGRect(x: x + ChromeMetrics.Switcher.width - 40, y: rowY(1) + 3, width: 8, height: 4)

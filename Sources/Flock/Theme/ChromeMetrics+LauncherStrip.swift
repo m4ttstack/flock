@@ -20,7 +20,7 @@ extension ChromeMetrics {
         static let boltSpacing: CGFloat = 6
         static let dividerWidth: CGFloat = 1
         static let dividerHeight: CGFloat = 16
-        static let riseDuration: Double = 0.25
+        static let riseDuration: Double = 0.2
         static let dismissFade: Double = 0.1
         static let reducedMotionFade: Double = 0.15
 

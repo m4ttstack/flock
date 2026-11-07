@@ -8,9 +8,10 @@ extension ChromeMetrics.Grid {
 
     /// A thumbnail part's state, washed over its whole face: hover takes the
     /// chrome's one hover wash (`HoverWash.opacity`), a press a stronger coat
-    /// of the same, and the active part a coat of accent under either.
+    /// of the same, and the active part a neutral coat under either, as
+    /// `lift` is.
     static let pressWashOpacity: Double = 0.16
-    static let activeWashOpacity: Double = 0.16
+    static let activeWashOpacity: Double = 0.07
 
     /// Inside a mini pane that draws its tail: tighter than the status
     /// layout's padding, so a small box spends its height on lines.

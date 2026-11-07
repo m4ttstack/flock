@@ -57,7 +57,9 @@ final class ChromeRenderTests: XCTestCase {
     /// every card fixture below is written around the four a 1200pt window
     /// gives. The chrome renders keep `windowSize`, which is what makes them
     /// comparable across rounds.
-    private static let gridWindowSize = CGSize(width: 1200, height: 560)
+    /// Tall enough that the herdr island's tiles (`GridFixture.srcPane`) sit
+    /// well inside the scroll view, which a tile must be to read its tail.
+    private static let gridWindowSize = CGSize(width: 1200, height: 640)
     private static let tallWindowSize = CGSize(width: 900, height: 1000)
     private static let themeIDs = [
         "tokyo-night", "dracula",
@@ -91,8 +93,24 @@ final class ChromeRenderTests: XCTestCase {
         return 2 * bar.chipNameGap + handleTextWidth(handle) + bar.faceSize + bar.chipFaceInset
     }
 
-    /// The title row's centre, measured from the box's top.
+    /// The title row's centre, measured from the box's top, for a pane with
+    /// an agent (the full header). `w1:p2` runs Claude Code; `w1:p1` is a
+    /// shell, whose header is the compact one.
     private static var barCentre: CGFloat { PaneChrome.titleRowTop + PaneChrome.titleRowHeight / 2 }
+
+    /// A fresh install lays panes edge to edge, so a box is inset from its
+    /// split rect by that gutter, not the boxed one.
+    private static let paneGutter = ChromeMetrics.Pane.EdgeToEdge.gutter
+
+    /// Where the bar ends inside the box. `w1:p2`, the pane every chat and
+    /// mouse test reads, runs Claude Code and so sits flush, but flush trims
+    /// only the terminal's sides: the header keeps the standard padding.
+    private static let barSidePadding = PaneChrome.horizontalPadding(flush: false)
+
+    /// How far from the pane ground a pixel has to be to count as drawn: the
+    /// status line's wash rising into the header shifts the ground by a few
+    /// units, never by as much as a glyph or a fill.
+    private static let inkThreshold = 8
 
     /// Where the chip's sides run straight, above everything the bar's other
     /// controls and the grip draw, so only the chip inks this line.
@@ -105,8 +123,9 @@ final class ChromeRenderTests: XCTestCase {
     private func chipExtent(_ image: NSBitmapImageRep, box: CGRect, theme: Theme) -> (minX: CGFloat, maxX: CGFloat)? {
         let y = Self.chipSideY(in: box)
         let ground = theme.palette.chromeRoles.pane.hex
-        let xs = stride(from: box.midX, through: box.maxX - PaneChrome.horizontalPadding, by: 0.5)
-            .filter { hex(image, CGPoint(x: $0, y: y)) != ground }
+        let pastGrip = box.midX + ChromeMetrics.Pane.Grip.pillSize.width / 2 + 1
+        let xs = stride(from: pastGrip, through: box.maxX - Self.barSidePadding, by: 0.5)
+            .filter { hexChannelDistance(hex(image, CGPoint(x: $0, y: y)), ground) > Self.inkThreshold }
         guard let first = xs.first, let last = xs.last else { return nil }
         return (first, last)
     }
@@ -153,13 +172,13 @@ final class ChromeRenderTests: XCTestCase {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in-\(scheme).png")
                 try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
             }
-            let box = PaneBox.frame(in: try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let box = PaneBox.frame(in: try XCTUnwrap(signedIn.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
             let chip = try XCTUnwrap(chipExtent(signedInImage, box: box, theme: theme), "\(scheme): no chip on the bar")
             XCTAssertEqual(
                 chip.maxX - chip.minX, Self.chatChipWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
                 "\(scheme): the chip is sized to its name, not a fixed frame"
             )
-            XCTAssertEqual(chip.maxX, box.maxX - PaneChrome.horizontalPadding, accuracy: 1, "\(scheme): the chip ends the bar")
+            XCTAssertEqual(chip.maxX, box.maxX - Self.barSidePadding, accuracy: 1, "\(scheme): the chip ends the bar")
             signedInWindow.close()
 
             let signedOut = try await Harness(theme: theme, chatAvailable: true)
@@ -203,7 +222,7 @@ final class ChromeRenderTests: XCTestCase {
             defer { window.close() }
             await settle(window)
             let image = try snapshot(window)
-            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
             let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme))
             return chip.maxX - chip.minX
         }
@@ -243,7 +262,7 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(after.representation(using: .png, properties: [:])).write(to: url)
             }
             for (pane, changes) in [(holder, true), (other, false)] {
-                let box = PaneBox.frame(in: try XCTUnwrap(held.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+                let box = PaneBox.frame(in: try XCTUnwrap(held.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
                 let y = box.minY + Self.barCentre
                 var changed = false
                 var x = box.midX
@@ -273,21 +292,23 @@ final class ChromeRenderTests: XCTestCase {
             let harness = try await Harness(theme: theme, model: model, mouseHolders: [holder])
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
-            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[holder]), dividerThickness: DividerBand.gutter)
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[holder]), dividerThickness: Self.paneGutter)
             let ground = theme.palette.chromeRoles.pane.hex
             let onProgram = try snapshot(window)
             let centre = box.minY + Self.barCentre
             let from = box.midX + ChromeMetrics.Pane.Grip.hitWidth
             let left = try XCTUnwrap(
                 stride(from: from, through: box.maxX, by: 0.5).first { x in
-                    hex(onProgram, CGPoint(x: x, y: centre + 2)) != ground
+                    hexChannelDistance(hex(onProgram, CGPoint(x: x, y: centre + 2)), ground) > Self.inkThreshold
                 },
                 "\(id): no mouse on the bar"
             )
             // The outline's left side is 5 units into the 24-unit glyph.
             let glyphMinX = left - bar.glyphSize * 5 / 24
             let clicker = CGPoint(x: glyphMinX + bar.glyphSize * 15 / 24, y: centre - bar.glyphSize / 2 + bar.glyphSize * 6 / 24)
-            XCTAssertNotEqual(hex(onProgram, clicker), ground, "\(id): a pane starts with the right clicker filled")
+            XCTAssertGreaterThan(
+                hexChannelDistance(hex(onProgram, clicker), ground), Self.inkThreshold, "\(id): a pane starts with the right clicker filled"
+            )
 
             window.makeKeyAndOrderFront(nil)
             click(window, at: CGPoint(x: glyphMinX + bar.glyphSize / 2, y: centre))
@@ -321,7 +342,7 @@ final class ChromeRenderTests: XCTestCase {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("pane-grip-\(id).png")
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
-            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
             let rowY = box.minY + Self.barCentre
             let pill = ChromeMetrics.Pane.Grip.pillSize
             let dots = CGRect(x: box.midX - pill.width / 2, y: rowY - pill.height / 2, width: pill.width, height: pill.height)
@@ -379,7 +400,7 @@ final class ChromeRenderTests: XCTestCase {
             window.close()
         }
         for (pane, drawn) in [(PaneID(rawValue: "w1:p2"), true), (PaneID(rawValue: "w1:p1"), false)] {
-            let box = PaneBox.frame(in: try XCTUnwrap(frames[pane]), dividerThickness: DividerBand.gutter)
+            let box = PaneBox.frame(in: try XCTUnwrap(frames[pane]), dividerThickness: Self.paneGutter)
             let y = box.minY + Self.barCentre
             var changed = false
             var x = box.midX
@@ -402,9 +423,9 @@ final class ChromeRenderTests: XCTestCase {
         let image = try snapshot(window)
         let box = try XCTUnwrap(harness.drag.canvas.paneFrames[pane])
         let frame = Self.chatButtonFrame(inRawFrame: box, size: ChromeMetrics.PaneBar.keySize)
-        XCTAssertEqual(
-            hex(image, CGPoint(x: frame.maxX - 2.5, y: frame.midY)), theme.palette.chromeRoles.pane.hex,
-            "no chat binary drew a button anyway"
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(image, CGPoint(x: frame.maxX - 2.5, y: frame.midY)), theme.palette.chromeRoles.pane.hex),
+            Self.inkThreshold, "no chat binary drew a button anyway"
         )
         window.close()
     }
@@ -427,7 +448,7 @@ final class ChromeRenderTests: XCTestCase {
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
         let image = try snapshot(window)
-        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
         let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme), "the button still reads as signed out")
         XCTAssertEqual(
             chip.maxX - chip.minX, Self.chatChipWidth(handle: "kay"), accuracy: Self.textLayoutSlack,
@@ -456,7 +477,7 @@ final class ChromeRenderTests: XCTestCase {
             let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-button-signed-in-unread.png")
             try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
         }
-        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
+        let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: Self.paneGutter)
         let bar = ChromeMetrics.PaneBar.self
         let chip = try XCTUnwrap(chipExtent(image, box: box, theme: theme))
         XCTAssertEqual(
@@ -464,7 +485,7 @@ final class ChromeRenderTests: XCTestCase {
             "unread changed the chip's width"
         )
         let corner = CGRect(
-            x: box.maxX - PaneChrome.horizontalPadding - bar.chipFaceInset - bar.unreadDotSize,
+            x: box.maxX - Self.barSidePadding - bar.chipFaceInset - bar.unreadDotSize,
             y: box.minY + Self.barCentre - bar.chipHeight / 2 - bar.unreadDotOverhang,
             width: bar.unreadDotSize + bar.unreadDotOverhang, height: bar.unreadDotSize + bar.unreadDotOverhang
         )
@@ -472,59 +493,54 @@ final class ChromeRenderTests: XCTestCase {
         window.close()
     }
 
-    /// The popover's six bands, isolated from the whole view so each one's
+    /// The popover's four bands, isolated from the whole view so each one's
     /// height is read directly rather than inferred from pixel scanning: a
     /// SwiftUI view with an explicit `.frame(height:)` reports that height as
     /// its `NSHostingView.fittingSize`, with no window or snapshot needed.
-    /// The sum is cross-checked against the two named totals `measurements.md`
-    /// gives, so the per-band constants and the totals can never drift apart.
+    /// The sum is cross-checked against the two named totals, so the per-band
+    /// constants and the totals can never drift apart.
     func testChatPopoverBandsMatchTheirMeasuredHeights() throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
         let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
         let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
+        let metrics = ChromeMetrics.ChatPopover.self
 
         let popover = ChatPopover(
             theme: theme, status: signedOutStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
-        XCTAssertEqual(fittingHeight(popover.header), ChromeMetrics.ChatPopover.Header.height, "header band")
-        XCTAssertEqual(fittingHeight(popover.statusBlock), ChromeMetrics.ChatPopover.Status.heightSignedOut, "status band, signed out")
-        XCTAssertEqual(fittingHeight(popover.featuresBlock), ChromeMetrics.ChatPopover.Features.bandHeight, "features band")
-        XCTAssertEqual(fittingHeight(popover.signButtonsBlock), ChromeMetrics.ChatPopover.SignButtons.bandHeight, "sign buttons band")
-        XCTAssertEqual(fittingHeight(popover.statusRoute), ChromeMetrics.ChatPopover.signedOutHeight, "signed-out total")
+        XCTAssertEqual(fittingHeight(popover.header), metrics.Header.height, "header band")
+        XCTAssertEqual(fittingHeight(popover.statusBlock), metrics.Status.heightSignedOut, "status band, signed out")
+        XCTAssertEqual(fittingHeight(popover.featuresBlock), metrics.Features.bandHeight, "features band")
+        XCTAssertEqual(fittingHeight(popover.statusRoute), metrics.signedOutHeight, "signed-out total")
 
         let signedInPopover = ChatPopover(
             theme: theme, status: signedInStatus, isPresented: .constant(true),
             onSignIn: {}, onSignOut: {}, onOpenViewer: {}
         )
-        XCTAssertEqual(fittingHeight(signedInPopover.statusBlock), ChromeMetrics.ChatPopover.Status.heightSignedIn, "status band, signed in")
-        XCTAssertEqual(fittingHeight(signedInPopover.statusRoute), ChromeMetrics.ChatPopover.signedInHeight, "signed-in total")
+        XCTAssertEqual(fittingHeight(signedInPopover.statusBlock), metrics.Status.heightSignedIn, "status band, signed in")
+        XCTAssertEqual(fittingHeight(signedInPopover.statusRoute), metrics.signedInHeight, "signed-in total")
 
         XCTAssertEqual(
-            ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedOut
-                + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
-                + ChromeMetrics.ChatPopover.SignButtons.bandHeight,
-            ChromeMetrics.ChatPopover.signedOutHeight, "the six bands must sum to the named signed-out total"
+            metrics.Header.height + metrics.Status.heightSignedOut + metrics.SectionLabel.height
+                + metrics.Features.bandHeight + metrics.SignButtons.bottomPadding,
+            metrics.signedOutHeight, "the bands must sum to the named signed-out total"
         )
         XCTAssertEqual(
-            ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedIn
-                + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
-                + ChromeMetrics.ChatPopover.SignButtons.bandHeight,
-            ChromeMetrics.ChatPopover.signedInHeight, "the six bands must sum to the named signed-in total"
+            metrics.Header.height + metrics.Status.heightSignedIn + metrics.SectionLabel.height
+                + metrics.Features.bandHeight + metrics.SignButtons.bottomPadding,
+            metrics.signedInHeight, "the bands must sum to the named signed-in total"
         )
     }
 
-    /// The sign button centers its own icon-and-label content rather than
-    /// left-anchoring it against a literal `.padding()`: what centering
-    /// promises, and what the band-height test above cannot see, is that the
-    /// content sits with EQUAL clearance on every side -- never closer than
-    /// the measured padding, and never nearer one edge than its opposite.
-    /// This finds that content block by its own colour against the button's
-    /// fill (not by an assumed position).
-    func testSignButtonContentIsCenteredWithAtLeastItsMeasuredPadding() async throws {
+    /// Signing in or out is a small text button at the trailing end of the
+    /// status row, not a band of its own: its label ends one button padding
+    /// inside the band's trailing inset.
+    func testSignButtonSitsAtTheTrailingEndOfTheStatusRow() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
+        let metrics = ChromeMetrics.ChatPopover.self
         let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
         let popover = ChatPopover(
             theme: theme, status: signedOutStatus, isPresented: .constant(true),
@@ -534,160 +550,89 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
 
-        let bandTop = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedOut
-            + 2 * ChromeMetrics.ChatPopover.SectionLabel.height + ChromeMetrics.ChatPopover.Features.bandHeight
-        let buttonHeight = ChromeMetrics.ChatPopover.SignButtons.buttonSize.height
-        let buttonWidth = ChromeMetrics.ChatPopover.SignButtons.buttonSize.width
-        let buttonLeft = ChromeMetrics.ChatPopover.SignButtons.leadingPadding
-        let minHorizontalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonHorizontalPadding
-        let minVerticalMargin = ChromeMetrics.ChatPopover.SignButtons.buttonVerticalPadding
-
-        try assertContentCentered(
-            image, buttonLeft: buttonLeft, buttonTop: bandTop, width: buttonWidth, height: buttonHeight,
-            background: theme.palette.accent.hex, minHorizontalMargin: minHorizontalMargin, minVerticalMargin: minVerticalMargin,
-            label: "signed-out Sign in"
-        )
+        let ground = hex(image, CGPoint(x: 200, y: 20))
+        let bandTop = metrics.Header.height
+        let bandBottom = bandTop + metrics.Status.heightSignedOut - 1
+        let expectedRight = metrics.width - metrics.Status.trailingPadding - metrics.SignButtons.buttonHorizontalPadding
+        var labelRight: CGFloat?
+        var y = bandTop + 2
+        while y < bandBottom - 1 {
+            if let x = lastX(image, y: y, from: metrics.width / 2, to: metrics.width - 3, notMatching: ground) {
+                labelRight = max(labelRight ?? 0, x)
+            }
+            y += 0.5
+        }
+        let right = try XCTUnwrap(labelRight, "no sign button content in the status row")
+        XCTAssertEqual(right, expectedRight, accuracy: 2, "the sign button's label ends at the status row's trailing inset")
         window.close()
     }
 
-    /// Brackets a button's icon-and-label content by scanning inward from
-    /// each of its four straight edges (never the rounded corners, which can
-    /// leak the ground behind the button and read as "content" falsely) for
-    /// the first pixel that is not the button's own fill, then asserts the
-    /// margin on every side is at least the measured padding and that
-    /// opposite margins match -- centered, not merely present.
-    private func assertContentCentered(
-        _ image: NSBitmapImageRep, buttonLeft: CGFloat, buttonTop: CGFloat, width: CGFloat, height: CGFloat,
-        background: String, minHorizontalMargin: CGFloat, minVerticalMargin: CGFloat, label: String,
-        file: StaticString = #filePath, line: UInt = #line
-    ) throws {
-        let midY = buttonTop + height / 2
-        let midX = buttonLeft + width / 2
-        // Inset from the button's own true edges: at the vertical (or
-        // horizontal) center a rounded rect's side is dead straight, but the
-        // outermost pixel is still antialiased against the ground beyond it,
-        // and a secondary button's own 1pt stroke sits just inside that --
-        // both would otherwise read as "not background" the same as real
-        // content.
-        let edgeInset: CGFloat = 2
-        let leftMargin = try XCTUnwrap(
-            firstX(image, y: midY, after: buttonLeft + edgeInset, to: midX, notMatching: background), "\(label): no content found left of center",
-            file: file, line: line
-        ) - buttonLeft
-        let rightEdge = try XCTUnwrap(
-            lastX(image, y: midY, from: midX, to: buttonLeft + width - edgeInset, notMatching: background), "\(label): no content found right of center",
-            file: file, line: line
-        )
-        let rightMargin = (buttonLeft + width) - rightEdge
-        let topMargin = try XCTUnwrap(
-            firstY(image, x: midX, after: buttonTop + edgeInset, to: midY, notMatching: background), "\(label): no content found above center",
-            file: file, line: line
-        ) - buttonTop
-        let bottomEdge = try XCTUnwrap(
-            lastY(image, x: midX, from: midY, to: buttonTop + height - edgeInset, notMatching: background), "\(label): no content found below center",
-            file: file, line: line
-        )
-        let bottomMargin = (buttonTop + height) - bottomEdge
-
-        XCTAssertGreaterThanOrEqual(leftMargin, minHorizontalMargin, "\(label): left margin narrower than the measured padding", file: file, line: line)
-        XCTAssertGreaterThanOrEqual(rightMargin, minHorizontalMargin, "\(label): right margin narrower than the measured padding", file: file, line: line)
-        XCTAssertGreaterThanOrEqual(topMargin, minVerticalMargin, "\(label): top margin narrower than the measured padding", file: file, line: line)
-        XCTAssertGreaterThanOrEqual(bottomMargin, minVerticalMargin, "\(label): bottom margin narrower than the measured padding", file: file, line: line)
-        XCTAssertEqual(leftMargin, rightMargin, accuracy: 2, "\(label): content is not horizontally centered", file: file, line: line)
-        // A wider tolerance than the horizontal check: a font's line-height
-        // box is not symmetric around a glyph's visual center the way an
-        // icon's own bounding box is, so a few points of vertical offset is
-        // normal typography, not a redistribution bug.
-        XCTAssertEqual(topMargin, bottomMargin, accuracy: 5, "\(label): content is not vertically centered", file: file, line: line)
-    }
-
-    /// Every distinct surface the popover paints, both states: the ground,
-    /// the pane chip, a room chip (signed in only), the hovered/selected
-    /// feature row with its accent icon, and both sign buttons -- whichever
-    /// one is primary flips between the two states, so both fills are
-    /// exercised across the pair. `previewHoveredFeature` seeds Chat peek as
-    /// hovered, the same row the approved PNGs show, without a real pointer.
+    /// Every distinct surface the popover paints, both states: its lifted
+    /// panel ground, the `hair` outline and band rules, a `lift` room chip
+    /// (signed in only), the hovered feature row with its `textStrong` icon,
+    /// and the small sign button's `textLabel` label at the status row's
+    /// trailing end. No accent anywhere: the quiet chrome selects by lift and
+    /// weight. `previewHoveredFeature` seeds Chat peek as hovered without a
+    /// real pointer.
     func testChatPopoverPaintsExactHexSignedOutAndSignedIn() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
+        let roles = theme.roles
+        let ground = theme.panelSurfaceRGB
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-
-        let signedOutStatus = ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: [])
-        let signedOutPopover = ChatPopover(
-            theme: theme, status: signedOutStatus, isPresented: .constant(true),
-            onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
-        )
-        let signedOutWindow = popoverWindow(signedOutPopover)
-        await settle(signedOutWindow)
-        let signedOutImage = try snapshot(signedOutWindow)
-        if let directory {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-popover-signed-out.png")
-            try XCTUnwrap(signedOutImage.representation(using: .png, properties: [:])).write(to: url)
+        let statusRow = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.topPadding
+        let cases: [(name: String, status: ChatStatus, bandRuleY: CGFloat, hoveredRowY: CGFloat)] = [
+            ("signed-out", ChatStatus(handle: nil, state: "not signed in", pane: nil, signedIn: false, rooms: []), 85.5, 165),
+            ("signed-in", ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"]), 108.5, 188),
+        ]
+        for (name, status, bandRuleY, hoveredRowY) in cases {
+            let popover = ChatPopover(
+                theme: theme, status: status, isPresented: .constant(true),
+                onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
+            )
+            let window = popoverWindow(popover)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-popover-\(name).png")
+                try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+            }
+            XCTAssertEqual(hex(image, CGPoint(x: 200, y: 20)), ground.hex, "\(name) popover ground")
+            XCTAssertEqual(hex(image, CGPoint(x: 0.5, y: 150)), roles.hair.hex, "\(name) outer stroke")
+            XCTAssertEqual(hex(image, CGPoint(x: 200, y: 40.5)), roles.hair.hex, "\(name) header rule")
+            XCTAssertEqual(hex(image, CGPoint(x: 200, y: bandRuleY)), roles.hair.hex, "\(name) status band rule")
+            XCTAssertEqual(hex(image, CGPoint(x: 343, y: 63)), ground.hex, "\(name) status band, past the sign button")
+            if status.signedIn {
+                XCTAssertEqual(hex(image, CGPoint(x: 17, y: 87)), roles.lift.hex, "\(name) room chip fill")
+            }
+            XCTAssertLessThanOrEqual(
+                hexChannelDistance(hex(image, CGPoint(x: 200, y: hoveredRowY)), ground.underHoverWash(theme).hex), 1,
+                "\(name) hovered feature row wears the hover wash"
+            )
+            var bestIconDistance = Int.max
+            for y in stride(from: hoveredRowY - 6, through: hoveredRowY + 6, by: 0.5) {
+                bestIconDistance = min(bestIconDistance, minChannelDistance(image, y: y, from: 16, to: 30, target: roles.textStrong.hex))
+            }
+            XCTAssertLessThanOrEqual(bestIconDistance, 20, "\(name) hovered feature icon (closest off by \(bestIconDistance))")
+            var bestSignDistance = Int.max
+            for y in stride(from: statusRow, through: statusRow + 18, by: 0.5) {
+                bestSignDistance = min(bestSignDistance, minChannelDistance(image, y: y, from: 270, to: 342, target: roles.textLabel.hex))
+            }
+            XCTAssertLessThanOrEqual(bestSignDistance, 20, "\(name) sign button label (closest off by \(bestSignDistance))")
+            let accent = stride(from: CGFloat(0), to: ChromeMetrics.ChatPopover.width, by: 0.5).contains { x in
+                stride(from: CGFloat(0), to: ChromeMetrics.ChatPopover.signedOutHeight, by: 1).contains { y in
+                    hex(image, CGPoint(x: x, y: y)) == roles.accent.hex
+                }
+            }
+            XCTAssertFalse(accent, "\(name): the popover paints the accent")
+            window.close()
         }
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-out popover ground")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-out outer stroke")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-out header rule")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 200, y: 85.5)), theme.palette.surface0.hex, "signed-out status band rule")
-        // Where the pane chip used to sit. It named the pane this popover is
-        // anchored to, which the legend row above it already says, so the
-        // band's own ground is what belongs there now.
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-out status band, trailing end")
-        XCTAssertLessThanOrEqual(
-            hexChannelDistance(hex(signedOutImage, CGPoint(x: 200, y: 165)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
-            "signed-out hovered feature row wears the hover wash"
-        )
-        var bestIconDistance = Int.max
-        for y in stride(from: CGFloat(159), through: 171, by: 0.5) {
-            bestIconDistance = min(bestIconDistance, minChannelDistance(signedOutImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
-        }
-        XCTAssertLessThanOrEqual(bestIconDistance, 20, "signed-out selected feature icon (closest off by \(bestIconDistance))")
-        XCTAssertEqual(hex(signedOutImage, CGPoint(x: 20, y: 292.5)), theme.palette.accent.hex, "signed-out sign button fill, near the leading edge")
-        XCTAssertEqual(
-            hex(signedOutImage, CGPoint(x: 340, y: 292.5)), theme.palette.accent.hex,
-            "signed-out sign button fill spans the band's full inner width"
-        )
-        signedOutWindow.close()
-
-        let signedInStatus = ChatStatus(handle: "kay", state: "working", pane: "w1:p2", signedIn: true, rooms: ["#rt", "#flock"])
-        let signedInPopover = ChatPopover(
-            theme: theme, status: signedInStatus, isPresented: .constant(true),
-            onSignIn: {}, onSignOut: {}, onOpenViewer: {}, previewHoveredFeature: .peek
-        )
-        let signedInWindow = popoverWindow(signedInPopover)
-        await settle(signedInWindow)
-        let signedInImage = try snapshot(signedInWindow)
-        if let directory {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("chat-popover-signed-in.png")
-            try XCTUnwrap(signedInImage.representation(using: .png, properties: [:])).write(to: url)
-        }
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 20)), theme.palette.panelBg.hex, "signed-in popover ground")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 0.5, y: 150)), theme.palette.surface1.hex, "signed-in outer stroke")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 40.5)), theme.palette.surface0.hex, "signed-in header rule")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 200, y: 108.5)), theme.palette.surface0.hex, "signed-in status band rule")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 343, y: 63)), theme.palette.panelBg.hex, "signed-in status band, trailing end")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 17, y: 87)), theme.palette.activeRowBg.hex, "signed-in room chip fill")
-        XCTAssertLessThanOrEqual(
-            hexChannelDistance(hex(signedInImage, CGPoint(x: 200, y: 188)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
-            "signed-in hovered feature row wears the hover wash"
-        )
-        var bestSignedInIconDistance = Int.max
-        for y in stride(from: CGFloat(182), through: 194, by: 0.5) {
-            bestSignedInIconDistance = min(bestSignedInIconDistance, minChannelDistance(signedInImage, y: y, from: 16, to: 30, target: theme.palette.accent.hex))
-        }
-        XCTAssertLessThanOrEqual(bestSignedInIconDistance, 20, "signed-in selected feature icon (closest off by \(bestSignedInIconDistance))")
-        XCTAssertEqual(hex(signedInImage, CGPoint(x: 20, y: 315.5)), theme.palette.accent.hex, "signed-in sign button fill, near the leading edge")
-        XCTAssertEqual(
-            hex(signedInImage, CGPoint(x: 340, y: 315.5)), theme.palette.accent.hex,
-            "signed-in sign button fill spans the band's full inner width"
-        )
-        signedInWindow.close()
     }
 
     /// A pane with no status yet is neither signed in nor out: the button
     /// still reads Sign in (the only honest label until a status arrives),
-    /// but `.disabled` must actually be wired -- SwiftUI dims a disabled
-    /// button's own content on its own, which this tells apart from the
-    /// full-strength accent an enabled button paints.
+    /// but `.disabled` must actually be wired: the label still draws, but
+    /// nothing of it reaches the `textLabel` an enabled one reads in.
     func testChatPopoverWithNoStatusYetShowsSignInDisabled() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
@@ -698,10 +643,17 @@ final class ChromeRenderTests: XCTestCase {
         let window = popoverWindow(popover)
         await settle(window)
         let image = try snapshot(window)
-        XCTAssertNotEqual(
-            hex(image, CGPoint(x: 20, y: 292.5)), theme.palette.accent.hex,
-            "a disabled sign button must not paint at full accent strength"
-        )
+        let statusRow = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.topPadding
+        let ground = hex(image, CGPoint(x: 200, y: 20))
+        var drawn = false, enabled = Int.max
+        for y in stride(from: statusRow, through: statusRow + 18, by: 0.5) {
+            drawn = drawn || stride(from: CGFloat(270), through: 342, by: 0.5).contains {
+                channelDistance(hex(image, CGPoint(x: $0, y: y)), ground) > Self.inkThreshold
+            }
+            enabled = min(enabled, minChannelDistance(image, y: y, from: 270, to: 342, target: theme.roles.textLabel.hex))
+        }
+        XCTAssertTrue(drawn, "no Sign in label at the status row's end")
+        XCTAssertGreaterThan(enabled, 20, "a disabled sign button still reads at full textLabel strength")
         window.close()
     }
 
@@ -764,9 +716,9 @@ final class ChromeRenderTests: XCTestCase {
     /// The legend's overlay is then anchored to that box's own top-trailing
     /// corner, inset by the pane chrome's own padding.
     private static func chatButtonFrame(inRawFrame rawFrame: CGRect, size: CGSize) -> CGRect {
-        let box = PaneBox.frame(in: rawFrame, dividerThickness: DividerBand.gutter)
+        let box = PaneBox.frame(in: rawFrame, dividerThickness: Self.paneGutter)
         return CGRect(
-            x: box.maxX - PaneChrome.horizontalPadding - size.width, y: box.minY + barCentre - size.height / 2,
+            x: box.maxX - barSidePadding - size.width, y: box.minY + barCentre - size.height / 2,
             width: size.width, height: size.height
         )
     }
@@ -812,44 +764,6 @@ final class ChromeRenderTests: XCTestCase {
         while x <= to {
             if hex(image, CGPoint(x: x, y: y)) != background { found = x }
             x += step
-        }
-        return found
-    }
-
-    /// The first `x` strictly after `after` (up to `to`) whose pixel is NOT
-    /// `background`, or nil if the rest of the row is bare ground.
-    private func firstX(
-        _ image: NSBitmapImageRep, y: CGFloat, after: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
-    ) -> CGFloat? {
-        var x = after
-        while x <= to {
-            if hex(image, CGPoint(x: x, y: y)) != background { return x }
-            x += step
-        }
-        return nil
-    }
-
-    /// The vertical twins of `firstX`/`lastX`: a fixed column, scanning down
-    /// or up for the first pixel that is not `background`.
-    private func firstY(
-        _ image: NSBitmapImageRep, x: CGFloat, after: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
-    ) -> CGFloat? {
-        var y = after
-        while y <= to {
-            if hex(image, CGPoint(x: x, y: y)) != background { return y }
-            y += step
-        }
-        return nil
-    }
-
-    private func lastY(
-        _ image: NSBitmapImageRep, x: CGFloat, from: CGFloat, to: CGFloat, notMatching background: String, step: CGFloat = 0.25
-    ) -> CGFloat? {
-        var found: CGFloat?
-        var y = from
-        while y <= to {
-            if hex(image, CGPoint(x: x, y: y)) != background { found = y }
-            y += step
         }
         return found
     }
@@ -921,18 +835,20 @@ final class ChromeRenderTests: XCTestCase {
 
     /// The system title bar's height is the system's, not the chrome's, so
     /// whatever of ours lies inside it must say for itself whether a press
-    /// moves the window. The top of the tab strip and the view tabs opt out;
-    /// the rest of the chrome title bar drags and double-clicks through
-    /// `TitleBarMouseView`, so every other point on it must reach that view.
+    /// moves the window. The tab strip shares the bar's row and keeps its
+    /// presses, as do the view tabs; only the bar's empty span over the rail
+    /// drags and double-clicks through `TitleBarMouseView`.
     func testPressesInsideTheSystemTitleBarReachTheirOwnChrome() async throws {
         let harness = try await Harness(theme: .tokyoNight)
         let window = harness.makeWindow(size: Self.windowSize)
         await settle(window)
-        let stripTop = ChromeMetrics.TitleBar.height
-        let stripTopEdge = CGPoint(x: 260, y: stripTop + 1)
-        XCTAssertTrue(contentViews(at: stripTopEdge, in: window).contains { !$0.mouseDownCanMoveWindow })
-        for titlePoint in [CGPoint(x: 450, y: 10), CGPoint(x: 600, y: 30), CGPoint(x: 800, y: 3)] {
-            XCTAssertTrue(contentViews(at: titlePoint, in: window).contains { $0 is TitleBarMouseView }, "\(titlePoint)")
+        for stripPoint in [CGPoint(x: 450, y: 10), CGPoint(x: 600, y: 30), CGPoint(x: 800, y: 3)] {
+            let views = contentViews(at: stripPoint, in: window)
+            XCTAssertFalse(views.contains { $0 is TitleBarMouseView }, "\(stripPoint) drags the window from the tab strip")
+            XCTAssertTrue(views.contains { !$0.mouseDownCanMoveWindow }, "\(stripPoint)")
+        }
+        for dragPoint in [CGPoint(x: RailWidth.default - 8, y: 20), CGPoint(x: 40, y: ChromeMetrics.TitleBar.height - 4)] {
+            XCTAssertTrue(contentViews(at: dragPoint, in: window).contains { $0 is TitleBarMouseView }, "\(dragPoint)")
         }
         // A view tab inside the system title bar's height still takes its
         // own press rather than moving the window.
@@ -977,6 +893,7 @@ final class ChromeRenderTests: XCTestCase {
         // The tail end to end, through the real decode, on a tile big enough
         // to read (the claude mini pane is below `TileDetail.tail`): a tile
         // that drew and read nothing is what this render exists to catch.
+        await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
         let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         XCTAssertEqual(tail.lines.count, PaneTailPolicy.lines)
         XCTAssertEqual(tail.lines.last, "Editing lib/daemon.ts")
@@ -989,8 +906,8 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertNil(harness.viewModel.ghosttySurface(for: pane), "the grid attached \(pane.rawValue)")
         }
         XCTAssertEqual(
-            hex(selected, CGPoint(x: anchor.midX, y: anchor.minY + 0.5)), Theme.tokyoNight.palette.accent.hex,
-            "the selected pane carries no accent outline"
+            hex(selected, CGPoint(x: anchor.midX, y: anchor.minY + 0.5)), Theme.tokyoNight.palette.chromeRoles.hairFocus.hex,
+            "the selected pane carries no focus hairline"
         )
         window.close()
     }
@@ -1011,6 +928,7 @@ final class ChromeRenderTests: XCTestCase {
         harness.drag.selectGridPane(GridFixture.claudePane)
         await settle(window)
         XCTAssertEqual(harness.drag.gridSelection, GridFixture.claudePane, "the last click's pane")
+        await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
         XCTAssertNotNil(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
         let image = try snapshot(window)
         if let directory {
@@ -1019,8 +937,8 @@ final class ChromeRenderTests: XCTestCase {
         }
         let box = try XCTUnwrap(harness.drag.surfaces?.grid?.miniPaneFrame(of: GridFixture.claudePane))
         XCTAssertEqual(
-            hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.accent.hex,
-            "the selected pane carries no accent outline"
+            hex(image, CGPoint(x: box.midX, y: box.minY + 0.5)), theme.palette.chromeRoles.hairFocus.hex,
+            "the selected pane carries no focus hairline"
         )
 
         harness.drag.updateGrid { $0.escape() }
@@ -1044,7 +962,7 @@ final class ChromeRenderTests: XCTestCase {
             await settle(window)
             harness.drag.toggleGrid()
             await settle(window)
-            await settle(window)
+            await settle(window, untilTailOf: GridFixture.srcPane, in: harness.viewModel)
 
             let tail = try XCTUnwrap(harness.viewModel.paneTails[GridFixture.srcPane], "the tile drew without reading its pane")
             XCTAssertEqual(tail.rows.map(\.columns).max(), AnsiTUIClient.columns)
@@ -1117,7 +1035,7 @@ final class ChromeRenderTests: XCTestCase {
         // the canvas and the title bar are untouched by a strip scroll.
         XCTAssertEqual(hex(start, CGPoint(x: 100, y: Self.bar + 48)), hex(end, CGPoint(x: 100, y: Self.bar + 48)), "the rail")
         XCTAssertEqual(hex(start, CGPoint(x: 700, y: 400)), hex(end, CGPoint(x: 700, y: 400)), "the canvas")
-        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: Self.bar + 14)), hex(end, CGPoint(x: 210, y: Self.bar + 14)), "the strip's leading edge")
+        XCTAssertNotEqual(hex(start, CGPoint(x: 210, y: Self.bar / 2)), hex(end, CGPoint(x: 210, y: Self.bar / 2)), "the strip's leading edge")
         window.close()
     }
 
@@ -1153,13 +1071,18 @@ final class ChromeRenderTests: XCTestCase {
     /// maximum truncates with none at all. Both must land the slot at the
     /// same formula (`maxX - horizontalPadding - trailingSlot`), which is
     /// what tells a slot that floats with the label apart from one that is
-    /// actually pinned to the edge.
+    /// actually pinned to the edge. Both tabs are working: an idle tab draws
+    /// no dot at all.
     func testTheTrailingSlotSitsAtTheTabsRightEdgeNotAfterTheLabel() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let long = String(repeating: "wide ", count: 20)
-        let harness = try await Harness(
-            theme: .tokyoNight, model: try Fixture.model(flockTabLabels: ["x", "web", "claude", long])
-        )
+        var model = try Fixture.model(flockTabLabels: ["x", "web", "claude", long])
+        let workspace = WorkspaceID(rawValue: "w1")
+        for index in model.tabs[workspace, default: []].indices
+        where [TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t4")].contains(model.tabs[workspace]?[index].tabID) {
+            model.tabs[workspace]?[index].agentStatus = .working
+        }
+        let harness = try await Harness(theme: .tokyoNight, model: model)
         // Wide enough that a tab at the maximum ends inside the strip's viewport.
         let window = harness.makeWindow(size: CGSize(width: 1100, height: Self.windowSize.height))
         await settle(window)
@@ -1181,18 +1104,18 @@ final class ChromeRenderTests: XCTestCase {
             let dotMinX = slotMinX + (ChromeMetrics.Tab.trailingSlot - ChromeMetrics.Tab.statusDot) / 2
             let distance = minChannelDistance(
                 image, y: frame.midY, from: dotMinX, to: dotMinX + ChromeMetrics.Tab.statusDot,
-                target: Theme.tokyoNight.palette.green.hex
+                target: Theme.tokyoNight.palette.yellow.hex
             )
             XCTAssertLessThanOrEqual(
-                distance, 20, "no idle ring found at the tab's right edge, frame \(frame) (closest off by \(distance))"
+                distance, 20, "no working dot found at the tab's right edge, frame \(frame) (closest off by \(distance))"
             )
         }
         window.close()
     }
 
-    /// An unnamed tab holding one pane wears that pane's title behind the
-    /// pane glyph, sized for both; a named tab is untouched. PNGs go to
-    /// `FLOCK_CHROME_RENDER_DIR`.
+    /// An unnamed tab holding one pane wears that pane's title, sized for it
+    /// alone now the pill draws no pane glyph; a named tab is untouched. PNGs
+    /// go to `FLOCK_CHROME_RENDER_DIR`.
     func testAnUnnamedOnePaneTabWearsItsPanesTitleInDarkAndLightThemes() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         var model = try Fixture.model(flockTabLabels: ["1", "web", "claude", "4"])
@@ -2118,8 +2041,12 @@ final class ChromeRenderTests: XCTestCase {
             }
             XCTAssertTrue(rankedRows(harness).contains { $0.command.id == "view.backtooverview" }, "\(id)")
             XCTAssertFalse(rankedRows(harness).contains { $0.command.id == "pane.splitright" }, "\(id)")
+            // Clear of the title bar, whose selected view tab wears the same lift.
+            let belowTitleBar = CGRect(
+                x: 0, y: Self.bar, width: Self.gridWindowSize.width, height: Self.gridWindowSize.height - Self.bar
+            )
             XCTAssertNotNil(
-                firstPoint(in: CGRect(origin: .zero, size: Self.gridWindowSize), matching: theme.palette.chromeRoles.selection.hex, of: image),
+                firstPoint(in: belowTitleBar, matching: theme.palette.chromeRoles.lift.hex, of: image),
                 "\(id): no selected palette row drawn"
             )
             navigator.backToOverview()
@@ -2274,10 +2201,16 @@ final class ChromeRenderTests: XCTestCase {
             x: Self.gridWindowSize.width / 2, y: ChromeMetrics.TitleBar.height + ChromeMetrics.Grid.headerHeight + 12
         )
         let bare = hex(try snapshot(window), backdrop)
+        // The blocked pane's status line breathes into its header, so two
+        // snapshots of the same view differ by a few units there; a backdrop
+        // dims by far more.
+        let breath = 3
 
         showRtRun(harness.viewModel, linked: "term_src")
         await settle(window)
-        XCTAssertEqual(hex(try snapshot(window), backdrop), bare, "another pane's modal is drawn over the shown one")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(try snapshot(window), backdrop), bare), breath, "another pane's modal is drawn over the shown one"
+        )
         navigator.backToOverview()
         await settle(window)
         await rt.settle()
@@ -2287,7 +2220,9 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         showRtRun(harness.viewModel, linked: "term_build")
         await settle(window)
-        XCTAssertNotEqual(hex(try snapshot(window), backdrop), bare, "the shown pane's own modal is not drawn")
+        XCTAssertGreaterThan(
+            hexChannelDistance(hex(try snapshot(window), backdrop), bare), breath, "the shown pane's own modal is not drawn"
+        )
         navigator.backToOverview()
         await settle(window)
         await rt.settle()
@@ -2420,11 +2355,12 @@ final class ChromeRenderTests: XCTestCase {
         let card = try XCTUnwrap(harness.missionCardFrame(of: GridFixture.buildPane), "the blocked pane is a Needs-you card")
         XCTAssertEqual(harness.modeStore.missionSelection, GridFixture.buildPane, "\(id): the first open selects the top card")
         XCTAssertEqual(
-            hex(image, CGPoint(x: card.minX + ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)), theme.palette.accent.hex,
-            "\(id): the selected card wears the selection outline, over its blocked one"
+            hex(image, CGPoint(x: card.minX + ChromeMetrics.selectionOutlineWidth / 2, y: card.midY)),
+            theme.palette.chromeRoles.hairFocus.hex,
+            "\(id): the selected card wears the focus hairline, over its blocked outline"
         )
         XCTAssertNotEqual(
-            hex(image, CGPoint(x: card.minX - 1, y: card.midY)), theme.palette.accent.hex,
+            hex(image, CGPoint(x: card.minX - 1, y: card.midY)), theme.palette.chromeRoles.hairFocus.hex,
             "\(id): the selection outline is drawn inside the card"
         )
 
@@ -2502,7 +2438,8 @@ final class ChromeRenderTests: XCTestCase {
             let herdWindow = inHerd.makeWindow(size: Self.windowSize)
             await settle(herdWindow)
             let herdSelected = try snapshot(herdWindow)
-            let stripBox = CGRect(x: RailWidth.default, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width - RailWidth.default, height: ChromeMetrics.Strip.height)
+            // The tab strip shares the title bar's row.
+            let stripBox = CGRect(x: RailWidth.default, y: 0, width: Self.windowSize.width - RailWidth.default, height: ChromeMetrics.Strip.height)
             // Quiet in the rail, not once you have gone in: opening a herd is
             // asking to see its workers, and a blocked one still shows it.
             XCTAssertGreaterThan(count(red, in: stripBox, of: herdSelected), 0, "\(id): a herd's blocked worker tab keeps its red dot")
@@ -2639,18 +2576,20 @@ final class ChromeRenderTests: XCTestCase {
                     XCTAssertGreaterThan(
                         viewport.height, Self.dockFloorForTheLists, "\(name): the dock squeezed the lists to \(viewport.height)pt"
                     )
-                    // The dock's top rule runs the rail's width just under the
-                    // lists, one step off the chrome it separates.
+                    // The dock sits on the rail's own chrome: no rule and no
+                    // band of its own between it and the lists.
                     XCTAssertEqual(
-                        hex(image, CGPoint(x: width / 2, y: railFrame.maxY + 0.25)), theme.palette.chromeRoles.rule.hex,
-                        "\(name): no rule between the lists and the dock"
+                        hex(image, CGPoint(x: width / 2, y: railFrame.maxY + 0.25)), theme.palette.chromeRoles.chrome.hex,
+                        "\(name): the dock draws a rule or band of its own under the lists"
                     )
                     // Nothing of the dock reaches past the rail's edge into
-                    // the canvas: its bottom-left corner beside the rail is
-                    // the canvas colour, not a card.
-                    XCTAssertEqual(
-                        hex(image, CGPoint(x: width + 4, y: Self.windowSize.height - 20)),
-                        theme.palette.chromeRoles.canvas.hex, "\(name): something is drawn over the canvas beside the dock"
+                    // the canvas: beside the rail is the first pane's ground,
+                    // edge to edge, not a card.
+                    XCTAssertLessThanOrEqual(
+                        hexChannelDistance(
+                            hex(image, CGPoint(x: width + 4, y: Self.windowSize.height - 20)), theme.palette.chromeRoles.pane.hex
+                        ),
+                        Self.washDither, "\(name): something is drawn over the canvas beside the dock"
                     )
                     window.close()
                 }
@@ -2907,6 +2846,7 @@ final class ChromeRenderTests: XCTestCase {
                 linkTrustStore: linkTrustStore,
                 topBarLabelStore: TopBarLabelStore(userDefaults: defaults),
                 rearrangeAfterMoveStore: RearrangeAfterMoveStore(userDefaults: defaults),
+                paneAppearanceStore: PaneAppearanceStore(userDefaults: defaults),
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: RtModalTextSizeStore(userDefaults: defaults),
                 commandLineToolStore: CommandLineToolStore(
@@ -3117,10 +3057,11 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// Flock Dev's title bar: the DEV tag beside the title, and the restart
-    /// offer once a build with another stamp is on disk where this one was
-    /// launched from. PNGs go to `FLOCK_DEV_RENDER_DIR`.
-    func testFlockDevMarksItsTitleAndOffersARestartForANewerBuild() async throws {
+    /// Flock Dev's title bar: the DEV tag at the trailing cluster's head, and
+    /// the restart offer after it once a build with another stamp is on disk
+    /// where this one was launched from. The bar draws no title: its middle
+    /// is the tab strip's. PNGs go to `FLOCK_DEV_RENDER_DIR`.
+    func testFlockDevMarksItsBarAndOffersARestartForANewerBuild() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_DEV_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let builds = FileManager.default.temporaryDirectory.appendingPathComponent("flock-dev-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: builds) }
@@ -3133,8 +3074,6 @@ final class ChromeRenderTests: XCTestCase {
         )
         try plist.write(to: bundle.appendingPathComponent("Contents/Info.plist"))
 
-        // Wide enough that the title clears the view tabs with the Overview
-        // badge up: narrower, it hides rather than overlap them.
         let size = CGSize(width: Self.windowSize.width + 300, height: Self.windowSize.height)
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -3150,14 +3089,10 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("flock-dev-\(scheme)-\(id).png"))
             }
-            // The tag and the offer both paint in the theme's amber.
+            // The offer paints in the theme's amber; the tag is a quiet label.
             let amber = theme.palette.yellow.hex
-            let titleBar = CGRect(x: 0, y: 0, width: size.width, height: ChromeMetrics.TitleBar.height)
-            let centre = CGRect(x: size.width / 2, y: 0, width: 60, height: ChromeMetrics.TitleBar.height)
             let trailing = CGRect(x: size.width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
-            XCTAssertGreaterThan(count(amber, in: centre, of: image), 0, "\(scheme): no DEV tag beside the title")
             XCTAssertGreaterThan(count(amber, in: trailing, of: image), 0, "\(scheme): no restart offer at the right")
-            XCTAssertGreaterThan(count(amber, in: titleBar, of: image), 0)
             // The tab strip's scroll view reaches up through the system title
             // bar's safe area; every point of the pill must still reach the
             // pill rather than that scroll view.
@@ -3165,6 +3100,11 @@ final class ChromeRenderTests: XCTestCase {
                 count(amber, in: CGRect(x: $0, y: 0, width: 1, height: ChromeMetrics.TitleBar.height), of: image) > 0
             }
             let pillStart = try XCTUnwrap(pillColumns.first), pillEnd = try XCTUnwrap(pillColumns.last)
+            let tag = CGRect(x: pillStart - 80, y: 0, width: 80, height: ChromeMetrics.TitleBar.height)
+            XCTAssertGreaterThan(
+                inkCount(near: theme.palette.chromeRoles.textLabel.hex, in: tag, of: image), 0,
+                "\(scheme): no DEV tag ahead of the restart offer"
+            )
             for x in stride(from: pillStart + 2, to: pillEnd - 1, by: 4) {
                 let point = CGPoint(x: x, y: ChromeMetrics.TitleBar.height / 2)
                 XCTAssertFalse(isInsideScrollView(hitView(at: point, in: window)), "\(scheme): \(point) lands in a scroll view")
@@ -3442,7 +3382,7 @@ final class ChromeRenderTests: XCTestCase {
         let underline = hex(image, CGPoint(
             x: thumbnail.midX, y: thumbnail.minY + ChromeMetrics.Grid.tabStripHeight - ChromeMetrics.Grid.currentTabUnderline / 2
         ))
-        XCTAssertEqual(underline, theme.palette.accent.hex, "\(id): the focused tab's handle is underlined")
+        XCTAssertEqual(underline, theme.palette.chromeRoles.hairFocus.hex, "\(id): the focused tab's handle is underlined")
         window.close()
     }
 
@@ -3632,6 +3572,14 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A tile's read is a round trip through the client, which a hosted
+    /// runner can leave unanswered past one settle. Returns as soon as it lands.
+    private func settle(_ window: NSWindow, untilTailOf pane: PaneID, in viewModel: SessionViewModel) async {
+        for _ in 0..<20 where viewModel.paneTails[pane] == nil {
+            await settle(window)
+        }
+    }
+
     /// Drawn into an sRGB context so sampled bytes compare directly against
     /// the role hexes.
     private func snapshot(_ window: NSWindow, scale: CGFloat = 2) throws -> NSBitmapImageRep {
@@ -3667,55 +3615,66 @@ final class ChromeRenderTests: XCTestCase {
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
     }
 
-    /// Points are top-left, in the 900x560 window. Status samples sit on each
-    /// row's 8pt dot, which spans x 20 to 28: x 24 is its center and x 21 is
-    /// two points in, inside a hollow ring's stroke. Rows start at y 61 on a
-    /// 28pt pitch; tabs start at x 203 on a 103pt pitch, 28 tall on a strip
-    /// spanning y 26 to 62.
+    /// Points are top-left, in the 900x560 window, as a fresh install draws
+    /// it: panes edge to edge, focus by drain colour. Status samples sit on
+    /// each row's 8pt dot, which spans x 20 to 28: x 24 is its center and x
+    /// 21 is two points in, inside a hollow ring's stroke. Rows start at y 75
+    /// on a 28pt pitch. The tabs share the title bar's one row, pills 28 tall
+    /// from y 6; the selected `claude` pill spans x 409 to 509, its close
+    /// glyph ending at 490.
     ///
     /// Row 1 is the selected row AND an idle workspace, which is what pins
     /// that selection no longer takes the dot: its stroke has to be green,
-    /// not the accent, and its middle has to be the row's own selection fill
-    /// showing through the ring.
-    /// Inside a tab, clear of its label and its rounded top corners.
-    private static var tabGroundY: CGFloat { bar + ChromeMetrics.Strip.tabTopClearance + 6 }
-
+    /// not the accent, and its middle has to be the row's own `lift` showing
+    /// through the ring.
+    ///
+    /// The quiet chrome carries no accent at rest: neither the title bar nor
+    /// the canvas row may draw one.
     private func assertSamples(_ image: NSBitmapImageRep, theme: Theme) {
         let roles = theme.palette.chromeRoles
         let palette = theme.palette
-        let samples: [(String, CGPoint, RGB)] = [
+        let exact: [(String, CGPoint, RGB)] = [
             ("status/selectedRing", CGPoint(x: 21, y: Self.bar + 48), palette.green),
-            ("status/selectedHollow", CGPoint(x: 24, y: Self.bar + 48), roles.selection),
+            ("status/selectedHollow", CGPoint(x: 24, y: Self.bar + 48), roles.lift),
             ("status/blocked", CGPoint(x: 24, y: Self.bar + 76), palette.red),
             ("status/working", CGPoint(x: 24, y: Self.bar + 104), palette.yellow),
             ("status/done", CGPoint(x: 24, y: Self.bar + 132), palette.teal),
             ("status/idleRing", CGPoint(x: 21, y: Self.bar + 160), palette.green),
             ("status/idleHollow", CGPoint(x: 24, y: Self.bar + 160), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
-            ("chrome/strip", CGPoint(x: 700, y: Self.bar + 4), roles.chrome),
+            ("chrome/restTab", CGPoint(x: 275, y: Self.bar / 2), roles.chrome),
+            ("lift/selectedTab", CGPoint(x: 500, y: Self.bar / 2), roles.lift),
+            ("lift/selectedView", CGPoint(x: 88, y: Self.bar / 2), roles.lift),
+            ("hair/title", CGPoint(x: 700, y: Self.bar - 0.75), roles.hair),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
-            ("rule/rail", CGPoint(x: 192.25, y: 400), roles.rule),
-            ("selection/row", CGPoint(x: 100, y: Self.bar + 38), roles.selection),
-            ("tabRest", CGPoint(x: 253, y: Self.tabGroundY), roles.tabRest),
-            ("selection/tab", CGPoint(x: 459, y: Self.tabGroundY), roles.selection),
-            ("accent/underline", CGPoint(x: 459, y: Self.bar + ChromeMetrics.Strip.height - 0.75), roles.accent),
-            ("rule/strip", CGPoint(x: 700, y: Self.bar + ChromeMetrics.Strip.height + 0.25), roles.rule),
-            ("canvas/margin", CGPoint(x: 196, y: 400), roles.canvas),
-            ("paneBorder", CGPoint(x: 199.25, y: 400), roles.paneBorder),
-            ("pane", CGPoint(x: 300, y: 400), roles.pane),
-            ("canvas/gutter", CGPoint(x: 546, y: 400), roles.canvas),
-            ("accent/focusedLeading", CGPoint(x: 551.25, y: 400), roles.accent),
-            ("accent/focused", CGPoint(x: 893.25, y: 400), roles.accent),
+            ("hair/rail", CGPoint(x: 192.25, y: 400), roles.hair),
+            ("lift/row", CGPoint(x: 100, y: Self.bar + 38), roles.lift),
+            ("hair/gutter", CGPoint(x: 546.25, y: 400), roles.hair),
         ]
-        for (name, point, expected) in samples {
+        for (name, point, expected) in exact {
             XCTAssertEqual(hex(image, point), expected.hex, "\(theme.id) \(name) at \(point)")
+        }
+        // A pane's ground under the drain shade lands a byte either side.
+        let panes: [(String, CGPoint)] = [
+            ("pane/noMargin", CGPoint(x: 196, y: 400)), ("pane", CGPoint(x: 300, y: 400)),
+            ("pane/noFocusBorder", CGPoint(x: 551.25, y: 400)), ("pane/focused", CGPoint(x: 700, y: 400)),
+        ]
+        for (name, point) in panes {
+            XCTAssertLessThanOrEqual(
+                hexChannelDistance(hex(image, point), roles.pane.hex), Self.washDither, "\(theme.id) \(name) at \(point)"
+            )
+        }
+        for row in [Self.bar / 2, 400] {
+            let accent = stride(from: 0, to: Self.windowSize.width, by: 0.5).first { hex(image, CGPoint(x: $0, y: row)) == roles.accent.hex }
+            XCTAssertNil(accent, "\(theme.id): an accent pixel on row \(row) at x \(accent ?? 0)")
         }
     }
 
     /// The rail is drawn at the width the user left it at, and the canvas
     /// starts where the rail stops. Read along y 400, the same row
     /// `assertSamples` reads the resting window on, where the default rail
-    /// puts its rule at x 192.25 and the first pane's border at x 199.25.
+    /// puts its `hair` rule at x 192.25 and the first pane, edge to edge,
+    /// starts right after it.
     ///
     /// 260 is inside the bounds at this 900pt window (`RailWidth`), so the
     /// whole difference from the default render is the 68pt the rail gained
@@ -3729,31 +3688,38 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
 
+        XCTAssertEqual(hex(image, CGPoint(x: 192.25, y: 400)), roles.chrome.hex, "the rule stayed at the default width")
         XCTAssertEqual(hex(image, CGPoint(x: 240, y: 400)), roles.chrome.hex, "the rail stopped short of 260")
-        XCTAssertEqual(hex(image, CGPoint(x: 260.25, y: 400)), roles.rule.hex, "the rail's rule is not at its new edge")
-        XCTAssertEqual(hex(image, CGPoint(x: 264, y: 400)), roles.canvas.hex, "the canvas does not start after the rule")
-        XCTAssertEqual(hex(image, CGPoint(x: 267.25, y: 400)), roles.paneBorder.hex, "the first pane did not move with the canvas")
+        XCTAssertEqual(hex(image, CGPoint(x: 260.25, y: 400)), roles.hair.hex, "the rail's rule is not at its new edge")
+        XCTAssertLessThanOrEqual(
+            hexChannelDistance(hex(image, CGPoint(x: 262, y: 400)), roles.pane.hex), Self.washDither,
+            "the first pane does not start right after the rule"
+        )
     }
 
     /// A zoomed tab, read along the same row `assertSamples` reads the resting
-    /// canvas on (y 400, clear of the divider's own 51pt handle). At rest that
-    /// row crosses, in order: the canvas margin, the unfocused left pane's
+    /// canvas on (y 400, clear of the divider's own 51pt handle), boxed with
+    /// the brighter border so focus has an edge to read. At rest that row
+    /// crosses, in order: the canvas margin, the unfocused left pane's `hair`
     /// border, its body, the gutter between the boxes, the focused pane's
-    /// accent border, its body, and its far accent border. Zoomed, herdr's
-    /// renderer holds the focused pane open over the whole tab area, so the
-    /// gutter and the left pane's own border have to be that pane's body and
-    /// its accent border instead -- a canvas still drawing both boxes fails on
-    /// the gutter, and one drawing the wrong pane over the whole area fails on
-    /// the border color, which only the focused pane wears.
+    /// `hairFocus` border, its body, and its far `hairFocus` border. Zoomed,
+    /// herdr's renderer holds the focused pane open over the whole tab area,
+    /// so the gutter and the left pane's own border have to be that pane's
+    /// body and its `hairFocus` border instead -- a canvas still drawing both
+    /// boxes fails on the gutter, and one drawing the wrong pane over the
+    /// whole area fails on the border color, which only the focused pane
+    /// wears.
     func testAZoomedTabDrawsItsHeldPaneAcrossTheWholeCanvas() async throws {
         let theme = Theme.tokyoNight
         let roles = theme.palette.chromeRoles
-        let resting = try await Harness(theme: theme, model: try Fixture.model())
+        let resting = try await Harness(theme: theme, model: try Fixture.model(), paneLayout: .boxed, focusStyle: .brighterBorder)
         let restingWindow = resting.makeWindow(size: Self.windowSize)
         await settle(restingWindow)
         let restingImage = try snapshot(restingWindow)
 
-        let zoomed = try await Harness(theme: theme, model: try Fixture.model(zoomed: true))
+        let zoomed = try await Harness(
+            theme: theme, model: try Fixture.model(zoomed: true), paneLayout: .boxed, focusStyle: .brighterBorder
+        )
         let zoomedWindow = zoomed.makeWindow(size: Self.windowSize)
         await settle(zoomedWindow)
         let zoomedImage = try snapshot(zoomedWindow)
@@ -3768,12 +3734,12 @@ final class ChromeRenderTests: XCTestCase {
         let farBorder = CGPoint(x: 893.25, y: 400)
 
         XCTAssertEqual(hex(restingImage, gutter), roles.canvas.hex, "the resting canvas draws no gutter, so the zoomed check below proves nothing")
-        XCTAssertEqual(hex(restingImage, leftBorder), roles.paneBorder.hex, "the resting canvas does not put an unfocused pane at the left edge")
+        XCTAssertEqual(hex(restingImage, leftBorder), roles.hair.hex, "the resting canvas does not put an unfocused pane at the left edge")
 
         XCTAssertEqual(hex(zoomedImage, gutter), roles.pane.hex, "the gutter between the two boxes is still drawn: the zoomed pane does not fill the canvas")
         XCTAssertEqual(hex(zoomedImage, focusedBorder), roles.pane.hex, "a box edge is still drawn mid-canvas")
-        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.accent.hex, "the pane at the canvas's left edge is not the focused one the zoom holds open")
-        XCTAssertEqual(hex(zoomedImage, farBorder), roles.accent.hex, "the pane at the canvas's right edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.hairFocus.hex, "the pane at the canvas's left edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, farBorder), roles.hairFocus.hex, "the pane at the canvas's right edge is not the focused one the zoom holds open")
 
         zoomedWindow.close()
         restingWindow.close()
@@ -3807,7 +3773,8 @@ final class ChromeRenderTests: XCTestCase {
     /// focused view draws it. The fixture's tab is zoomed on `w1:p2` and its
     /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
     /// layout's own zoom or the main window's focus leaks through: the box
-    /// spanning the row must be `w1:p1`'s and must wear the accent border,
+    /// spanning the row must be `w1:p1`'s and must wear the focus border
+    /// (boxed, brighter border, the one style that draws focus as an edge),
     /// with no canvas-coloured gutter anywhere along it. Only `w1:p1`'s program
     /// holds the mouse, so a bar that gains a button when it does names the
     /// pane drawn and shows the controls survive solo. No drag grip is drawn,
@@ -3820,7 +3787,9 @@ final class ChromeRenderTests: XCTestCase {
             let roles = theme.palette.chromeRoles
             var model = try Fixture.model(zoomed: true)
             model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
-            let harness = try await Harness(theme: theme, model: model, mouseHolders: [solo])
+            let harness = try await Harness(
+                theme: theme, model: model, mouseHolders: [solo], paneLayout: .boxed, focusStyle: .brighterBorder
+            )
             let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
             await settle(window)
             let image = try snapshot(window)
@@ -3832,10 +3801,10 @@ final class ChromeRenderTests: XCTestCase {
             let rowY = Self.windowSize.height / 2
             var accents: [CGFloat] = []
             for x in stride(from: CGFloat(0), to: Self.windowSize.width, by: 0.5)
-            where hex(image, CGPoint(x: x, y: rowY)) == roles.accent.hex {
+            where hex(image, CGPoint(x: x, y: rowY)) == roles.hairFocus.hex {
                 accents.append(x)
             }
-            let first = try XCTUnwrap(accents.first, "\(scheme): no accent border on the row: the solo pane does not hold the keyboard")
+            let first = try XCTUnwrap(accents.first, "\(scheme): no focus border on the row: the solo pane does not hold the keyboard")
             let last = try XCTUnwrap(accents.last)
             let slack = ChromeMetrics.Canvas.margin + DividerBand.gutter + 2
             XCTAssertLessThan(first, slack, "\(scheme): the solo box does not start at the canvas's leading edge")
@@ -3847,14 +3816,15 @@ final class ChromeRenderTests: XCTestCase {
 
             let midX = Self.windowSize.width / 2
             let top = try XCTUnwrap(
-                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first { hex(image, CGPoint(x: midX, y: $0)) == roles.accent.hex },
-                "\(scheme): the solo box has no accent top border"
+                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first { hex(image, CGPoint(x: midX, y: $0)) == roles.hairFocus.hex },
+                "\(scheme): the solo box has no focus top border"
             )
+            // `w1:p1` is a shell, so its header is the compact one.
             let legend = CGRect(
-                x: midX, y: top + PaneChrome.titleRowTop,
+                x: midX, y: top + PaneChrome.titleRowTop(compact: true),
                 width: last - PaneChrome.horizontalPadding - midX, height: PaneChrome.titleRowHeight
             )
-            let quiet = try await Harness(theme: theme, model: model)
+            let quiet = try await Harness(theme: theme, model: model, paneLayout: .boxed, focusStyle: .brighterBorder)
             let quietWindow = quiet.makeCanvasWindow(size: Self.windowSize, solo: solo)
             await settle(quietWindow)
             let quietImage = try snapshot(quietWindow)
@@ -3884,14 +3854,14 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The solo pane gives the keyboard up to an rt modal opened from it, as
-    /// the main canvas does to any modal: its box loses the accent border.
+    /// the main canvas does to any modal: its box loses the focus border.
     /// A modal from another pane, never drawn over it, leaves it focused.
     func testASoloPaneYieldsTheKeyboardOnlyToItsOwnRtModal() async throws {
         let solo = PaneID(rawValue: "w1:p1")
         var model = try Fixture.model(zoomed: true)
         model.panes[solo]?.terminalID = TerminalID(rawValue: "term_p1")
-        let harness = try await Harness(theme: .tokyoNight, model: model)
-        let accent = Theme.tokyoNight.palette.chromeRoles.accent.hex
+        let harness = try await Harness(theme: .tokyoNight, model: model, paneLayout: .boxed, focusStyle: .brighterBorder)
+        let accent = Theme.tokyoNight.palette.chromeRoles.hairFocus.hex
         let rowY = Self.windowSize.height / 2
         func holdsKeyboard() async throws -> Bool {
             let window = harness.makeCanvasWindow(size: Self.windowSize, solo: solo)
@@ -3910,9 +3880,11 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertFalse(underOwn, "the solo pane kept the keyboard from its own modal")
     }
 
+    /// Ignores the status line's wash, which tints a header by a few units.
     private func firstPointDiffering(in rect: CGRect, from target: String, of image: NSBitmapImageRep) -> CGPoint? {
         for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
-            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) where hex(image, CGPoint(x: x, y: y)) != target {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5)
+            where hexChannelDistance(hex(image, CGPoint(x: x, y: y)), target) > Self.inkThreshold {
                 return CGPoint(x: x, y: y)
             }
         }
@@ -3931,7 +3903,7 @@ final class ChromeRenderTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         // The selected tab's own midpoint, the selected rail row's, and a
         // point inside the focused pane -- the three sampled in `assertSamples`.
-        let tabPoint = CGPoint(x: 459, y: Self.tabGroundY)
+        let tabPoint = CGPoint(x: 440, y: Self.bar / 2)
         let railPoint = CGPoint(x: 100, y: Self.bar + 38)
         let panePoint = CGPoint(x: 700, y: 400)
 
@@ -3992,59 +3964,48 @@ final class ChromeRenderTests: XCTestCase {
 
     }
 
-    /// Idle and unknown panes wear a dot too, so the bar always carries a
-    /// status: a pane with no dot shows the pane ground there.
-    func testEveryPaneWearsAStatusDot() async throws {
-        let theme = Theme.tokyoNight
-        let pane = PaneID(rawValue: "w1:p2")
-        for status in ["idle", "unknown", "working"] {
-            let harness = try await Harness(theme: theme, model: try Fixture.model(focusedPaneAgentStatus: status))
-            let window = harness.makeWindow(size: Self.windowSize)
-            await settle(window)
-            let image = try snapshot(window)
-            let box = PaneBox.frame(in: try XCTUnwrap(harness.drag.canvas.paneFrames[pane]), dividerThickness: DividerBand.gutter)
-            let dot = CGPoint(
-                x: box.minX + PaneChrome.horizontalPadding + ChromeMetrics.PaneBar.dotSize / 2, y: box.minY + Self.barCentre
-            )
-            XCTAssertNotEqual(hex(image, dot), theme.palette.chromeRoles.pane.hex, "\(status): no status dot at the title's leading edge")
-            window.close()
-        }
-    }
-
-    /// The dot leads the title. The same window is drawn idle and working: the
-    /// dot is the only difference, so every changed pixel has to land in the
-    /// row's leading half.
-    func testTheStatusDotLeadsTheTitle() async throws {
+    /// A pane's status rides the line under its header, not a dot in it. The
+    /// same zoomed window is drawn idle and working: along the line the two
+    /// differ by a whole colour, while across the title row they differ by no
+    /// more than the line's own wash rising into the header, which a dot
+    /// would exceed. A pane with no status draws a plain `hair` rule there.
+    func testAPanesStatusRidesItsLineNotAHeaderDot() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let pane = PaneID(rawValue: "w1:p2")
         for (theme, scheme) in [(Theme.tokyoNight, "dark"), (Theme(.tokyoNightDay), "light")] {
-            var images: [NSBitmapImageRep] = []
+            var images: [String: NSBitmapImageRep] = [:]
             var frame: CGRect?
-            for status in ["idle", "working"] {
+            for status in ["idle", "working", "unknown"] {
                 let harness = try await Harness(theme: theme, model: try Fixture.model(zoomed: true, focusedPaneAgentStatus: status))
                 let window = harness.makeWindow(size: Self.windowSize)
                 await settle(window)
-                images.append(try snapshot(window))
+                images[status] = try snapshot(window)
                 frame = harness.drag.canvas.paneFrames[pane]
                 window.close()
             }
+            let idle = try XCTUnwrap(images["idle"]), working = try XCTUnwrap(images["working"])
             if let directory {
-                try XCTUnwrap(images[1].representation(using: .png, properties: [:]))
+                try XCTUnwrap(working.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("pane-bar-status-\(scheme).png"))
             }
-            let box = PaneBox.frame(in: try XCTUnwrap(frame), dividerThickness: DividerBand.gutter)
-            let row = CGRect(
-                x: box.minX, y: box.minY + PaneChrome.titleRowTop,
-                width: box.width, height: PaneChrome.titleRowHeight
-            )
-            var dotEnd: CGFloat?
-            for y in stride(from: row.minY, to: row.maxY, by: 0.5) {
-                for x in stride(from: row.minX, to: row.maxX, by: 0.5)
-                where hex(images[0], CGPoint(x: x, y: y)) != hex(images[1], CGPoint(x: x, y: y)) {
-                    dotEnd = max(dotEnd ?? x, x)
+            let box = PaneBox.frame(in: try XCTUnwrap(frame), dividerThickness: Self.paneGutter)
+            var titleRowChange = 0
+            for y in stride(from: box.minY + PaneChrome.titleRowTop, to: box.minY + PaneChrome.titleRowTop + PaneChrome.titleRowHeight, by: 0.5) {
+                for x in stride(from: box.minX, to: box.maxX, by: 0.5) {
+                    titleRowChange = max(titleRowChange, hexChannelDistance(hex(idle, CGPoint(x: x, y: y)), hex(working, CGPoint(x: x, y: y))))
                 }
             }
-            XCTAssertLessThan(try XCTUnwrap(dotEnd, "\(scheme): no status dot drew"), box.midX, "\(scheme): the status dot is not beside the title")
+            XCTAssertLessThanOrEqual(titleRowChange, Self.inkThreshold, "\(scheme): the header itself changes with the status, as a dot would")
+
+            let lineY = box.minY + PaneChrome.statusLineTop(compact: false) + ChromeMetrics.Pane.StatusLine.height / 2
+            let lineChange = stride(from: box.minX, to: box.maxX, by: 0.5).map {
+                hexChannelDistance(hex(idle, CGPoint(x: $0, y: lineY)), hex(working, CGPoint(x: $0, y: lineY)))
+            }.max() ?? 0
+            XCTAssertGreaterThan(lineChange, Self.inkThreshold, "\(scheme): the status line does not carry the status")
+            XCTAssertEqual(
+                hex(try XCTUnwrap(images["unknown"]), CGPoint(x: box.midX, y: lineY)), theme.palette.chromeRoles.hair.hex,
+                "\(scheme): a pane with no status draws no plain rule under its header"
+            )
         }
     }
 
@@ -4229,9 +4190,11 @@ final class ChromeRenderTests: XCTestCase {
     /// Where the palette box's top lands in the window: the root is taller
     /// than `windowSize` by the system title bar, so the tab area is read
     /// from the window rather than worked out from the size asked for.
+    /// The tab area runs from the window's top edge: its strip shares the
+    /// title bar's row.
     private func paletteTop(_ window: NSWindow) -> CGFloat {
         let height = window.contentView?.bounds.height ?? Self.windowSize.height
-        return ChromeMetrics.TitleBar.height + ChromeMetrics.Palette.top(inTabAreaHeight: height - ChromeMetrics.TitleBar.height)
+        return ChromeMetrics.Palette.top(inTabAreaHeight: height)
     }
 
     /// The full-height palette (an empty search, the list at its maximum) is
@@ -4269,7 +4232,7 @@ final class ChromeRenderTests: XCTestCase {
                 }
             }
             let rows = try paletteRows(harness, window)
-            XCTAssertNotNil(firstPixel(empty, in: rows, matching: theme.palette.chromeRoles.selection.hex), "\(id): no selected row")
+            XCTAssertNotNil(firstPixel(empty, in: rows, matching: theme.palette.chromeRoles.lift.hex), "\(id): no selected row")
             XCTAssertNotNil(
                 firstPixel(typed, in: firstRowName(harness, window), near: theme.palette.accent.hex, within: Self.glyphEdgeTolerance),
                 "\(id): no highlighted letters"
@@ -4303,13 +4266,11 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertEqual(harness.switcher.selected, last)
             typealias Metrics = ChromeMetrics.Palette
             let height = try XCTUnwrap(window.contentView?.bounds.height)
-            let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Switcher.top(
-                inTabAreaHeight: height - ChromeMetrics.TitleBar.height, rowCount: workspaces.count
-            )
+            let top = ChromeMetrics.Switcher.top(inTabAreaHeight: height, rowCount: workspaces.count)
             let rail = harness.railWidth.width
             let x = rail + (Self.windowSize.width - rail) / 2 + ChromeMetrics.Switcher.width / 4
             let selected = try XCTUnwrap(
-                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: 200), matching: theme.palette.chromeRoles.selection.hex),
+                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: 200), matching: theme.palette.chromeRoles.lift.hex),
                 "\(id): no selected row"
             )
             let secondRow = top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth + Metrics.listPadding + Metrics.rowHeight + 1
@@ -4344,10 +4305,8 @@ final class ChromeRenderTests: XCTestCase {
             }
             let height = try XCTUnwrap(window.contentView?.bounds.height)
             let rail = harness.railWidth.width + ChromeMetrics.ruleWidth
-            let tabArea = CGRect(
-                x: rail, y: ChromeMetrics.TitleBar.height,
-                width: Self.windowSize.width - rail, height: height - ChromeMetrics.TitleBar.height
-            )
+            // From the window's top edge: the tab strip shares the title bar.
+            let tabArea = CGRect(x: rail, y: 0, width: Self.windowSize.width - rail, height: height)
             let box = ChromeModal<EmptyView, EmptyView, EmptyView>.boxFrame(
                 in: tabArea.size, origin: tabArea.origin, scale: window.backingScaleFactor,
                 fraction: ChromeMetrics.Modal.sizeFraction(.medium)
@@ -4500,22 +4459,22 @@ final class ChromeRenderTests: XCTestCase {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("switcher-long-\(id).png")
                 try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
             }
-            let tabArea = try XCTUnwrap(window.contentView?.bounds.height) - ChromeMetrics.TitleBar.height
+            let tabArea = try XCTUnwrap(window.contentView?.bounds.height)
             let top = ChromeMetrics.Switcher.top(inTabAreaHeight: tabArea, rowCount: workspaces.count)
             XCTAssertGreaterThanOrEqual(top, ChromeMetrics.Strip.height + ChromeMetrics.Switcher.margin - 0.5, "\(id): the box rides into its top margin")
-            let listTop = ChromeMetrics.TitleBar.height + top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth
+            let listTop = top + ChromeMetrics.Switcher.headerHeight + ChromeMetrics.ruleWidth
             let listHeight = ChromeMetrics.Switcher.maxListHeight(inTabAreaHeight: tabArea)
             let rail = harness.railWidth.width
             let x = rail + (Self.windowSize.width - rail) / 2 + ChromeMetrics.Switcher.width / 4
             let selected = try XCTUnwrap(
-                firstPixel(image, in: CGRect(x: x, y: listTop, width: 0, height: listHeight), matching: theme.palette.chromeRoles.selection.hex),
+                firstPixel(image, in: CGRect(x: x, y: listTop, width: 0, height: listHeight), matching: theme.palette.chromeRoles.lift.hex),
                 "\(id): the last row's selection is not in view"
             )
             XCTAssertGreaterThan(selected.y, listTop + listHeight / 2, "\(id): the list did not scroll to its last row")
             let boxRight = rail + (Self.windowSize.width - rail + ChromeMetrics.Switcher.width) / 2
             let rowEnd = CGPoint(x: boxRight - ChromeMetrics.Palette.listPadding - 3, y: selected.y + ChromeMetrics.Palette.rowHeight / 2)
             XCTAssertLessThanOrEqual(
-                channelDistance(hex(image, rowEnd), theme.palette.chromeRoles.selection.hex), 6, "\(id): a scroll gutter cuts the row short"
+                channelDistance(hex(image, rowEnd), theme.palette.chromeRoles.lift.hex), 6, "\(id): a scroll gutter cuts the row short"
             )
             let belowRow = CGPoint(x: x, y: selected.y + ChromeMetrics.Palette.rowHeight + 2)
             XCTAssertNotEqual(hex(image, belowRow), theme.palette.chromeRoles.rule.hex, "\(id): the last row sits on the footer rule")
@@ -4533,7 +4492,7 @@ final class ChromeRenderTests: XCTestCase {
         await settle(window)
         let image = try snapshot(window)
         let row = try XCTUnwrap(
-            firstPixel(image, in: try paletteRows(harness, window), matching: Theme.tokyoNight.palette.chromeRoles.selection.hex)
+            firstPixel(image, in: try paletteRows(harness, window), matching: Theme.tokyoNight.palette.chromeRoles.lift.hex)
         )
         click(window, at: row)
         await settle(window)
@@ -4673,7 +4632,7 @@ final class ChromeRenderTests: XCTestCase {
             let x = paletteBoxLeft(harness) + Metrics.width * 0.7
             let top = paletteTop(window) + Metrics.searchHeight
             let rowTop = try XCTUnwrap(
-                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: Metrics.maxListHeight), matching: theme.palette.chromeRoles.selection.hex),
+                firstPixel(image, in: CGRect(x: x, y: top, width: 0, height: Metrics.maxListHeight), matching: theme.palette.chromeRoles.lift.hex),
                 "\(id): no selected first row"
             ).y
             let listBottom = try XCTUnwrap(
@@ -4817,6 +4776,9 @@ private struct Harness {
     /// Arrange unless a test selects otherwise: every grid render that
     /// predates mission control measures Arrange.
     let modeStore: AllWorkspacesModeStore
+    /// Absent unless a test picks a layout or focus style, so a render shows
+    /// what a fresh install does.
+    let paneAppearance: PaneAppearanceStore?
 
     @MainActor func missionCardFrame(of pane: PaneID) -> CGRect? { MissionCardFrames.shared.frames[pane] }
 
@@ -4846,9 +4808,21 @@ private struct Harness {
         // keeps drawing each pane's own title.
         oneTitle: Bool = false,
         agentCloseWarning: AgentCloseWarningStore? = nil,
-        ghosttyFactory: (any GhosttyPaneFactory)? = nil
+        ghosttyFactory: (any GhosttyPaneFactory)? = nil,
+        paneLayout: PaneLayoutStyle? = nil,
+        focusStyle: PaneFocusStyle? = nil
     ) async throws {
         ChromeType.install()
+        if paneLayout != nil || focusStyle != nil {
+            let store = PaneAppearanceStore(
+                userDefaults: try XCTUnwrap(UserDefaults(suiteName: "flock-appearance-\(UUID().uuidString)"))
+            )
+            if let paneLayout { store.select(paneLayout) }
+            if let focusStyle { store.select(focusStyle) }
+            paneAppearance = store
+        } else {
+            paneAppearance = nil
+        }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: ChromeRenderTests.defaultsSuite))
         themeStore = ThemeStore(userDefaults: defaults)
         themeStore.select(theme)
@@ -4983,6 +4957,7 @@ private struct Harness {
             .environment(paletteRecents)
             .environment(switcher)
             .environment(tabSwitcher)
+            .environment(paneAppearance)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -5469,8 +5444,10 @@ extension ChromeRenderTests {
     /// The title bar's view tabs in each selected state, chosen through the
     /// same navigator the menu and the palette use, in a dark and a light
     /// theme. Workspaces keeps the rail, whose heading no longer carries a
-    /// grid button. PNGs are written only when `FLOCK_CHROME_RENDER_DIR` is set.
-    func testViewTabsSelectEachViewAndUnderlineOnlyTheSelectedTab() async throws {
+    /// grid button. The tabs are icons beside the window buttons, and only the
+    /// selected one stands on a `lift` square. PNGs are written only when
+    /// `FLOCK_CHROME_RENDER_DIR` is set.
+    func testViewTabsSelectEachViewAndLiftOnlyTheSelectedTab() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
@@ -5481,7 +5458,7 @@ extension ChromeRenderTests {
             let zoom = try XCTUnwrap(window.standardWindowButton(.zoomButton))
             let buttonsEnd = zoom.convert(zoom.bounds, to: nil).maxX
             let navigator = ViewTabNavigator(drag: harness.drag, mode: harness.modeStore)
-            var underlineStarts: [CGFloat] = []
+            var liftStarts: [CGFloat] = []
             for tab in ViewTab.allCases {
                 navigator.choose(tab)
                 await settle(window)
@@ -5493,15 +5470,16 @@ extension ChromeRenderTests {
                     try XCTUnwrap(image.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-tabs-\(tab.rawValue)-\(scheme)-\(id).png"))
                 }
-                let runs = accentRuns(in: image, width: Self.gridWindowSize.width, theme: theme)
-                XCTAssertEqual(runs.count, 1, "\(scheme) \(tab): one underline, under the selected tab only: \(runs)")
+                let runs = liftRuns(in: image, from: buttonsEnd, to: buttonsEnd + 120, theme: theme)
+                XCTAssertEqual(runs.count, 1, "\(scheme) \(tab): one lifted tab, the selected one only: \(runs)")
                 let run = try XCTUnwrap(runs.first)
-                XCTAssertGreaterThan(run.upperBound - run.lowerBound, 40, "\(scheme) \(tab)")
+                XCTAssertGreaterThan(run.upperBound - run.lowerBound, 16, "\(scheme) \(tab)")
+                XCTAssertLessThan(run.upperBound - run.lowerBound, 40, "\(scheme) \(tab): the tab is not an icon square")
                 XCTAssertGreaterThan(run.lowerBound, buttonsEnd, "\(scheme) \(tab): the tabs run under the window buttons")
-                underlineStarts.append(run.lowerBound)
+                liftStarts.append(run.lowerBound)
             }
-            XCTAssertEqual(underlineStarts, underlineStarts.sorted(), "\(scheme): the underline does not follow tab order")
-            XCTAssertEqual(Set(underlineStarts).count, 3, "\(scheme)")
+            XCTAssertEqual(liftStarts, liftStarts.sorted(), "\(scheme): the lift does not follow tab order")
+            XCTAssertEqual(Set(liftStarts).count, 3, "\(scheme)")
             window.close()
         }
     }
@@ -5535,14 +5513,14 @@ extension ChromeRenderTests {
         XCTAssertEqual(harness.drag.gridFocusedPane, pane, "kept when Settings asks for the pane you had open")
     }
 
-    /// Below the main window's minimum, "flock" and its DEV tag hide rather
-    /// than run into the tabs. Rendered at a width where they still fit too.
-    func testTheTitleHidesBeforeItWouldOverlapTheTabs() async throws {
+    /// The bar is one row: the tab strip takes its middle, so no width draws
+    /// a title there, and Flock Dev's tag keeps to the trailing end.
+    func testTheTitleBarDrawsNoTitleAndKeepsItsDevTagTrailing() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme)
-            for (width, shows) in [(CGFloat(640), false), (CGFloat(900), true)] {
+            for width in [CGFloat(640), 900] {
                 let window = harness.makeTitleBarWindow(width: width, isDevBuild: true)
                 await settle(window)
                 let image = try snapshot(window)
@@ -5550,11 +5528,28 @@ extension ChromeRenderTests {
                     try XCTUnwrap(image.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("title-bar-\(Int(width))-\(scheme)-\(id).png"))
                 }
-                let centre = CGRect(x: width / 2 - 50, y: 0, width: 100, height: ChromeMetrics.TitleBar.height)
-                XCTAssertEqual(count(theme.palette.yellow.hex, in: centre, of: image) > 0, shows, "\(scheme) at \(width)")
+                let bar = ChromeMetrics.TitleBar.height - ChromeMetrics.ruleWidth
+                let centre = CGRect(x: width / 2 - 100, y: 0, width: 200, height: bar)
+                let label = theme.palette.chromeRoles.textLabel.hex
+                XCTAssertEqual(inkCount(near: label, in: centre, of: image), 0, "\(scheme) at \(width): something is drawn mid-bar")
+                XCTAssertEqual(count(theme.palette.yellow.hex, in: centre, of: image), 0, "\(scheme) at \(width): a title mid-bar")
+                let trailing = CGRect(x: width - 80, y: 0, width: 80, height: bar)
+                XCTAssertGreaterThan(inkCount(near: label, in: trailing, of: image), 0, "\(scheme) at \(width): no DEV tag at the right")
                 window.close()
             }
         }
+    }
+
+    /// Pixels within a glyph's antialiasing of `target`: small text lands few
+    /// pixels on the exact hex.
+    private func inkCount(near target: String, in rect: CGRect, of image: NSBitmapImageRep) -> Int {
+        var found = 0
+        for y in stride(from: rect.minY, to: rect.maxY, by: 0.5) {
+            for x in stride(from: rect.minX, to: rect.maxX, by: 0.5) where channelDistance(hex(image, CGPoint(x: x, y: y)), target) <= 12 {
+                found += 1
+            }
+        }
+        return found
     }
 
     /// The herdr update pill at the title bar's right: neutral for a plain
@@ -5719,15 +5714,16 @@ extension ChromeRenderTests {
         return (update, patch)
     }
 
-    /// Runs of the accent along the title bar's last row, in window points.
-    private func accentRuns(in image: NSBitmapImageRep, width: CGFloat, theme: Theme) -> [ClosedRange<CGFloat>] {
-        let accent = theme.palette.chromeRoles.accent.hex
-        let y = ChromeMetrics.TitleBar.height - 1
+    /// Runs of `lift` across the view tabs, read just inside a tab's top edge
+    /// where its glyph does not reach.
+    private func liftRuns(in image: NSBitmapImageRep, from: CGFloat, to: CGFloat, theme: Theme) -> [ClosedRange<CGFloat>] {
+        let lift = theme.palette.chromeRoles.lift.hex
+        let y = (ChromeMetrics.TitleBar.height - ChromeMetrics.TitleBar.tabHeight) / 2 + 3
         var runs: [ClosedRange<CGFloat>] = []
         var start: CGFloat?
         var last: CGFloat = 0
-        for x in stride(from: CGFloat(0), to: width, by: 1) {
-            if hex(image, CGPoint(x: x, y: y)) == accent {
+        for x in stride(from: from, to: to, by: 1) {
+            if hex(image, CGPoint(x: x, y: y)) == lift {
                 if start == nil { start = x }
                 last = x
             } else if let begun = start {

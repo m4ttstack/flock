@@ -29,7 +29,12 @@ enum ChromeMetrics {
     static let statusUnknownRatio: CGFloat = 0.5
 
     enum TitleBar {
-        static let height: CGFloat = 36
+        static let height: CGFloat = 40
+        static let trailingInset: CGFloat = 12
+        /// Between the DEV tag, the notices and the top-bar workspaces.
+        static let clusterGap: CGFloat = 12
+        /// An icon-only view tab, square so the three read as one control.
+        static let iconTabHorizontalPadding: CGFloat = 6
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
         /// The bar shows a machine notice's first sentence; the whole text is
@@ -52,13 +57,20 @@ enum ChromeMetrics {
         /// Clears the standard window buttons, which sit at the bar's
         /// leading edge.
         static let tabsLeadingInset: CGFloat = 86
-        static let tabHorizontalPadding: CGFloat = 14
+        static let tabHorizontalPadding: CGFloat = 10
+        static let tabHeight: CGFloat = 26
+        static let tabRadius = ChromeRadius.control
+        static let tabGap: CGFloat = 2
         static let badgeHeight: CGFloat = 16
         static let badgeHorizontalPadding: CGFloat = 5
         static let badgeFillOpacity: Double = 0.18
         static let tabGlyphSize: CGFloat = 12
+        static let iconTabGlyphSize: CGFloat = 14
+        static let tabGlyphStroke: CGFloat = 1.3
+        static let iconTabGap: CGFloat = 4
+        /// The Needs-you count on an icon-only Overview tab rides its corner.
+        static let iconBadgeOffset = CGSize(width: 5, height: -4)
         static let tabGlyphGap: CGFloat = 7
-        static let tabUnderline: CGFloat = 2
         /// A top-bar workspace is a menu-bar extra: a rounded button centred
         /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it
         /// shows no name.
@@ -153,8 +165,6 @@ enum ChromeMetrics {
         static let height: CGFloat = headerBandHeight
         static let horizontalPadding: CGFloat = 10
         static let tabGap: CGFloat = 3
-        /// Above a tab, which stands on the strip's rule.
-        static let tabTopClearance: CGFloat = 8
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
         /// padded label.
@@ -172,14 +182,11 @@ enum ChromeMetrics {
     /// with the bounds it is kept inside; `TabSizing` takes the measurement
     /// that rule is given.
     enum Tab {
-        static let height: CGFloat = Strip.height - Strip.tabTopClearance
+        static let height: CGFloat = 28
+        static let cornerRadius = ChromeRadius.control
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
-        static let underlineHeight: CGFloat = 3
-        /// The glyph leading a title borrowed from the tab's one pane.
-        static let paneGlyphWidth: CGFloat = 12
-        static let paneGlyphGap: CGFloat = 5
         /// The checkmark leading a tab marked complete.
         static let completeGlyphWidth: CGFloat = 12
         static let completeGlyphGap: CGFloat = 5
@@ -266,6 +273,95 @@ enum ChromeMetrics {
         static let scrollIndicatorInset: CGFloat = 4
         static let toastInset: CGFloat = 13
 
+        /// The Pane focus styles' marks (`PaneFocusStyle`).
+        enum Focus {
+            /// Pane ground over an unfocused pane, so its text fades.
+            /// `textStrong` over the focused pane: white on a dark theme,
+            /// near black on a light one, so it reads as `lift`.
+            static let liftWashOpacity: Double = 0.05
+            /// The fade as focus moves between panes.
+            static let transitionDuration: Double = 0.2
+            /// Drain colour and quiet chrome: what an unfocused pane's header,
+            /// status line and wash keep.
+            static let chromeFadeOpacity: Double = 0.45
+            /// The mouse and rt buttons on a pane without focus, in every style.
+            static let unfocusedToolOpacity: Double = 0.4
+        }
+
+        /// `PaneStatusLine`: the mock's shader values (R12), as points and seconds.
+        enum StatusLine {
+            /// Twice the title row's centre: as far below the centred chat chip
+            /// as the box's top edge is above it.
+            static let top: CGFloat = (PaneChrome.titleRowTop + PaneChrome.titleRowHeight / 2) * 2
+            static let height: CGFloat = 1
+            static let cometHeight: CGFloat = 1.5
+            static let frameInterval: Double = 1.0 / 60
+            /// One full sweep, right and back.
+            static let glintPeriod: Double = 4.4
+            static let glintHalfWidth: CGFloat = 0.45
+            static let glintRest: Double = 0.12
+            static let glintPeak: Double = 0.85
+            static let cometPeriod: Double = 3.2
+            static let cometTail: CGFloat = 0.85
+            /// A bright core with a halo, wider than the line it rides.
+            static let cometHeadSize: CGFloat = 7
+            /// Each period: crossing, then the impact burst, then a rest.
+            static let cometTravelShare: Double = 0.62
+            static let cometBurstShare: Double = 0.26
+            /// How much of the crossing is a constant push rather than steady
+            /// speed: 0 crosses evenly, 1 leaves from a standstill. The head
+            /// ends `(1 + this) / (1 - this)` times faster than it started.
+            static let cometAcceleration: Double = 0.6
+            static let cometFadeIn: Double = 0.1
+            /// The share of the burst the tail takes to pull into the impact.
+            static let cometTailRetract: Double = 0.35
+            static let cometBurstCanvas: CGFloat = 26
+            static let cometSparkCount = 11
+            /// Degrees, 180 straight back off the wall, 270 straight up: most
+            /// sparks leave back and upward, a few skim down.
+            static let cometSparkSpread: ClosedRange<Double> = 150...290
+            /// Points per second.
+            static let cometSparkSpeed: ClosedRange<Double> = 25...110
+            static let cometSparkSize: ClosedRange<CGFloat> = 1.4...3.2
+            /// Points per second squared: enough to carry a spark below the
+            /// line and into the terminal before it fades.
+            static let cometGravity: Double = 320
+            static let auroraStops = 16
+            static let auroraOpacity: Double = 0.55
+            static let workingBreathePeriod: Double = 3.4
+            /// A breathing line's width at its faintest, as a share of the
+            /// pane's; it reaches the full width at its brightest.
+            static let breatheNarrowest: CGFloat = 0.96
+            /// The share of the line at each end that fades in.
+            static let breatheFeather: Double = 0.06
+            static let workingLow: Double = 0.18
+            static let workingHigh: Double = 0.5
+            static let blockedPeriod: Double = 2.2
+            static let blockedLow: Double = 0.25
+            static let blockedHigh: Double = 0.75
+            static let doneOpacity: Double = 0.35
+            static let idleOpacity: Double = 0.22
+            /// Background work runs the working style in mauve at this share
+            /// of working's strength, this many times slower.
+            static let backgroundWorkIntensity: Double = 0.5
+            static let backgroundWorkSlowdown: Double = 1.6
+            /// The wash rises from the line to the box's top edge.
+            static let washHeight: CGFloat = top
+            /// The wash's strength at the line, as a share of the line's own.
+            static let washStrength: Double = 0.25
+            /// How much of that is left 30% of the way up: an ease-out fade.
+            static let washMidpoint: Double = 0.2
+        }
+
+
+        /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn
+        /// point, and the divider's grab band narrows to stay inside the
+        /// neighbours' padding, which no longer has a gutter in front of it.
+        enum EdgeToEdge {
+            static let gutter: CGFloat = 1
+            static let bandThickness: CGFloat = 2 * PaneChrome.flushSidePadding
+        }
+
         /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
         /// hover, inside a wider hit area.
         enum Grip {
@@ -279,16 +375,34 @@ enum ChromeMetrics {
         }
     }
 
-    /// The chat button's popover: the plugin's launcher, six bands stacked
-    /// with zero gap between them, each sized to its own row content rather
-    /// than sharing one uniform inset. `signedOutHeight`/`signedInHeight` are
-    /// each band's own height summed; a geometry test cross-checks the sum
-    /// against these named totals so the two can never drift apart.
+    /// `anchoredPanel`: a popover hung from its trigger's bottom-right corner.
+    enum AnchoredPanel {
+        static let gap: CGFloat = 4
+        /// How far the panel drops into place as it fades in.
+        static let dropDistance: CGFloat = 6
+        static let openDuration: Double = 0.12
+        static let closeDuration: Double = 0.08
+        static let surfaceLift: Double = 0.045
+        /// A soft lift off the UI below; the margin is clear window it is
+        /// drawn into, kept clear of the anchor's own edge.
+        static let shadowOpacity: Double = 0.3
+        static let shadowRadius: CGFloat = 10
+        static let shadowY: CGFloat = 4
+        static let shadowMargin: CGFloat = 18
+    }
+
+    /// The chat button's popover: header, status, the FEATURES label and the
+    /// feature rows, stacked with zero gap between them, each sized to its own
+    /// row content. `signedOutHeight`/`signedInHeight` are those bands summed
+    /// plus the bottom padding; a geometry test cross-checks the sum against
+    /// these named totals so the two can never drift apart.
     enum ChatPopover {
         static let width: CGFloat = 360
-        static let signedOutHeight: CGFloat = 325
-        static let signedInHeight: CGFloat = 348
-        static let cornerRadius: CGFloat = ChromeRadius.container
+        /// Seconds after a close in which a chip click is the closing click.
+        static let reopenGuard: Double = 0.35
+        static let signedOutHeight: CGFloat = 251
+        static let signedInHeight: CGFloat = 274
+        static let cornerRadius: CGFloat = ChromeRadius.surface
 
         enum Header {
             static let height: CGFloat = 41
@@ -352,25 +466,15 @@ enum ChromeMetrics {
             static let chevronSize = CGSize(width: 12, height: 12)
         }
 
-        /// One button spanning the band's full inner width (360 - the 14pt
-        /// insets on each side), zero top padding (the band sits flush under
-        /// THIS PANE's own bottom padding), 16 clear below it to the
-        /// popover's own bottom edge.
+        /// The small sign in or out button at the end of the status row.
         enum SignButtons {
-            static let bandHeight: CGFloat = 49
-            static let topPadding: CGFloat = 0
-            static let trailingPadding: CGFloat = 14
-            static let bottomPadding: CGFloat = 16
-            static let leadingPadding: CGFloat = 14
-            static let buttonSize = CGSize(width: 332, height: 33)
+            /// Under the features: the popover's own bottom padding.
+            static let bottomPadding: CGFloat = 8
             static let cornerRadius: CGFloat = ChromeRadius.control
-            static let buttonVerticalPadding: CGFloat = 9
-            static let buttonHorizontalPadding: CGFloat = 10
-            static let contentGap: CGFloat = 7
-            static let iconSize = CGSize(width: 13, height: 13)
-            /// The line under a disabled Sign out, which the band grows by.
-            static let hintGap: CGFloat = 7
-            static let hintHeight: CGFloat = 12
+            static let buttonVerticalPadding: CGFloat = 3
+            static let buttonHorizontalPadding: CGFloat = 6
+            static let contentGap: CGFloat = 5
+            static let iconSize = CGSize(width: 11, height: 11)
         }
     }
 
@@ -696,7 +800,7 @@ enum ChromeMetrics {
     /// no gap between them.
     enum RtPopover {
         static let width: CGFloat = 270
-        static let cornerRadius: CGFloat = ChromeRadius.container
+        static let cornerRadius: CGFloat = ChromeRadius.surface
 
         /// The 18pt folder chip is a point taller than the 17 the canvas's
         /// 12pt vertical padding leaves inside 41, so the height is fixed and

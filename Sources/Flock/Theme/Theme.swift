@@ -39,8 +39,14 @@ public struct Theme: Identifiable, Equatable, Sendable {
     /// the AA gate checks the pairing this actually draws.
     public let tabStripFill: Color
     public let tabStripTitle: Color
-    /// The selected tab and the selected workspace row.
+    /// The accent-tinted selection, kept for surfaces outside the quiet chrome.
     public let selection: Color
+    /// Neutral selection: the selected tab, view tab, workspace row and chip.
+    public let lift: Color
+    /// A resting pane border and the quiet chrome rules.
+    public let hair: Color
+    /// The focused pane's border.
+    public let hairFocus: Color
     public let textStrong: Color
     public let textDim: Color
     /// Headings, counts, resting status dots, the protocol readout and the
@@ -77,6 +83,9 @@ public struct Theme: Identifiable, Equatable, Sendable {
         tabStripFill = Color(roles.tabStripFill)
         tabStripTitle = Color(roles.tabStripTitle)
         selection = Color(roles.selection)
+        lift = Color(roles.lift)
+        hair = Color(roles.hair)
+        hairFocus = Color(roles.hairFocus)
         textStrong = Color(roles.textStrong)
         textDim = Color(roles.textDim)
         textLabel = Color(roles.textLabel)

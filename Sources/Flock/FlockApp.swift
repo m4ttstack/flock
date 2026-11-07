@@ -96,6 +96,7 @@ struct FlockApp: App {
     private let defaultSocketPath: String
 
     init() {
+        PopoverSnap.install()
         // The one setting that actually stops AppKit's legacy
         // `NSPersistentUIRestorationSupport` path (`_reopenWindowsAsNecessaryIncludingRestorableState`)
         // from running before this app's own window is ever created: a
@@ -217,6 +218,7 @@ struct FlockApp: App {
     private var terminalTextSizeStore: TerminalTextSizeStore { session.terminalTextSizeStore }
     private var rtModalSizeStore: RtModalSizeStore { session.rtModalSizeStore }
     private var topBarLabelStore: TopBarLabelStore { session.topBarLabelStore }
+    private var paneAppearanceStore: PaneAppearanceStore { session.paneAppearanceStore }
     private var topBarOverlaySizeStore: TopBarOverlaySizeStore { session.topBarOverlaySizeStore }
     private var rtModalTextSizeStore: RtModalTextSizeStore { session.rtModalTextSizeStore }
     private var optionAsAltStore: OptionAsAltStore { session.optionAsAltStore }
@@ -483,6 +485,7 @@ struct FlockApp: App {
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
                 .environment(topBarLabelStore)
+                .environment(paneAppearanceStore)
                 .environment(topBarOverlaySizeStore)
                 .environment(rtModalTextSizeStore)
                 .environment(optionAsAltStore)
@@ -550,11 +553,7 @@ struct FlockApp: App {
                 // A hand-run `herdr update` replaces the binary under a row
                 // that would otherwise keep describing the old one.
                 .onChange(of: viewModel.model?.herdrVersion) { herdrMousePatchStore.refresh() }
-                .onChange(of: herdrStore.model) {
-                    viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
-                }
                 .onChange(of: herdrStore.connection) {
-                    viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                     if case .notRunning = herdrStore.connection { return }
                     session.isStartingHerdr = false
                     session.herdrStartFailure = nil
@@ -914,6 +913,7 @@ struct FlockApp: App {
                 linkTrustStore: linkTrustStore,
                 topBarLabelStore: topBarLabelStore,
                 rearrangeAfterMoveStore: rearrangeAfterMoveStore,
+                paneAppearanceStore: paneAppearanceStore,
                 startingFolderStore: startingFolderStore,
                 rtModalTextSizeStore: rtModalTextSizeStore,
                 commandLineToolStore: commandLineToolStore,

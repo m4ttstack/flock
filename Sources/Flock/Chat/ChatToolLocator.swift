@@ -99,6 +99,12 @@ enum ChatToolLocator {
         return ChatSlackAgent.refusal(stdout: stdout, exitCode: exitCode)
     }
 
+    @Sendable
+    static func slackAgentIsGone(pane: String) async -> Bool {
+        guard let (stdout, exitCode) = await runTool("rt", arguments: ChatSlackAgent.listArguments) else { return false }
+        return ChatSlackAgent.paneIsGone(pane, stdout: stdout, exitCode: exitCode)
+    }
+
     /// A new agent can answer that it isn't running yet, so a clean failure is
     /// tried again here, where `typeIntoPane` takes it as maybe typed. A call
     /// cut off may have typed the line, and typing it twice opens two chats.

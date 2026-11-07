@@ -22,9 +22,14 @@ final class ChatSidebarTests: XCTestCase {
         XCTAssertEqual(chat("a", pane: "w2:p3").homePane, "w2:p3")
     }
 
-    func testAnUnlinkedBackgroundChatShowsOnEveryTab() {
+    func testAnUnlinkedBackgroundChatShowsOnNoTab() {
         let selection = ChatSidebarSelection(chat: chat("a", pane: "bg:w1:p1"), isEnded: false)
-        XCTAssertTrue(selection.isLinked(toTab: ["w2:p3"]))
+        XCTAssertFalse(selection.isLinked(toTab: ["w2:p3"]))
+    }
+
+    func testAChatWithNoPaneShowsOnNoTab() {
+        let selection = ChatSidebarSelection(chat: chat("a", pane: nil), isEnded: false)
+        XCTAssertFalse(selection.isLinked(toTab: ["w2:p3"]))
     }
 
     func testALinkedChatShowsOnlyOnItsPanesTab() {
@@ -75,6 +80,14 @@ final class ChatSidebarTests: XCTestCase {
         XCTAssertEqual(ChatSlackAgent.pane(stdout: reply, exitCode: 0), "bg:w1:p2")
         XCTAssertNil(ChatSlackAgent.pane(stdout: reply, exitCode: 1))
         XCTAssertNil(ChatSlackAgent.pane(stdout: Data("{}".utf8), exitCode: 0))
+    }
+
+    func testAPaneListSaysWhetherTheAgentPaneIsGone() {
+        let list = Data(#"{"ok":true,"panes":[{"paneId":"bg:w9:p1"}]}"#.utf8)
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p1", stdout: list, exitCode: 0))
+        XCTAssertTrue(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 0))
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 1))
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: Data("{}".utf8), exitCode: 0))
     }
 
     func testTheAgentStartsInTheBackgroundInTheRepo() {

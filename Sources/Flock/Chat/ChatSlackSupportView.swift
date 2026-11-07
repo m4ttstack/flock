@@ -89,7 +89,7 @@ struct ChatSlackSupportView: View {
             if peopleState == .unavailable {
                 Text("Can't check names right now. Enter the full name")
                     .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
             }
         }
         .padding(.top, ChromeMetrics.ChatSlack.PersonBand.topPadding)
@@ -106,11 +106,11 @@ struct ChatSlackSupportView: View {
             } else {
                 TextField(
                     "", text: Binding(get: { entry.query }, set: { entry.type($0) }),
-                    prompt: Text(personPrompt).foregroundStyle(theme.overlay0)
+                    prompt: Text(personPrompt).foregroundStyle(theme.textLabel)
                 )
                     .textFieldStyle(.plain)
                     .font(ChromeType.chatComposeFieldText)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(theme.textStrong)
                     .focused($focus, equals: .person)
                     .onSubmit(pickHighlighted)
                     .onKeyPress(.downArrow) { moveHighlight(by: 1) }
@@ -120,10 +120,10 @@ struct ChatSlackSupportView: View {
         }
         .padding(.horizontal, ChromeMetrics.ChatSlack.PersonBand.fieldHorizontalPadding(hasChip: entry.picked != nil))
         .frame(width: ChromeMetrics.ChatSlack.fieldWidth, height: ChromeMetrics.ChatSlack.PersonBand.fieldHeight)
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius).fill(Color(theme.palette.surface0)))
+        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius).fill(theme.lift))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius)
-                .strokeBorder(focus == .person ? theme.accent : Color(theme.palette.surface1), lineWidth: 1)
+                .strokeBorder(focus == .person ? theme.hairFocus : theme.hair, lineWidth: 1)
         )
     }
 
@@ -135,12 +135,12 @@ struct ChatSlackSupportView: View {
         HStack(spacing: ChromeMetrics.ChatSlack.PersonBand.chipGap) {
             Text(person.name)
                 .font(ChromeType.chatComposeFieldText)
-                .foregroundStyle(theme.text)
+                .foregroundStyle(theme.textStrong)
                 .lineLimit(1)
             Button(action: clearPerson) {
                 Image(systemName: "xmark")
                     .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.chipIconSize, weight: .bold))
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(theme.textLabel)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -149,17 +149,17 @@ struct ChatSlackSupportView: View {
         }
         .padding(.horizontal, ChromeMetrics.ChatSlack.PersonBand.chipHorizontalPadding)
         .frame(height: ChromeMetrics.ChatSlack.PersonBand.chipHeight)
-        .background(RoundedRectangle(cornerRadius: ChromeRadius.tiny).fill(Color(theme.palette.surface1)))
+        .background(RoundedRectangle(cornerRadius: ChromeRadius.tiny).fill(theme.hair))
     }
 
     @ViewBuilder
     private var personFieldStatus: some View {
         if peopleState == .loading {
-            ChatSpinner(color: theme.overlay0, size: ChromeMetrics.ChatSlack.PersonBand.statusIconSize)
+            ChatSpinner(color: theme.textLabel, size: ChromeMetrics.ChatSlack.PersonBand.statusIconSize)
         } else if peopleState != .unavailable {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: ChromeMetrics.ChatSlack.PersonBand.statusIconSize))
-                .foregroundStyle(theme.overlay0)
+                .foregroundStyle(theme.textLabel)
         }
     }
 
@@ -174,10 +174,10 @@ struct ChatSlackSupportView: View {
             }
             .padding(ChromeMetrics.ChatSlack.Results.padding)
             .frame(width: ChromeMetrics.ChatSlack.fieldWidth, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius).fill(Color(theme.palette.surface0)))
+            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius).fill(theme.lift))
             .overlay(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius)
-                    .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
+                    .strokeBorder(theme.hair, lineWidth: 1)
             )
             .offset(y: ChromeMetrics.ChatSlack.PersonBand.fieldHeight + ChromeMetrics.ChatSlack.Results.gap)
         }
@@ -188,13 +188,13 @@ struct ChatSlackSupportView: View {
             HStack(spacing: ChromeMetrics.ChatSlack.Results.rowGap) {
                 Text(person.name)
                     .font(ChromeType.chatComposeFieldText)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(theme.textStrong)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if let title = ChatSlackPeopleSearch.titleToShow(for: person, among: results) {
                     Text(title)
                         .font(ChromeType.chatComposeFooterHint)
-                        .foregroundStyle(theme.subtext0)
+                        .foregroundStyle(theme.textLabel)
                         .lineLimit(1)
                 }
             }
@@ -203,7 +203,7 @@ struct ChatSlackSupportView: View {
             .background {
                 if isHighlighted {
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatSlack.Results.rowCornerRadius)
-                        .fill(Color(theme.palette.selectionBg))
+                        .fill(theme.hair)
                 }
             }
             .contentShape(Rectangle())
@@ -219,20 +219,19 @@ struct ChatSlackSupportView: View {
                 cornerRadius: ChromeMetrics.ChatSlack.fieldCornerRadius,
                 verticalPadding: ChromeMetrics.ChatQuickSend.FieldBand.fieldVerticalPadding,
                 horizontalPadding: ChromeMetrics.ChatQuickSend.FieldBand.fieldHorizontalPadding,
-                stroke: focus == .problem ? theme.accent : Color(theme.palette.surface1)
+                isFocused: focus == .problem
             )
             .focused($focus, equals: .problem)
             HStack(spacing: 0) {
                 repoChip
                 Spacer(minLength: 0)
                 ChatComposeSendButton(
-                    theme: theme, title: "Start", fill: canStart ? theme.accent : Color(theme.palette.surface0),
+                    theme: theme, title: "Start",
                     size: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonSize,
                     cornerRadius: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonCornerRadius,
                     verticalPadding: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonVerticalPadding,
                     horizontalPadding: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonHorizontalPadding,
-                    gap: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonGap,
-                    labelColor: canStart ? nil : theme.overlay0, action: start
+                    gap: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonGap, action: start
                 )
                 .disabled(!canStart)
             }
@@ -250,7 +249,7 @@ struct ChatSlackSupportView: View {
             HStack(spacing: ChromeMetrics.ChatSlack.repoChipGap) {
                 Text("Reads")
                     .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                 Menu {
                     ForEach(repos) { choice in
                         Button(choice.name) { self.repo = choice }
@@ -260,7 +259,7 @@ struct ChatSlackSupportView: View {
                         .font(ChromeType.chatComposeFooterHint)
                 }
                 .menuStyle(.borderlessButton)
-                .tint(theme.text)
+                .tint(theme.textDim)
                 .fixedSize()
                 .disabled(repos.count < 2)
                 .help(repo.path)
@@ -270,7 +269,7 @@ struct ChatSlackSupportView: View {
     }
 
     private func label(_ text: String) -> some View {
-        Text(text).font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.overlay0)
+        Text(text).font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.textLabel)
     }
 
     private func pick(_ person: ChatSlackPerson) {

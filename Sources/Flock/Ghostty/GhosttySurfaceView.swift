@@ -1,7 +1,18 @@
 // Portions derived from Herdglass (BSL-1.1), Sources/Herdglass/Ghostty/TerminalSurfaceView.swift.
 import AppKit
+import CoreImage
 import GhosttyKit
 import FlockCore
+
+/// How far a terminal is set back: the share of its colour drained, and of
+/// its own ground laid over it, each 0 to 1.
+struct SurfaceShade: Equatable {
+    var drain: Double
+    var veil: Double
+    var ground: CGColor? = nil
+
+    static let none = SurfaceShade(drain: 0, veil: 0)
+}
 
 /// The `NSView` libghostty draws a surface into, and the AppKit end of its
 /// input: keys (including input methods), mouse, scroll and the context menu.
@@ -47,6 +58,70 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
+    /// Sets the terminal back while its pane has no focus: a colour blend
+    /// drains its colour toward its ground's own tint, and a veil in that
+    /// ground pulls everything toward it, lowering contrast without
+    /// darkening.
+    /// Both sit in this view's own layer tree: a blend sees only what lies
+    /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
+    /// scrim could darken only the ground libghostty leaves clear.
+    var shade = SurfaceShade.none {
+        didSet { applyShade() }
+    }
+
+    /// Run on every change and again whenever the view lands in a window or
+    /// lays out: the first shade can arrive before this view has a layer, and
+    /// a later identical value must still reach the layer it has by then.
+    private func applyShade() {
+        guard let layer else { return }
+        let changed = shade != appliedShade
+        // Nothing to lay down until a pane first loses focus; after that the
+        // layers stay and fade to nothing, so focus can fade both ways.
+        if shade == .none, drainLayer.superlayer == nil { return }
+        layerUsesCoreImageFilters = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if drainLayer.superlayer !== layer {
+            // A colour blend takes hue and saturation from this layer and
+            // brightness from what lies beneath. Filled with the terminal's
+            // own ground, it leaves that ground exactly as it was and turns
+            // text and cell colours toward it: drained, but in the theme's
+            // tint rather than a neutral grey that reads as another theme.
+            drainLayer.compositingFilter = CIFilter(name: "CIColorBlendMode")
+            for sublayer in [drainLayer, veilLayer] {
+                sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+                sublayer.zPosition = .greatestFiniteMagnitude
+                layer.addSublayer(sublayer)
+            }
+            // At what they were last faded to: a rebuilt layer takes them
+            // back as they were, and only a first attach starts from none.
+            drainLayer.opacity = Float(appliedShade.drain)
+            veilLayer.opacity = Float(appliedShade.veil)
+        }
+        drainLayer.frame = layer.bounds
+        veilLayer.frame = layer.bounds
+        if let ground = shade.ground {
+            drainLayer.backgroundColor = ground
+            veilLayer.backgroundColor = ground
+        }
+        CATransaction.commit()
+        guard changed else { return }
+        appliedShade = shade
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(ChromeMetrics.Pane.Focus.transitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        drainLayer.opacity = Float(shade.drain)
+        veilLayer.opacity = Float(shade.veil)
+        CATransaction.commit()
+    }
+
+    /// What the layers were last faded to, so a layout pass that re-applies
+    /// the same shade does not restart the fade.
+    private var appliedShade = SurfaceShade.none
+
+    private let drainLayer = CALayer()
+    private let veilLayer = CALayer()
+
     /// Whether this view should grab real AppKit key focus as soon as it has
     /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
     /// resolved-focused state. Read (not just written) from `updateNSView`
@@ -58,7 +133,16 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// `window` still nil -- silently lost, never retried, because nothing
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
-    var wantsFocus = false
+    /// Also gates link hover: an unfocused pane matches, underlines and
+    /// offers no links, so a pointer crossing it stays quiet.
+    var wantsFocus = false {
+        didSet {
+            guard oldValue, !wantsFocus else { return }
+            hoverPoint = nil
+            session.linkChip.dismiss()
+            setOverLink(nil)
+        }
+    }
     /// Set by `GhosttySurfaceRepresentable` from `RearrangeMode.active`.
     /// While true, `mouseDecision` forces every `MouseForwarding` result to
     /// `.drop` and `rightMouseDown` forces `RightClickDisposition` to
@@ -202,6 +286,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// or `layout()` runs -- there is no separate polling/retry timer.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyShade()
         updateObservers()
         applyBackgroundColor()
         if window == nil { return }
@@ -242,6 +327,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
 
     override func layout() {
         super.layout()
+        applyShade()
         // A layout pass follows the window settling on its new display, so
         // reasserting the scale here catches a display notification that
         // arrived before the window's backing scale actually updated, no
@@ -318,7 +404,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// Shift, Control and Option presses are a selection's, and a second
     /// press of a double click selects a word.
     private func linkUnderPress(_ event: NSEvent) -> PaneLink? {
-        guard !rearrangeActive, event.clickCount == 1,
+        guard wantsFocus, !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
         return session.link(at: event)
@@ -510,6 +596,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// chip, or the gap between it and its link, is the chip's, or the hover
     /// would follow the pointer onto whatever text the chip covers.
     private func trackLink(_ event: NSEvent) {
+        guard wantsFocus else { return }
         let point = topLeftPoint(event)
         let chip = session.linkChip.frame?.insetBy(dx: 0, dy: -ChromeMetrics.LinkChip.gap)
         if chip?.contains(point) == true { return }
@@ -521,7 +608,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// The pane drew again, and the text under a pointer that has not moved
     /// may no longer be the link it was.
     func refreshLinkHover() {
-        guard let hoverPoint, !rearrangeActive else { return }
+        guard wantsFocus, let hoverPoint, !rearrangeActive else { return }
         updateLink(at: hoverPoint)
     }
 

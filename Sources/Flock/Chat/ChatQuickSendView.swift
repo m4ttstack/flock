@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Chat quick send: one target chip selected at a time (`targets` prints
 /// rooms before people, prefixes intact -- `quick-send --to` takes exactly
-/// what it printed), a message field, and a send button that fills `accent`.
+/// what it printed), a message field, and the shared compose send button.
 struct ChatQuickSendView: View {
     let theme: Theme
     let status: ChatStatus?
@@ -15,6 +15,7 @@ struct ChatQuickSendView: View {
     @State private var labels: [String: String]
     @State private var selectedTarget: String?
     @State private var message = ""
+    @FocusState private var isFieldFocused: Bool
     private let isPreview: Bool
 
     /// `previewTargets` exists only so a geometry test can measure a
@@ -85,7 +86,7 @@ struct ChatQuickSendView: View {
     /// screen.
     var targetBand: some View {
         VStack(alignment: .leading, spacing: ChromeMetrics.ChatQuickSend.TargetBand.gap) {
-            Text("TO").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.overlay0)
+            Text("TO").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.textLabel)
             ScrollView(.vertical, showsIndicators: false) {
                 ChipFlowLayout(
                     horizontalSpacing: ChromeMetrics.ChatQuickSend.TargetBand.chipGap,
@@ -113,7 +114,7 @@ struct ChatQuickSendView: View {
         return Button(action: { selectedTarget = target }) {
             Text(labels[target] ?? target)
                 .font(isSelected ? ChromeType.chatQuickSendChipSelected : ChromeType.chatQuickSendChipUnselected)
-                .foregroundStyle(isSelected ? Color(theme.palette.panelBg) : theme.subtext0)
+                .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
                 // Refuses to compress: without this, a row packed with a
                 // real machine's dozen-plus targets squeezes every label
                 // down to as little as one unreadable character.
@@ -123,7 +124,11 @@ struct ChatQuickSendView: View {
                 .frame(height: ChromeMetrics.ChatQuickSend.TargetBand.chipHeight)
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatQuickSend.TargetBand.chipCornerRadius)
-                        .fill(isSelected ? theme.accent : Color(theme.palette.surface0))
+                        .fill(isSelected ? theme.lift : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.ChatQuickSend.TargetBand.chipCornerRadius)
+                        .strokeBorder(isSelected ? Color.clear : theme.hair, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -139,15 +144,17 @@ struct ChatQuickSendView: View {
                 theme: theme, text: $message, size: ChromeMetrics.ChatQuickSend.FieldBand.fieldSize,
                 cornerRadius: ChromeMetrics.ChatQuickSend.FieldBand.fieldCornerRadius,
                 verticalPadding: ChromeMetrics.ChatQuickSend.FieldBand.fieldVerticalPadding,
-                horizontalPadding: ChromeMetrics.ChatQuickSend.FieldBand.fieldHorizontalPadding
+                horizontalPadding: ChromeMetrics.ChatQuickSend.FieldBand.fieldHorizontalPadding,
+                isFocused: isFieldFocused
             )
+            .focused($isFieldFocused)
             HStack(spacing: 0) {
                 Text(footerHint)
                     .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                 Spacer(minLength: 0)
                 ChatComposeSendButton(
-                    theme: theme, title: "Send", fill: theme.accent, size: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonSize,
+                    theme: theme, title: "Send", size: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonSize,
                     cornerRadius: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonCornerRadius,
                     verticalPadding: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonVerticalPadding,
                     horizontalPadding: ChromeMetrics.ChatQuickSend.FieldBand.sendButtonHorizontalPadding,

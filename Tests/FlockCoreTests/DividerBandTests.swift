@@ -19,35 +19,32 @@ final class DividerBandTests: XCTestCase {
         XCTAssertEqual(band.height, divider.frame.height)
     }
 
-    func testHitBandWidensAHorizontalDividerSymmetricallyAroundItsBoundary() {
+    func testHitBandGrowsAHorizontalDividerDownIntoTheHeaderBelow() {
         let divider = makeDivider(path: [true], frame: CGRect(x: 10, y: 47, width: 80, height: 6), direction: .down)
         let band = divider.hitBand(thickness: 16)
 
-        XCTAssertEqual(band.height, 16)
-        XCTAssertEqual(band.midY, divider.frame.midY)
+        XCTAssertEqual(band.minY, divider.frame.minY)
+        XCTAssertEqual(band.maxY, divider.frame.maxY + DividerBand.reachBelow)
         XCTAssertEqual(band.origin.x, divider.frame.origin.x)
         XCTAssertEqual(band.width, divider.frame.width)
     }
 
-    /// Measured from the gap's own center, which the band is centered on:
-    /// half the gutter to either box, then that box's chrome before its
-    /// terminal surface.
+    /// Measured from the gap's edges: a flush neighbor's side padding beside
+    /// a vertical divider, and the header below a horizontal one before its
+    /// title row.
     func testHitBandNeverReachesEitherNeighborsTerminalSurface() {
         let halfGutter = DividerBand.gutter / 2
-        let verticalMargin = halfGutter + PaneChrome.horizontalPadding
-        let aboveMargin = halfGutter + PaneChrome.verticalPadding
-        let belowMargin = halfGutter + PaneChrome.contentTop
-        let bandHalf = DividerBand.thickness / 2
+        let flushSideMargin = halfGutter + PaneChrome.horizontalPadding(flush: true)
 
-        XCTAssertLessThan(bandHalf, verticalMargin)
-        XCTAssertLessThan(bandHalf, aboveMargin)
-        XCTAssertLessThan(bandHalf, belowMargin)
+        XCTAssertLessThan(DividerBand.thickness / 2, flushSideMargin)
+        XCTAssertLessThanOrEqual(DividerBand.reachBelow, PaneChrome.titleRowTop(compact: true))
+        XCTAssertLessThanOrEqual(DividerBand.reachBelow, PaneChrome.titleRowTop(compact: false))
     }
 
-    /// Easy to acquire: several times the gutter it is centered on.
-    func testHitBandIsAtLeastThreeGuttersWide() {
+    /// Easy to acquire: at least twice the gutter it is centered on.
+    func testHitBandIsAtLeastTwoGuttersWide() {
         XCTAssertEqual(DividerBand.gutter, 9)
-        XCTAssertGreaterThanOrEqual(DividerBand.thickness, DividerBand.gutter * 3)
+        XCTAssertGreaterThanOrEqual(DividerBand.thickness, DividerBand.gutter * 2)
     }
 
     // MARK: - intersections
@@ -71,10 +68,10 @@ final class DividerBandTests: XCTestCase {
         XCTAssertEqual(intersection.vertical.path, [])
         XCTAssertEqual(intersection.horizontal.path, [true])
         // Only the half of the vertical band on the horizontal divider's own
-        // side of the boundary overlaps; the horizontal band's full height
-        // sits entirely within the vertical band's (which spans the whole
-        // canvas height).
-        XCTAssertEqual(intersection.square, CGRect(x: 100, y: 32, width: 8, height: 16))
+        // side of the boundary overlaps; the horizontal band (its gap plus
+        // its reach below) sits entirely within the vertical band's, which
+        // spans the whole canvas height.
+        XCTAssertEqual(intersection.square, CGRect(x: 100, y: 37, width: 8, height: 6 + DividerBand.reachBelow))
     }
 
     func testNoIntersectionWhenBandsDoNotOverlap() {

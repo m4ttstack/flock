@@ -32,15 +32,16 @@ extension DividerHandle {
     /// cursor all key off, so no caller restates `direction == .right`.
     public var isVerticalLine: Bool { direction == .right }
 
-    /// `frame` widened from the drawn gutter to `thickness`, same
-    /// centerline (`frame` is already exactly the gap between the boxes),
-    /// same length -- the divider's actual hit region, distinct from what
-    /// it paints. Widening only the cross-axis keeps the along-axis reach
-    /// exactly what `frame` already covers.
+    /// The divider's hit region, distinct from what it paints, same length
+    /// as `frame` (exactly the gap between the boxes). A vertical line widens
+    /// to `thickness` about its centerline. A horizontal one cannot reach up:
+    /// a flush pane above has no bottom padding, so its terminal starts at
+    /// the gap. It reaches down instead, into the header below, stopping
+    /// short of the title row's controls.
     public func hitBand(thickness: CGFloat) -> CGRect {
         isVerticalLine
             ? frame.insetBy(dx: -(thickness - frame.width) / 2, dy: 0)
-            : frame.insetBy(dx: 0, dy: -(thickness - frame.height) / 2)
+            : CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + DividerBand.reachBelow)
     }
 
     /// The edge the two children actually share, which is NOT `frame`'s own
@@ -58,18 +59,20 @@ extension DividerHandle {
 }
 
 /// The gutter between panes, its grab band and its visible handle. The band
-/// is bounded by each neighbor's `PaneChrome`: a vertical divider borders the
-/// horizontal padding, a horizontal one the bottom padding above and the top
-/// padding plus title row below, each past half the gutter.
-/// `DividerBandTests` pins that the band's half stays inside the tightest.
+/// is bounded by each neighbor's `PaneChrome`: a vertical divider's by the
+/// flush side padding, a horizontal one's by the title row below.
+/// `DividerBandTests` pins that neither reaches a terminal surface.
 public enum DividerBand {
     /// The drawn space between two pane boxes. Every pane box and the drop
     /// preview are inset from it, so this is the one value to change.
     public static let gutter: CGFloat = 9
-    /// The grab band centered on the gutter. Half of it must stay under the
-    /// smallest margin a neighbor carries past its half-gutter (the bottom
-    /// padding), or a press could land on terminal text.
-    public static let thickness: CGFloat = 28
+    /// A vertical divider's grab band, centered on the gutter. Half of it
+    /// must stay under the side margin a flush neighbor carries past its
+    /// half-gutter, or a press could land on terminal text.
+    public static let thickness: CGFloat = 20
+    /// How far a horizontal divider's band reaches past the gap into the
+    /// header below: up to the highest title row, the compact one.
+    public static var reachBelow: CGFloat { PaneChrome.compactTitleRowTop }
     /// The visible handle, centered in the gutter along the divider.
     public static let handleThickness: CGFloat = 2
     public static let handleMaximumLength: CGFloat = 51
