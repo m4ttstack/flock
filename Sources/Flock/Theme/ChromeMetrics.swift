@@ -32,9 +32,9 @@ enum ChromeMetrics {
         static let height: CGFloat = 40
         static let trailingInset: CGFloat = 10
         static let clusterDividerHeight: CGFloat = 16
-        static let clusterDividerPadding: CGFloat = 8
+        static let clusterDividerPadding: CGFloat = 10
         /// An icon-only view tab, square so the three read as one control.
-        static let iconTabHorizontalPadding: CGFloat = 7
+        static let iconTabHorizontalPadding: CGFloat = 6
         static let noticeSpacing: CGFloat = 6
         static let noticeDot: CGFloat = 6
         static let noticeTrailingPadding: CGFloat = 13
@@ -60,6 +60,11 @@ enum ChromeMetrics {
         static let badgeHorizontalPadding: CGFloat = 5
         static let badgeFillOpacity: Double = 0.18
         static let tabGlyphSize: CGFloat = 12
+        static let iconTabGlyphSize: CGFloat = 14
+        static let tabGlyphStroke: CGFloat = 1.3
+        static let iconTabGap: CGFloat = 4
+        /// The Needs-you count on an icon-only Overview tab rides its corner.
+        static let iconBadgeOffset = CGSize(width: 5, height: -4)
         static let tabGlyphGap: CGFloat = 7
         /// A top-bar workspace is a menu-bar extra: a rounded button centred
         /// in the bar, `2 * topBarButtonPadding + topBarIcon` wide when it

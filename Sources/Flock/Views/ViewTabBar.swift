@@ -19,7 +19,7 @@ struct ViewTabBar: View {
     var body: some View {
         let selected = navigator.selected
         let inert = navigator.dragInFlight
-        HStack(spacing: ChromeMetrics.TitleBar.tabGap) {
+        HStack(spacing: showsTitles ? ChromeMetrics.TitleBar.tabGap : ChromeMetrics.TitleBar.iconTabGap) {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
@@ -44,6 +44,22 @@ struct ViewTabButton: View {
     var showsTitle = true
     let action: () -> Void
 
+    private var glyphSize: CGFloat {
+        showsTitle ? ChromeMetrics.TitleBar.tabGlyphSize : ChromeMetrics.TitleBar.iconTabGlyphSize
+    }
+
+    private var iconBadge: some View {
+        Text("\(badge)")
+            .font(ChromeType.viewTabBadge)
+            .foregroundStyle(theme.textStrong)
+            .padding(.horizontal, ChromeMetrics.TitleBar.badgeHorizontalPadding / 2)
+            .frame(minWidth: ChromeMetrics.TitleBar.badgeHeight - 2, minHeight: ChromeMetrics.TitleBar.badgeHeight - 2)
+            .background(theme.red, in: Capsule())
+            .offset(ChromeMetrics.TitleBar.iconBadgeOffset)
+            .allowsHitTesting(false)
+            .accessibilityLabel("\(badge) blocked")
+    }
+
     private static let shape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.TitleBar.tabRadius))
 
     var body: some View {
@@ -58,13 +74,13 @@ struct ViewTabButton: View {
                 // layout box carries the font's descent and sits the drawing
                 // low.
                 ViewTabGlyph(tab: tab)
-                    .frame(width: ChromeMetrics.TitleBar.tabGlyphSize, height: ChromeMetrics.TitleBar.tabGlyphSize)
+                    .frame(width: glyphSize, height: glyphSize)
                     .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
                 if showsTitle {
                     Text(tab.title)
                         .font(ChromeType.viewTab(selected: isSelected))
                 }
-                if badge > 0 {
+                if badge > 0, showsTitle {
                     Text("\(badge)")
                         .font(ChromeType.viewTabBadge)
                         .foregroundStyle(theme.red)
@@ -76,6 +92,10 @@ struct ViewTabButton: View {
             }
             .padding(.horizontal, showsTitle ? ChromeMetrics.TitleBar.tabHorizontalPadding : ChromeMetrics.TitleBar.iconTabHorizontalPadding)
             .frame(height: ChromeMetrics.TitleBar.tabHeight)
+            .frame(minWidth: showsTitle ? nil : ChromeMetrics.TitleBar.tabHeight)
+        }
+        .overlay(alignment: .topTrailing) {
+            if badge > 0, !showsTitle { iconBadge }
         }
         .background(WindowDragExclusion())
         .help("\(tab.title) (\(ShortcutLabel.text(key: ViewCommand.show(tab).key, modifiers: ViewCommand.show(tab).modifiers)))")

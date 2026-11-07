@@ -484,7 +484,6 @@ struct TitleBar: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         }
-        .background(theme.chrome)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onTrailingWidth?($0) }
     }
 
