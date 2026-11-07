@@ -272,6 +272,8 @@ enum ChromeMetrics {
             static let liftWashOpacity: Double = 0.05
         }
 
+        static let headerBandTint: Double = 0.04
+
         /// Edge to edge (`PaneLayoutStyle`): panes meet across one drawn
         /// point, and the divider's grab band narrows to stay inside the
         /// neighbours' padding, which no longer has a gutter in front of it.

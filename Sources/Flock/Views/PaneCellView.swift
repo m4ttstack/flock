@@ -439,11 +439,15 @@ struct PaneCellView: View {
         return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
     }
 
-    /// The quick launch strip's own band, so the pane's top and bottom chrome
-    /// read as one material.
+    /// Half the quick launch band's lift: the same material, quieter, so the
+    /// header never competes with the selected tab.
     private var headerBand: some View {
-        VStack(spacing: 0) {
-            LauncherStripStyle(theme: theme).band
+        let isDark = !ChromeRoles.isLight(panelBg: theme.palette.panelBg)
+        let tone = theme.palette.terminalGround.mixed(
+            with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: ChromeMetrics.Pane.headerBandTint
+        )
+        return VStack(spacing: 0) {
+            Color(tone)
                 .frame(height: PaneChrome.headerBandHeight - ChromeMetrics.ruleWidth)
             theme.hair.frame(height: ChromeMetrics.ruleWidth)
         }
