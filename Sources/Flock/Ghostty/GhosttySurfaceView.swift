@@ -91,9 +91,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             for sublayer in [drainLayer, veilLayer] {
                 sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
                 sublayer.zPosition = .greatestFiniteMagnitude
-                sublayer.opacity = 0
                 layer.addSublayer(sublayer)
             }
+            // At what they were last faded to: a rebuilt layer takes them
+            // back as they were, and only a first attach starts from none.
+            drainLayer.opacity = Float(appliedShade.drain)
+            veilLayer.opacity = Float(appliedShade.veil)
         }
         drainLayer.frame = layer.bounds
         veilLayer.frame = layer.bounds
