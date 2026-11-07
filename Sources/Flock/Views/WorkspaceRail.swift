@@ -142,7 +142,7 @@ struct WorkspaceRail: View {
         // edge never breaks where the lists end.
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(theme.rule)
+                .fill(theme.hair)
                 .frame(width: ChromeMetrics.ruleWidth)
         }
         // Inside the rail's own bounds rather than straddling the rule: an
@@ -548,8 +548,8 @@ struct WorkspaceRow: View {
     var renameText = ""
     var onCommitRename: (String) -> Void = { _ in }
     var onCancelRename: () -> Void = {}
-    /// The selection fill alone. The accent bar and weight always mark
-    /// herdr's selected workspace; the fill follows the Cmd+click selection
+    /// The selection fill alone. The weight always marks herdr's selected
+    /// workspace; the fill follows the Cmd+click selection
     /// whenever one exists.
     var showsFill = false
     /// How far this row slides to open the insertion gap.
@@ -579,7 +579,7 @@ struct WorkspaceRow: View {
             } else {
                 Text(workspace.label)
                     .font(ChromeType.workspaceName(selected: isSelected))
-                    .foregroundStyle(isSelected ? theme.textStrong : theme.textDim)
+                    .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
                     .lineLimit(1)
                 Spacer(minLength: ChromeMetrics.WorkspaceRow.countMinimumGap)
                 Text("\(paneCount)")

@@ -241,7 +241,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         }
         .padding(.horizontal, Metrics.rowPadding + 2)
         .frame(height: Metrics.rowHeight)
-        .background(RoundedRectangle(cornerRadius: Metrics.rowCornerRadius).fill(selected ? theme.selection : .clear))
+        .background(RoundedRectangle(cornerRadius: Metrics.rowCornerRadius).fill(selected ? theme.lift : .clear))
         .hoverWash(theme, cornerRadius: Metrics.rowCornerRadius)
         .contentShape(Rectangle())
         .accessibilityIdentifier("\(accessibilityPrefix).row.\(id.rawValue)")

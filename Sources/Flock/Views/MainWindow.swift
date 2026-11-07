@@ -454,7 +454,7 @@ struct TitleBar: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
         .overlay { TitleBarMouseArea() }
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth).allowsHitTesting(false)
+            Rectangle().fill(theme.hair).frame(height: ChromeMetrics.ruleWidth).allowsHitTesting(false)
         }
         // Over the mouse area, which would otherwise take the tabs' and the
         // restart pill's clicks for a title-bar drag.
