@@ -224,6 +224,9 @@ struct PaneCellView: View {
 
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
+            // An agent arriving grows the header from compact to full, and
+            // leaving shrinks it back, rather than jumping.
+            .animation(focusFade, value: isCompact)
             .overlay(alignment: .topLeading) { title.opacity(headerOpacity).animation(focusFade, value: isFocused) }
             .overlay(alignment: .topTrailing) { legendControls.opacity(headerOpacity).animation(focusFade, value: isFocused) }
             // Last, so a long title running under it never takes its press.
@@ -285,7 +288,7 @@ struct PaneCellView: View {
     /// row. Rearrange mode drags from anywhere on the pane instead.
     private var grip: some View {
         PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
-            .padding(.top, PaneChrome.titleRowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
             .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
@@ -373,12 +376,12 @@ struct PaneCellView: View {
             .background(theme.pane)
             .overlay(alignment: .top) {
                 PaneStatusLine(
-                    theme: theme, status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .standard,
+                    theme: theme, lineTop: PaneChrome.statusLineTop(compact: isCompact),
+                    status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .standard,
                     backgroundWork: DevStatusOverride.shared.backgroundWork(
                         real: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
                     )
                 )
-                    .padding(.top, ChromeMetrics.Pane.StatusLine.top - ChromeMetrics.Pane.StatusLine.washHeight)
                     .opacity(statusLineOpacity)
             }
             // On the box, not the surface: a surface holds whole cells, so it
@@ -419,8 +422,12 @@ struct PaneCellView: View {
     private var contentInsets: EdgeInsets {
         let flush = PaneChrome.isFlush(agent: pane.agent)
         let side = PaneChrome.horizontalPadding(flush: flush)
-        return EdgeInsets(top: PaneChrome.contentTop, leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side)
+        return EdgeInsets(
+            top: PaneChrome.contentTop(compact: isCompact), leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side
+        )
     }
+
+    private var isCompact: Bool { PaneChrome.isCompact(agent: pane.agent) }
 
     private var focusFade: Animation { .easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration) }
 
@@ -561,7 +568,7 @@ struct PaneCellView: View {
                 onCancel: { viewModel.cancelRename() }
             )
             .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
-            .padding(.top, PaneChrome.titleRowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {
@@ -569,7 +576,7 @@ struct PaneCellView: View {
                 titleLabel
             }
             .frame(height: ChromeMetrics.PaneBar.rowHeight)
-            .padding(.top, ChromeMetrics.PaneBar.rowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .padding(.leading, PaneChrome.horizontalPadding)
         }
     }

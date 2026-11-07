@@ -66,7 +66,9 @@ struct PaneCanvas: View {
                            let frame = geometry.paneFrames[paneRect.paneID] {
                             let box = PaneBox.frame(in: frame, dividerThickness: dividerThickness)
                             let fit = SurfaceGrid.fit(
-                                inner: Self.innerSize(of: box.size, flush: PaneChrome.isFlush(agent: pane.agent)), cell: cell
+                                inner: Self.innerSize(
+                                    of: box.size, flush: PaneChrome.isFlush(agent: pane.agent), compact: PaneChrome.isCompact(agent: pane.agent)
+                                ), cell: cell
                             )
                             PaneCellView(
                                 theme: theme,
@@ -192,8 +194,8 @@ struct PaneCanvas: View {
 
     /// What is left of a box for the terminal itself, once its chrome is
     /// taken out.
-    private static func innerSize(of box: CGSize, flush: Bool) -> CGSize {
-        let chrome = PaneChrome.size(flush: flush)
+    private static func innerSize(of box: CGSize, flush: Bool, compact: Bool) -> CGSize {
+        let chrome = PaneChrome.size(flush: flush, compact: compact)
         return CGSize(width: max(0, box.width - chrome.width), height: max(0, box.height - chrome.height))
     }
 }

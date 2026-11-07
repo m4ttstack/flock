@@ -26,6 +26,30 @@ public enum PaneChrome {
     /// a box before deriving its whole-cell grid.
     public static var size: CGSize { size(flush: false) }
 
+    /// A pane with no agent in it (a shell) gets a compact header: its title
+    /// row, the rule under it and little else. An agent arriving grows it.
+    public static func isCompact(agent: String?) -> Bool { agent == nil }
+
+    public static let compactTitleRowTop: CGFloat = 6
+    /// Under the compact header's rule, before the first terminal row.
+    public static let compactGapBelowRule: CGFloat = 4
+
+    public static func titleRowTop(compact: Bool) -> CGFloat { compact ? compactTitleRowTop : titleRowTop }
+
+    /// Twice the title row's centre: the rule (or status line) sits as far
+    /// under the row as the box's top edge is above it.
+    public static func statusLineTop(compact: Bool) -> CGFloat {
+        (titleRowTop(compact: compact) + titleRowHeight / 2) * 2
+    }
+
+    public static func contentTop(compact: Bool) -> CGFloat {
+        compact ? statusLineTop(compact: true) + compactGapBelowRule : contentTop
+    }
+
+    public static func size(flush: Bool, compact: Bool) -> CGSize {
+        CGSize(width: horizontalPadding(flush: flush) * 2, height: contentTop(compact: compact) + bottomPadding(flush: flush))
+    }
+
     /// A pane running Claude Code sits nearly flush: it draws its own input
     /// rules and indents, so only a sliver of side padding and none at the
     /// bottom. The header keeps its room either way.

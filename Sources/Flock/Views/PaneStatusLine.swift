@@ -31,6 +31,9 @@ private struct LineSpan {
 
 struct PaneStatusLine: View {
     let theme: Theme
+    /// Where the line sits from the box's top edge; the wash fills the
+    /// header above it.
+    var lineTop: CGFloat = ChromeMetrics.Pane.StatusLine.top
     let status: AgentStatus
     let style: PaneStatusLineStyle
     /// What a pane whose agent rests is still running (a shell job, say),
@@ -112,7 +115,7 @@ struct PaneStatusLine: View {
                 theme.hair
                     .frame(height: M.height)
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    .frame(height: M.washHeight + M.height)
+                    .frame(height: lineTop + M.height)
             }
         }
         .allowsHitTesting(false)
@@ -140,7 +143,7 @@ struct PaneStatusLine: View {
                         )
                     )
                     .opacity(M.washStrength)
-                    .frame(height: M.washHeight)
+                    .frame(height: lineTop)
                 fill(paint, t: t, width: proxy.size.width, span: span)
                     .frame(height: lineHeight)
                     .overlay(alignment: .leading) {
@@ -150,7 +153,7 @@ struct PaneStatusLine: View {
                     }
             }
         }
-        .frame(height: M.washHeight + lineHeight)
+        .frame(height: lineTop + lineHeight)
     }
 
     /// One pass of the comet: it crosses to the trailing edge, bursts there,
