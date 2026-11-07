@@ -249,7 +249,7 @@ struct WorkspaceRail: View {
                     PinFolderPopover(
                         theme: theme, name: row.pin.name, ask: ask,
                         onChoose: { viewModel.answerPinFolder(row.pin.id, with: $0) },
-                        onOther: viewModel.isRemoteMachine ? nil : { chooseOtherFolder(for: row.pin) }
+                        onOther: { chooseOtherFolder(for: row.pin) }
                     )
                 }
             }
@@ -379,7 +379,7 @@ struct WorkspaceRail: View {
         let current = viewModel.pins.pin(pin.id)?.folder ?? pin.folder
         viewModel.answerPinFolder(pin.id, with: nil)
         DispatchQueue.main.async {
-            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?") {
+            if let folder = FolderPanel.choose(current: current, message: "Where should \"\(pin.name)\" open?", onMachine: viewModel.isRemoteMachine) {
                 viewModel.setPinFolder(pin.id, to: folder)
             }
         }

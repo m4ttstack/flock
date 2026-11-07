@@ -51,15 +51,13 @@ private struct WorkspaceMenu: ViewModifier {
                     ForEach(WorkspaceMenuModel.entries(for: workspace, model: model, isPinned: pin != nil), id: \.accessibilityIdentifier) { entry in
                         Button(entry.label) {
                             if entry.action == .changeFolder, let pin {
-                                if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
+                                if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens", onMachine: viewModel.isRemoteMachine) {
                                     viewModel.setPinFolder(pin.id, to: folder)
                                 }
                             } else {
                                 Task { await entry.action.perform(workspaceID: workspace, on: viewModel) }
                             }
                         }
-                        // Finder offers this Mac's folders, not a herdr machine's.
-                        .disabled(entry.action == .changeFolder && viewModel.isRemoteMachine)
                         .accessibilityIdentifier(entry.accessibilityIdentifier)
                         if entry.action == .rename, let changeSymbol {
                             Button("Change Symbol\u{2026}", action: changeSymbol)
@@ -98,14 +96,13 @@ private struct EmptyPinMenu: ViewModifier {
                     switch entry.action {
                     case .rename: beginRename()
                     case .changeFolder:
-                        if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens") {
+                        if let folder = FolderPanel.choose(current: pin.folder, message: "Where \"\(pin.name)\" opens", onMachine: viewModel.isRemoteMachine) {
                             viewModel.setPinFolder(pin.id, to: folder)
                         }
                     case .moveToTopBar: viewModel.moveToTopBar(pin: pin.id, at: nil)
                     case .remove: viewModel.removePin(pin.id)
                     }
                 }
-                .disabled(entry.action == .changeFolder && viewModel.isRemoteMachine)
                 .accessibilityIdentifier(entry.accessibilityIdentifier)
                 if entry.action == .rename {
                     Button("Change Symbol\u{2026}", action: changeSymbol)

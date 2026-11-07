@@ -310,4 +310,12 @@ final class PinnedWorkspaceStoreTests: XCTestCase {
         _ = store.add(workspace: WorkspaceID(rawValue: "w3"), name: "b", folder: "/b", at: 0)
         XCTAssertEqual(store.pins(in: .rail).map(\.name), ["b", "a"])
     }
+
+    func testMachineFolderTakesOnlyAbsolutePaths() {
+        XCTAssertEqual(PinFolders.machineFolder("  /Users/acme/code/  "), "/Users/acme/code")
+        XCTAssertEqual(PinFolders.machineFolder("/"), "/")
+        XCTAssertNil(PinFolders.machineFolder("~/code"))
+        XCTAssertNil(PinFolders.machineFolder("code"))
+        XCTAssertNil(PinFolders.machineFolder("   "))
+    }
 }
