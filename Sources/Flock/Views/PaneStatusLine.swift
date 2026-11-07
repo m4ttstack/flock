@@ -130,7 +130,10 @@ struct PaneStatusLine: View {
         GeometryReader { proxy in
             let span = span(proxy)
             VStack(spacing: 0) {
+                // A resting line (idle, done) stays a line: its wash tinted
+                // a light theme's header for no news at all.
                 fill(paint, t: t, width: proxy.size.width, span: span)
+                    .opacity(paint.animates ? 1 : 0)
                     .mask(
                         LinearGradient(
                             stops: [

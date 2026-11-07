@@ -44,4 +44,18 @@ final class PaneChromeTests: XCTestCase {
         XCTAssertEqual(PaneChrome.size(flush: false, compact: true), CGSize(width: 26, height: 44))
         XCTAssertEqual(PaneChrome.size(flush: true, compact: false), PaneChrome.size(flush: true))
     }
+
+    /// A shell beside an agent takes the agent's full header so the title
+    /// rows line up; a shell under it, or beside only shells, stays compact.
+    func testAShellSharingAnAgentsRowTakesTheFullHeader() {
+        let agent = PaneID(rawValue: "p1"), beside = PaneID(rawValue: "p2")
+        let below = PaneID(rawValue: "p3"), lone = PaneID(rawValue: "p4")
+        let compact = PaneChrome.compactPanes([
+            (id: agent, agent: "claude", top: 0),
+            (id: beside, agent: nil, top: 0.5),
+            (id: below, agent: nil, top: 300),
+            (id: lone, agent: nil, top: 300),
+        ])
+        XCTAssertEqual(compact, [below, lone])
+    }
 }

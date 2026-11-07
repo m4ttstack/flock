@@ -59,70 +59,17 @@ struct PaneCanvas: View {
             let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
             let composition = solo.map { CanvasComposition.zoomed($0) } ?? layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
             let geometry = resolvedGeometry(grid: grid, composition: composition)
+            let compact: Set<PaneID> = compactPanes(in: geometry)
             ZStack(alignment: .topLeading) {
                 if let layout {
                     ForEach(layout.panes, id: \.paneID) { paneRect in
                         if let pane = viewModel.model?.panes[paneRect.paneID],
                            let frame = geometry.paneFrames[paneRect.paneID] {
                             let box = PaneBox.frame(in: frame, dividerThickness: dividerThickness)
-                            let fit = SurfaceGrid.fit(
-                                inner: Self.innerSize(
-                                    of: box.size, flush: PaneChrome.isFlush(agent: pane.agent), compact: PaneChrome.isCompact(agent: pane.agent)
-                                ), cell: cell
+                            paneCell(
+                                pane, box: box, isCompact: compact.contains(pane.paneID),
+                                isZoomed: solo == nil && composition.zoomedPaneID == pane.paneID, cell: cell, fontSize: fontSize
                             )
-                            PaneCellView(
-                                theme: theme,
-                                viewModel: viewModel,
-                                pane: pane,
-                                // The canvas's own focus, which the rt modal
-                                // drawn over it withholds so its surface
-                                // keeps the keyboard. Otherwise it is the
-                                // solo pane or the view-model's resolved
-                                // focus, not
-                                // `layout.focusedPaneID` (a `pane.focus` jump
-                                // never touches the layout snapshot, only
-                                // `model.focusedPaneID`) and not
-                                // `model.focusedPaneID` directly (that only
-                                // updates once herdr's echo lands, tens of ms
-                                // after the click -- `resolvedFocusedPaneID`
-                                // paints the optimistic prediction instead).
-                                isFocused: pane.paneID == viewModel.canvasFocus(solo: solo),
-                                // The same answer the geometry above was
-                                // built from, so the badge can only ever ride
-                                // the pane that is actually filling the
-                                // canvas.
-                                isZoomed: solo == nil && composition.zoomedPaneID == pane.paneID,
-                                lastLine: viewModel.lastLine(for: pane),
-                                grid: PTYSize(cols: fit.cols, rows: fit.rows),
-                                surfaceSize: fit.size,
-                                fontSizePoints: fontSize,
-                                windowIsResizing: isWindowResizing
-                            )
-                            .environment(\.paneCellRole, solo == nil ? .canvas : .solo)
-                            // Placed by offset rather than `.position`, which
-                            // centers on a midpoint and so halves the box size:
-                            // this keeps the snapped origin exactly as
-                            // `CanvasGrid` produced it.
-                            .frame(width: box.width, height: box.height, alignment: .topLeading)
-                            .offset(x: box.minX, y: box.minY)
-                            // A container, so the identifier below names the
-                            // whole box. Without it SwiftUI folds the cell into
-                            // the one text inside it and the identifier comes
-                            // back as the title's own frame: a few dozen points
-                            // in the corner of a pane hundreds wide, which is
-                            // the wrong place for everything that reads a
-                            // cell's geometry.
-                            //
-                            // `.contain` rather than `.combine`: the title and
-                            // the window control inside carry identifiers of their
-                            // own, and combining would swallow both. The
-                            // container is left unnamed for now; a label on it
-                            // is a reader's improvement, but it is also the
-                            // one thing that could fold the children back in,
-                            // and their being separately addressable is what
-                            // the window control is read through.
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("flock.canvas.pane.\(pane.paneID.rawValue)")
                         }
                     }
                 } else {
@@ -194,6 +141,77 @@ struct PaneCanvas: View {
 
     /// What is left of a box for the terminal itself, once its chrome is
     /// taken out.
+    @ViewBuilder
+    private func paneCell(
+        _ pane: PaneRecord, box: CGRect, isCompact: Bool, isZoomed: Bool, cell: CGSize, fontSize: Double
+    ) -> some View {
+        let fit = SurfaceGrid.fit(
+            inner: Self.innerSize(
+                of: box.size, flush: PaneChrome.isFlush(agent: pane.agent), compact: isCompact
+            ), cell: cell
+        )
+        PaneCellView(
+            theme: theme,
+            viewModel: viewModel,
+            pane: pane,
+            // The canvas's own focus, which the rt modal
+            // drawn over it withholds so its surface
+            // keeps the keyboard. Otherwise it is the
+            // solo pane or the view-model's resolved
+            // focus, not
+            // `layout.focusedPaneID` (a `pane.focus` jump
+            // never touches the layout snapshot, only
+            // `model.focusedPaneID`) and not
+            // `model.focusedPaneID` directly (that only
+            // updates once herdr's echo lands, tens of ms
+            // after the click -- `resolvedFocusedPaneID`
+            // paints the optimistic prediction instead).
+            isFocused: pane.paneID == viewModel.canvasFocus(solo: solo),
+            // The same answer the geometry above was
+            // built from, so the badge can only ever ride
+            // the pane that is actually filling the
+            // canvas.
+            isZoomed: isZoomed,
+            lastLine: viewModel.lastLine(for: pane),
+            grid: PTYSize(cols: fit.cols, rows: fit.rows),
+            surfaceSize: fit.size,
+            fontSizePoints: fontSize,
+            windowIsResizing: isWindowResizing,
+            compactHeader: isCompact
+        )
+        .environment(\.paneCellRole, solo == nil ? .canvas : .solo)
+        // Placed by offset rather than `.position`, which
+        // centers on a midpoint and so halves the box size:
+        // this keeps the snapped origin exactly as
+        // `CanvasGrid` produced it.
+        .frame(width: box.width, height: box.height, alignment: .topLeading)
+        .offset(x: box.minX, y: box.minY)
+        // A container, so the identifier below names the
+        // whole box. Without it SwiftUI folds the cell into
+        // the one text inside it and the identifier comes
+        // back as the title's own frame: a few dozen points
+        // in the corner of a pane hundreds wide, which is
+        // the wrong place for everything that reads a
+        // cell's geometry.
+        //
+        // `.contain` rather than `.combine`: the title and
+        // the window control inside carry identifiers of their
+        // own, and combining would swallow both. The
+        // container is left unnamed for now; a label on it
+        // is a reader's improvement, but it is also the
+        // one thing that could fold the children back in,
+        // and their being separately addressable is what
+        // the window control is read through.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.canvas.pane.\(pane.paneID.rawValue)")
+    }
+
+    private func compactPanes(in geometry: CanvasGeometry) -> Set<PaneID> {
+        PaneChrome.compactPanes(geometry.paneFrames.map { id, frame in
+            (id: id, agent: viewModel.model?.panes[id]?.agent, top: frame.minY)
+        })
+    }
+
     private static func innerSize(of box: CGSize, flush: Bool, compact: Bool) -> CGSize {
         let chrome = PaneChrome.size(flush: flush, compact: compact)
         return CGSize(width: max(0, box.width - chrome.width), height: max(0, box.height - chrome.height))

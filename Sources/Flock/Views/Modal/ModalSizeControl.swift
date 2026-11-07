@@ -33,7 +33,7 @@ struct ModalSizeControl: View {
         let glyphSize = Metrics.glyphSize(size)
         return ZStack {
             if size == selected {
-                shape.fill(theme.accent)
+                shape.fill(theme.textStrong)
             } else {
                 shape.strokeBorder(theme.textDim, lineWidth: Metrics.glyphLineWidth)
             }

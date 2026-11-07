@@ -30,6 +30,19 @@ public enum PaneChrome {
     /// row, the rule under it and little else. An agent arriving grows it.
     public static func isCompact(agent: String?) -> Bool { agent == nil }
 
+    /// The panes in a layout that get the compact header: a shell's, unless a
+    /// pane whose box starts at the same top edge carries a full one, so the
+    /// title rows across a row line up.
+    public static func compactPanes(_ panes: [(id: PaneID, agent: String?, top: CGFloat)]) -> Set<PaneID> {
+        let fullTops = panes.filter { !isCompact(agent: $0.agent) }.map(\.top)
+        return Set(panes.filter { pane in
+            isCompact(agent: pane.agent) && !fullTops.contains { abs($0 - pane.top) < rowTolerance }
+        }.map(\.id))
+    }
+
+    /// Box tops a snap or an odd gutter split can leave apart within a row.
+    static let rowTolerance: CGFloat = 1
+
     public static let compactTitleRowTop: CGFloat = 6
     /// Under the compact header's rule, before the first terminal row.
     public static let compactGapBelowRule: CGFloat = 6
