@@ -282,7 +282,7 @@ enum ChromeMetrics {
             static let liftWashOpacity: Double = 0.05
             /// Drain colour: how much of an unfocused terminal's colour goes.
             static let drainAmount: Double = 0.4
-            static let drainVeilOpacity: Double = 0.45
+            static let drainVeilOpacity: Double = 0.6
             /// Drain colour and quiet chrome: what an unfocused pane's header,
             /// status line and wash keep.
             static let chromeFadeOpacity: Double = 0.45
