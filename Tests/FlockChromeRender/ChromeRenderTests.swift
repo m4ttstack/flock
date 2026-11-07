@@ -3113,7 +3113,8 @@ final class ChromeRenderTests: XCTestCase {
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            for stage in ["updated", "behind", "restarting", "failed"] {
+            for stage in ["updated", "behind", "restarting", "failed", "dismissed"] {
+                defaults.removeObject(forKey: "flock.herdrMousePatch.serverBehindDismissedForRelease")
                 try? FileManager.default.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: herdr))
                 try Data("herdr 0.9.5 stock".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
                 try (stage == "updated" ? older : current).write(to: URL(fileURLWithPath: herdr))
@@ -3149,6 +3150,11 @@ final class ChromeRenderTests: XCTestCase {
                     store.confirmPendingAction()
                 }
                 if stage == "failed" { await store.serverRestartTask?.value }
+                if stage == "dismissed" {
+                    store.dismissServerBehindBanner()
+                    XCTAssertNil(store.bannerRestartPrompt, "\(scheme): Not now left the banner up")
+                    XCTAssertEqual(store.restartPrompt, .serverBehind, "\(scheme): Not now took the row's state away")
+                }
 
                 let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
                 await settle(window)
@@ -3158,7 +3164,9 @@ final class ChromeRenderTests: XCTestCase {
                         .write(to: URL(fileURLWithPath: chromeDirectory).appendingPathComponent("server-restart-banner-\(stage)-\(scheme)-\(id).png"))
                 }
                 let pill = count(theme.palette.accent.hex, in: pillBand, of: image)
-                if stage == "restarting" {
+                if stage == "dismissed" {
+                    XCTAssertLessThan(pill, 200, "\(scheme): the banner is still drawn after Not now")
+                } else if stage == "restarting" {
                     XCTAssertTrue(store.serverRestarting, "\(scheme): the handoff is not running")
                     XCTAssertLessThan(pill, 200, "\(scheme): the Restart herdr pill is still drawn mid-handoff")
                 } else {

@@ -29,6 +29,8 @@ final class HerdrMousePatchStore {
     /// A live handoff is running; Flock relaunches when it lands.
     private(set) var serverRestarting = false
     private(set) var serverRestartError: String?
+    /// The patch release the at-launch server banner was waved away for.
+    private(set) var serverBehindDismissedFor: String?
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
@@ -82,6 +84,7 @@ final class HerdrMousePatchStore {
     /// than held in memory because the whole point is that it outlives the
     /// launch it was answered on.
     private static let dismissedVersionKey = "flock.herdrMousePatch.offerDismissedForVersion"
+    private static let serverBehindDismissedKey = "flock.herdrMousePatch.serverBehindDismissedForRelease"
 
     init(
         resolveBinaryPath: @escaping () -> String? = { ToolPath.resolve("herdr") },
@@ -105,6 +108,7 @@ final class HerdrMousePatchStore {
         self.downloader = downloader
         self.fileManager = fileManager
         self.defaults = defaults
+        serverBehindDismissedFor = defaults.string(forKey: Self.serverBehindDismissedKey)
         self.probe = probe ?? {
             HerdrMousePatchInstaller.probe(binaryPath: $0, fileManager: $1, readVersionOutput: readVersionOutput)
         }
@@ -140,6 +144,22 @@ final class HerdrMousePatchStore {
     /// with none, a server found behind the patched binary on disk.
     var restartPrompt: HerdrMousePatchCopy.RestartReason? {
         restartReason ?? (needsServerRestart ? .serverBehind : nil)
+    }
+
+    /// The banner's prompt: the row's, less a server banner waved away for
+    /// the patch release on disk. A newer release raises it again.
+    var bannerRestartPrompt: HerdrMousePatchCopy.RestartReason? {
+        guard let prompt = restartPrompt else { return nil }
+        guard prompt == .serverBehind, let release = installedRelease else { return prompt }
+        return serverBehindDismissedFor == release ? nil : prompt
+    }
+
+    private var installedRelease: String? { binaryVersion.flatMap(catalog)?.releaseName }
+
+    func dismissServerBehindBanner() {
+        guard let release = installedRelease else { return }
+        defaults.set(release, forKey: Self.serverBehindDismissedKey)
+        serverBehindDismissedFor = release
     }
 
     /// Wave the banner away for this herdr version. The settings row is

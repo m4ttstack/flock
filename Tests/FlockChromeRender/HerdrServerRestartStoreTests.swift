@@ -49,7 +49,12 @@ final class HerdrServerRestartStoreTests: XCTestCase {
         }
     }
 
+    nonisolated(unsafe) private var defaults: UserDefaults!
+    nonisolated(unsafe) private var suite: String!
+
     override func setUpWithError() throws {
+        suite = "flock-server-restart-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suite)
         root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-server-restart-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         binaryPath = root.appendingPathComponent("herdr").path
@@ -57,6 +62,7 @@ final class HerdrServerRestartStoreTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -76,7 +82,7 @@ final class HerdrServerRestartStoreTests: XCTestCase {
 
     private func makeStore(
         server: ServerStub, socket: String? = "/tmp/acme/herdr.sock", changesServer: Bool = true,
-        runner: StubRunner = StubRunner(), relaunched: (() -> Void)? = nil
+        runner: StubRunner = StubRunner(), relaunched: (() -> Void)? = nil, defaults: UserDefaults? = nil
     ) -> HerdrMousePatchStore {
         let sha = Self.sha256(patched)
         let superseded: Set<String> = [Self.sha256(olderRevision)]
@@ -90,6 +96,7 @@ final class HerdrServerRestartStoreTests: XCTestCase {
             downloader: HerdrMousePatchDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: patched)
             ),
+            defaults: defaults ?? self.defaults,
             readVersionOutput: HerdrVersionFixture.read,
             serverSocketPath: { socket },
             probeServer: { server.probe(socket: $0, binary: $1) },
@@ -210,6 +217,43 @@ final class HerdrServerRestartStoreTests: XCTestCase {
                 + "herdr server stop in a terminal, then reopen Flock. That ends every pane's shell and agent."
         )
         XCTAssertTrue(store.needsServerRestart)
+    }
+
+    /// Not now is remembered against the patch release on disk and silences
+    /// only the banner: the herdr row keeps the state and its button.
+    func testNotNowSilencesTheServerBannerForThisReleaseOnly() async throws {
+        try installCurrentRevision()
+        let store = makeStore(server: ServerStub(.other))
+        await settle(store)
+        XCTAssertEqual(store.bannerRestartPrompt, .serverBehind)
+
+        store.dismissServerBehindBanner()
+
+        XCTAssertNil(store.bannerRestartPrompt)
+        XCTAssertEqual(store.restartPrompt, .serverBehind)
+        XCTAssertEqual(defaults.string(forKey: "flock.herdrMousePatch.serverBehindDismissedForRelease"), "0.9.5-r2")
+
+        let relaunched = makeStore(server: ServerStub(.other))
+        await settle(relaunched)
+        XCTAssertNil(relaunched.bannerRestartPrompt, "the dismissal outlives the launch")
+
+        defaults.set("0.9.5-r1", forKey: "flock.herdrMousePatch.serverBehindDismissedForRelease")
+        let older = makeStore(server: ServerStub(.other))
+        await settle(older)
+        XCTAssertEqual(older.bannerRestartPrompt, .serverBehind, "a dismissal for another release does not carry over")
+    }
+
+    /// A change flock just made is never silenced by an earlier Not now.
+    func testNotNowDoesNotHideThePromptAfterAnUpdate() async throws {
+        defaults.set("0.9.5-r2", forKey: "flock.herdrMousePatch.serverBehindDismissedForRelease")
+        try installOlderRevision()
+        let store = makeStore(server: ServerStub(.other))
+        store.requestInstall(source: .banner)
+        store.confirmPendingAction()
+        await store.installTask?.value
+        await settle(store)
+
+        XCTAssertEqual(store.bannerRestartPrompt, .updated)
     }
 
     func testNoRestartIsOfferedWhileNoneIsNeeded() async throws {

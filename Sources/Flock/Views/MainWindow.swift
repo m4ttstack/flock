@@ -62,7 +62,7 @@ struct MainWindow: View {
         // panes do not run on.
         if viewModel.isRemoteMachine {
             EmptyView()
-        } else if let reason = herdrMousePatchStore.restartPrompt {
+        } else if let reason = herdrMousePatchStore.bannerRestartPrompt {
             HerdrMousePatchRestartBanner(theme: theme, store: herdrMousePatchStore, reason: reason)
         } else if herdrMousePatchStore.showsBanner {
             HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
@@ -749,6 +749,8 @@ private struct HerdrMousePatchRestartBanner: View {
                 Text(HerdrMousePatchCopy.restartHeadline(for: reason))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textStrong)
+                    .lineLimit(1)
+                    .fixedSize()
                 Text(HerdrMousePatchCopy.restartDetail(for: reason, restartsServer: restartsServer))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
@@ -777,6 +779,13 @@ private struct HerdrMousePatchRestartBanner: View {
             }
             .accessibilityIdentifier("flock.herdrMousePatch.banner.restarting")
         } else if HerdrMousePatchCopy.offersRestart(for: reason) {
+            if reason == .serverBehind {
+                Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissServerBehindBanner() }
+                    .buttonStyle(.plain)
+                    .font(ChromeType.banner)
+                    .foregroundStyle(theme.textLabel)
+                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.dismiss")
+            }
             BannerPillButton(theme: theme, title: title) {
                 if restartsServer {
                     store.requestServerRestart(source: .banner)

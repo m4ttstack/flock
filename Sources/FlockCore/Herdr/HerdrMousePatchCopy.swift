@@ -64,7 +64,7 @@ public enum HerdrMousePatchCopy {
         case .restored: "The original herdr is restored"
         case .herdrUpdated(.reinstalled): "herdr is updated and mouse support reinstalled"
         case .herdrUpdated: "herdr is updated"
-        case .serverBehind: "herdr's server is on an older build"
+        case .serverBehind: "herdr's server is out of date"
         }
     }
 
@@ -76,7 +76,7 @@ public enum HerdrMousePatchCopy {
         case .herdrUpdated(.reinstallFailed): return "Mouse support couldn't be reinstalled; see Settings."
         default: break
         }
-        if reason == .serverBehind { return "Restarting it keeps your panes running." }
+        if reason == .serverBehind { return "A restart keeps your panes running." }
         if restartsServer { return "Restart herdr to finish; panes keep running." }
         switch reason {
         case .herdrUpdated: return "Restart Flock so your panes reconnect."

@@ -59,8 +59,8 @@ final class HerdrServerRestartTests: XCTestCase {
             HerdrMousePatchCopy.restartDetail(for: .herdrUpdated(.reinstalling), restartsServer: true),
             "Reinstalling mouse support, then restart Flock so your panes reconnect."
         )
-        XCTAssertEqual(HerdrMousePatchCopy.restartHeadline(for: .serverBehind), "herdr's server is on an older build")
-        XCTAssertEqual(HerdrMousePatchCopy.restartDetail(for: .serverBehind), "Restarting it keeps your panes running.")
+        XCTAssertEqual(HerdrMousePatchCopy.restartHeadline(for: .serverBehind), "herdr's server is out of date")
+        XCTAssertEqual(HerdrMousePatchCopy.restartDetail(for: .serverBehind), "A restart keeps your panes running.")
         XCTAssertTrue(HerdrMousePatchCopy.offersRestart(for: .serverBehind))
         XCTAssertEqual(HerdrMousePatchCopy.restartActionTitle(restartsServer: true), "Restart herdr")
         XCTAssertEqual(HerdrMousePatchCopy.restartActionTitle(restartsServer: false), "Restart Flock")
