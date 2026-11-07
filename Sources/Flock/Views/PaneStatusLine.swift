@@ -118,36 +118,83 @@ struct PaneStatusLine: View {
         .frame(height: M.washHeight + lineHeight)
     }
 
-    /// Where a comet's head is (0 at the leading edge, 1 at the trailing) and
-    /// how visible the whole comet is: it eases in, dims out before the far
-    /// edge, and rests between passes.
-    private func cometFlight(_ motion: Motion, t: Double) -> (head: Double, envelope: Double) {
-        let phase = fraction(t / (M.cometPeriod * motion.slowdown)) / M.cometTravelShare
-        guard phase < 1 else { return (0, 0) }
-        let head = phase * M.cometReach
-        let envelope = min(smoothstep(0, M.cometFadeIn, head), 1 - smoothstep(M.cometFadeOutStart, M.cometReach, head))
-        return (head, envelope)
+    /// One pass of the comet: it crosses to the trailing edge, bursts there,
+    /// then rests. `head` runs 0 at the leading edge to 1 at the trailing;
+    /// `burst` is the impact's progress, nil until the head arrives.
+    private struct CometFlight {
+        var head: Double
+        var envelope: Double
+        var burst: Double?
     }
 
+    private func cometFlight(_ motion: Motion, t: Double) -> CometFlight {
+        let phase = fraction(t / (M.cometPeriod * motion.slowdown))
+        if phase < M.cometTravelShare {
+            let head = pow(phase / M.cometTravelShare, M.cometAcceleration)
+            return CometFlight(head: head, envelope: smoothstep(0, M.cometFadeIn, head), burst: nil)
+        }
+        let burst = (phase - M.cometTravelShare) / M.cometBurstShare
+        guard burst < 1 else { return CometFlight(head: 1, envelope: 0, burst: nil) }
+        return CometFlight(head: 1, envelope: 1 - smoothstep(0, M.cometTailRetract, burst), burst: burst)
+    }
+
+    @ViewBuilder
     private func cometHead(_ motion: Motion, t: Double, width: CGFloat) -> some View {
         let flight = cometFlight(motion, t: t)
-        let color = Color(motion.color)
         let size = M.cometHeadSize
-        return Circle()
-            .fill(
-                RadialGradient(
-                    stops: [
-                        .init(color: Color.white.opacity(0.9 * motion.intensity), location: 0),
-                        .init(color: color.opacity(motion.intensity), location: 0.3),
-                        .init(color: color.opacity(0.25 * motion.intensity), location: 0.6),
-                        .init(color: color.opacity(0), location: 1),
-                    ],
-                    center: .center, startRadius: 0, endRadius: size / 2
-                )
-            )
-            .frame(width: size, height: size)
-            .offset(x: width * flight.head - size / 2)
-            .opacity(flight.envelope)
+        if let burst = flight.burst {
+            cometBurst(motion, progress: burst)
+                .offset(x: width - M.cometBurstCanvas / 2 - size / 2)
+        } else {
+            Circle()
+                .fill(headGlow(motion, radius: size / 2))
+                .frame(width: size, height: size)
+                .offset(x: min(width * flight.head, width - size / 2) - size / 2)
+                .opacity(flight.envelope)
+        }
+    }
+
+    private func headGlow(_ motion: Motion, radius: CGFloat) -> RadialGradient {
+        let color = Color(motion.color)
+        return RadialGradient(
+            stops: [
+                .init(color: Color.white.opacity(0.9 * motion.intensity), location: 0),
+                .init(color: color.opacity(motion.intensity), location: 0.3),
+                .init(color: color.opacity(0.25 * motion.intensity), location: 0.6),
+                .init(color: color.opacity(0), location: 1),
+            ],
+            center: .center, startRadius: 0, endRadius: radius
+        )
+    }
+
+    /// The impact: a flash where the head struck, a ring opening out from it,
+    /// and sparks thrown back off the wall, all gone within the burst.
+    private func cometBurst(_ motion: Motion, progress: Double) -> some View {
+        let color = Color(motion.color)
+        let out = 1 - pow(1 - progress, 3)
+        let fade = pow(1 - progress, 1.5)
+        let canvas = M.cometBurstCanvas
+        return ZStack {
+            Circle()
+                .fill(headGlow(motion, radius: M.cometHeadSize))
+                .frame(width: M.cometHeadSize * 2, height: M.cometHeadSize * 2)
+                .scaleEffect(1 + 0.6 * out)
+                .opacity(max(0, 1 - progress * 2.5))
+            Circle()
+                .stroke(color.opacity(0.6 * motion.intensity), lineWidth: 1)
+                .frame(width: M.cometHeadSize + (canvas - M.cometHeadSize) * out, height: M.cometHeadSize + (canvas - M.cometHeadSize) * out)
+                .opacity(fade)
+            ForEach(Array(M.cometSparkAngles.enumerated()), id: \.offset) { index, degrees in
+                let radians = degrees * .pi / 180
+                let reach = M.cometSparkReach * (index.isMultiple(of: 2) ? 1 : 0.7) * out
+                Circle()
+                    .fill(index.isMultiple(of: 3) ? Color.white.opacity(0.85 * motion.intensity) : color.opacity(motion.intensity))
+                    .frame(width: M.cometSparkSize * (1 - 0.5 * progress), height: M.cometSparkSize * (1 - 0.5 * progress))
+                    .offset(x: cos(radians) * reach, y: sin(radians) * reach + M.cometSparkFall * progress * progress)
+                    .opacity(fade)
+            }
+        }
+        .frame(width: canvas, height: canvas)
     }
 
     private func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
