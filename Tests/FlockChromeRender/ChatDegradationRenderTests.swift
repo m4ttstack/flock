@@ -260,7 +260,7 @@ final class ChatDegradationRenderTests: XCTestCase {
         let openViewerRowY = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedIn
             + ChromeMetrics.ChatPopover.SectionLabel.height + 3.5 * ChromeMetrics.ChatPopover.Features.rowSize.height
         XCTAssertEqual(
-            hex(openViewerImage, CGPoint(x: 200, y: openViewerRowY)), theme.palette.panelBg.hex,
+            hex(openViewerImage, CGPoint(x: 200, y: openViewerRowY)), theme.panelSurfaceRGB.hex,
             "a disabled row must not draw the hovered/selected fill even while it is the hovered feature"
         )
         openViewerWindow.close()
@@ -277,7 +277,7 @@ final class ChatDegradationRenderTests: XCTestCase {
         let peekRowY = ChromeMetrics.ChatPopover.Header.height + ChromeMetrics.ChatPopover.Status.heightSignedIn
             + ChromeMetrics.ChatPopover.SectionLabel.height + 1.5 * ChromeMetrics.ChatPopover.Features.rowSize.height
         XCTAssertLessThanOrEqual(
-            hexChannelDistance(hex(peekImage, CGPoint(x: 200, y: peekRowY)), theme.palette.panelBg.underHoverWash(theme).hex), 1,
+            hexChannelDistance(hex(peekImage, CGPoint(x: 200, y: peekRowY)), theme.panelSurfaceRGB.underHoverWash(theme).hex), 1,
             "deck missing must not stop every OTHER row from still highlighting when hovered"
         )
         peekWindow.close()

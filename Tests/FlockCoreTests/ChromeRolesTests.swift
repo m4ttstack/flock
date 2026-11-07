@@ -18,7 +18,7 @@ final class ChromeRolesTests: XCTestCase {
     func testTokyoNightLandsOnTheApprovedHexes() {
         let roles = ThemePalette.tokyoNight.chromeRoles
 
-        XCTAssertEqual(roles.chrome.hex, "#14151B")
+        XCTAssertEqual(roles.chrome.hex, "#191A22")
         XCTAssertEqual(roles.rule.hex, "#363948")
         XCTAssertEqual(roles.canvas.hex, "#2E303D")
         XCTAssertEqual(roles.pane.hex, "#191A22")
@@ -26,9 +26,60 @@ final class ChromeRolesTests: XCTestCase {
         XCTAssertEqual(roles.tabRest.hex, "#262835")
         XCTAssertEqual(roles.selection.hex, "#2B3A62")
         XCTAssertEqual(roles.textStrong.hex, "#E6E7EB")
-        XCTAssertEqual(roles.textDim.hex, "#D0D2DC")
-        XCTAssertEqual(roles.textLabel.hex, "#A3AACB")
+        XCTAssertEqual(roles.textDim.hex, "#D2D3D6")
+        XCTAssertEqual(roles.textLabel.hex, "#A9ABB5")
         XCTAssertEqual(roles.accent.hex, "#7AA2F7")
+        XCTAssertEqual(roles.lift.hex, "#35353D")
+        XCTAssertEqual(roles.hair.hex, "#2E2F36")
+        XCTAssertEqual(roles.hairFocus.hex, "#5E5F64")
+    }
+
+    func testChromeIsTheTerminalGroundInEveryTheme() {
+        for palette in ThemePalette.builtins {
+            XCTAssertEqual(palette.chromeRoles.chrome, palette.terminalGround, palette.id)
+        }
+    }
+
+    /// Secondary text sheds most of the panel's tint: each channel sits
+    /// nearer the text's own grey than the undesaturated ladder step did.
+    func testSecondaryTextIsDesaturated() {
+        func spread(_ color: RGB) -> Int { [color.red, color.green, color.blue].max()! - [color.red, color.green, color.blue].min()! }
+        let roles = ThemePalette.tokyoNight.chromeRoles
+        let rawLabel = ThemePalette.tokyoNight.panelBg.offset(ChromeRoles.textLabelOffset)
+        let rawDim = ThemePalette.tokyoNight.panelBg.offset(ChromeRoles.textDimOffset)
+        XCTAssertEqual(roles.textLabel, rawLabel.desaturated(by: ChromeRoles.textDesaturation))
+        XCTAssertEqual(roles.textDim, rawDim.desaturated(by: ChromeRoles.textDesaturation))
+        XCTAssertLessThan(spread(roles.textLabel), spread(rawLabel))
+    }
+
+    func testDesaturatedEndsAtGreyAndZeroKeepsTheColor() {
+        let color = RGB(122, 162, 247)
+        XCTAssertEqual(color.desaturated(by: 0), color)
+        let grey = color.desaturated(by: 1)
+        XCTAssertEqual(grey.red, grey.green)
+        XCTAssertEqual(grey.green, grey.blue)
+    }
+
+    /// `lift`, `hair` and `hairFocus` are the terminal ground blended toward
+    /// white on a dark theme and toward black on a light one, never toward the
+    /// accent, and `hairFocus` always stands further off the ground than `hair`.
+    func testNeutralRolesStepOffTheGroundWithoutTheAccent() {
+        for palette in ThemePalette.builtins {
+            let roles = palette.chromeRoles
+            let ground = roles.pane
+            let light = lightIDs.contains(palette.id)
+            for (name, color) in [("lift", roles.lift), ("hair", roles.hair), ("hairFocus", roles.hairFocus)] {
+                XCTAssertNotEqual(color, ground, "\(palette.id).\(name)")
+                XCTAssertEqual(
+                    color.relativeLuminance < ground.relativeLuminance, light,
+                    "\(palette.id).\(name) moves the wrong way off the ground"
+                )
+            }
+            XCTAssertGreaterThan(
+                roles.hairFocus.contrastRatio(with: ground), roles.hair.contrastRatio(with: ground),
+                "\(palette.id): hairFocus must stand out more than hair"
+            )
+        }
     }
 
     func testTheLightThemesAreExactlyTheBrightPanels() {

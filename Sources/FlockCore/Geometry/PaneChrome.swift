@@ -5,13 +5,14 @@ import CoreGraphics
 /// what keeps the surface's origin on the device-pixel grid the box was
 /// snapped to.
 public enum PaneChrome {
-    public static let verticalPadding: CGFloat = 10
+    public static let verticalPadding: CGFloat = 4
     public static let horizontalPadding: CGFloat = 13
     public static let titleRowTop: CGFloat = 13
     public static let titleRowHeight: CGFloat = 22
-    /// The chat chip is taller than the title row and overhangs it into this
-    /// gap, so the gap has to hold the overhang and the room under the chip.
-    public static let titleGap: CGFloat = 11
+    /// Holds the chat chip's overhang below the title row, the status line
+    /// as far under the chip as the box's edge is above it, and room before
+    /// the first terminal row.
+    public static let titleGap: CGFloat = 19
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.
@@ -23,7 +24,46 @@ public enum PaneChrome {
 
     /// Everything a box holds besides its surface, per axis: what is taken off
     /// a box before deriving its whole-cell grid.
-    public static var size: CGSize {
-        CGSize(width: horizontalPadding * 2, height: contentTop + verticalPadding)
+    public static var size: CGSize { size(flush: false) }
+
+    /// A pane with no agent in it (a shell) gets a compact header: its title
+    /// row, the rule under it and little else. An agent arriving grows it.
+    public static func isCompact(agent: String?) -> Bool { agent == nil }
+
+    public static let compactTitleRowTop: CGFloat = 6
+    /// Under the compact header's rule, before the first terminal row.
+    public static let compactGapBelowRule: CGFloat = 6
+
+    public static func titleRowTop(compact: Bool) -> CGFloat { compact ? compactTitleRowTop : titleRowTop }
+
+    /// Twice the title row's centre: the rule (or status line) sits as far
+    /// under the row as the box's top edge is above it.
+    public static func statusLineTop(compact: Bool) -> CGFloat {
+        (titleRowTop(compact: compact) + titleRowHeight / 2) * 2
     }
+
+    public static func contentTop(compact: Bool) -> CGFloat {
+        compact ? statusLineTop(compact: true) + compactGapBelowRule : contentTop
+    }
+
+    public static func size(flush: Bool, compact: Bool) -> CGSize {
+        CGSize(width: horizontalPadding(flush: flush) * 2, height: contentTop(compact: compact) + bottomPadding(flush: flush))
+    }
+
+    /// A pane running Claude Code sits nearly flush: it draws its own input
+    /// rules and indents, so only a sliver of side padding and none at the
+    /// bottom. The header keeps its room either way.
+    public static func isFlush(agent: String?) -> Bool { agent == "claude" }
+
+    public static func size(flush: Bool) -> CGSize {
+        CGSize(width: horizontalPadding(flush: flush) * 2, height: contentTop + bottomPadding(flush: flush))
+    }
+
+    public static func horizontalPadding(flush: Bool) -> CGFloat { flush ? flushSidePadding : horizontalPadding }
+
+    /// A sliver, not zero: the agent's input rules still run nearly full
+    /// width, but its output does not touch the pane's edge.
+    public static let flushSidePadding: CGFloat = 6
+
+    public static func bottomPadding(flush: Bool) -> CGFloat { flush ? 0 : verticalPadding }
 }

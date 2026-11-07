@@ -538,7 +538,7 @@ private struct WorkspaceIsland: View {
 
     private func outline(_ tabs: [TabRecord]) -> Color {
         if isTargeted(tabs) { return theme.accent }
-        return isFocusedWorkspace ? theme.textLabel : .clear
+        return isFocusedWorkspace ? theme.hairFocus : .clear
     }
 
     private func header(tabCount: Int) -> some View {
@@ -1090,7 +1090,7 @@ struct TabHandleStrip: View {
         .overlay(GridStateWash(theme: theme, shape: AnyShape(Rectangle()), interaction: interaction, isActive: isActive))
         .overlay(alignment: .bottom) {
             if isFocusedTab {
-                Rectangle().fill(theme.accent).frame(height: ChromeMetrics.Grid.currentTabUnderline).allowsHitTesting(false)
+                Rectangle().fill(theme.hairFocus).frame(height: ChromeMetrics.Grid.currentTabUnderline).allowsHitTesting(false)
             }
         }
     }

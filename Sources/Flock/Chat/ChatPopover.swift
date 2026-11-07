@@ -84,6 +84,7 @@ struct ChatPopover: View {
     @Binding private var isPresented: Bool
     @State private var route: Route = .status
     @State private var hoveredFeature: ChatPopoverFeature?
+    @State private var isSignHovered = false
 
     enum Route: Equatable {
         case status
@@ -140,10 +141,10 @@ struct ChatPopover: View {
             case let .feature(feature): featureBody(feature)
             }
         }
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(Color(theme.palette.panelBg)))
+        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(theme.panelSurface))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius)
-                .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
+                .strokeBorder(theme.hair, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius))
         .background(ChatPopoverEscMonitor(isPresented: $isPresented, isDrilledIn: isDrilledIn))
@@ -168,9 +169,8 @@ struct ChatPopover: View {
             statusBlock
             sectionLabel("FEATURES")
             featuresBlock
-            sectionLabel("THIS PANE")
-            signButtonsBlock
         }
+        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
         .frame(width: ChromeMetrics.ChatPopover.width)
     }
 
@@ -178,13 +178,13 @@ struct ChatPopover: View {
         HStack(spacing: 0) {
             Text("Chat")
                 .font(ChromeType.chatPopoverTitle)
-                .foregroundStyle(theme.text)
+                .foregroundStyle(theme.textStrong)
             Spacer(minLength: 0)
             Button(action: openViewer) {
                 Image(systemName: "arrow.up.forward.square")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(theme.overlay0)
+                    .foregroundStyle(theme.textLabel)
                     .frame(
                         width: ChromeMetrics.ChatPopover.Header.iconSize.width,
                         height: ChromeMetrics.ChatPopover.Header.iconSize.height
@@ -216,7 +216,7 @@ struct ChatPopover: View {
                 Button("Retry", action: onRetry)
                     .buttonStyle(.plain)
                     .font(ChromeType.chatPopoverFeatureShortcut)
-                    .foregroundStyle(theme.accent)
+                    .foregroundStyle(theme.textStrong)
             }
             .padding(.vertical, ChromeMetrics.ChatPopover.Status.gap)
             .padding(.horizontal, ChromeMetrics.ChatPopover.Status.leadingPadding)
@@ -234,14 +234,15 @@ struct ChatPopover: View {
                 if let name = status?.displayName {
                     Text(name)
                         .font(ChromeType.chatPopoverHandle)
-                        .foregroundStyle(theme.text)
+                        .foregroundStyle(theme.textStrong)
                 }
                 // rt's own vocabulary, never re-worded; empty until a status
                 // has actually loaded for this pane.
                 Text(status?.state ?? "")
                     .font(ChromeType.chatPopoverStateWord)
-                    .foregroundStyle(theme.subtext0)
+                    .foregroundStyle(theme.textLabel)
                 Spacer(minLength: 0)
+                signButton(for: ChatPresence.signAction(for: status))
             }
             if hasRooms {
                 HStack(spacing: ChromeMetrics.ChatPopover.Status.roomChipGap) {
@@ -313,11 +314,11 @@ struct ChatPopover: View {
         return Group {
             switch row {
             case let .open(person):
-                Text("Talking to \(name(person)) on Slack").foregroundStyle(theme.text)
+                Text("Talking to \(name(person)) on Slack").foregroundStyle(theme.textStrong)
             case let .closing(person):
-                Text("Closing chat with \(name(person))").foregroundStyle(theme.subtext0)
+                Text("Closing chat with \(name(person))").foregroundStyle(theme.textLabel)
             case .opening, .available:
-                Text("Opening Slack chat…").foregroundStyle(theme.subtext0)
+                Text("Opening Slack chat…").foregroundStyle(theme.textLabel)
             }
         }
         .font(ChromeType.chatPopoverFeatureName)
@@ -332,7 +333,7 @@ struct ChatPopover: View {
                 .padding(.horizontal, ChromeMetrics.ChatPopover.Status.slackButtonHorizontalPadding)
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.slackButtonCornerRadius)
-                        .fill(Color(theme.palette.surface0))
+                        .fill(theme.lift)
                 )
         }
         .buttonStyle(.plain)
@@ -340,25 +341,25 @@ struct ChatPopover: View {
     }
 
     /// The header and the status band are the only bands the popover rules
-    /// off: a 1pt line in `surface0`, never the outer stroke's own colour.
+    /// off: a 1pt `hair`, never the outer stroke's own colour.
     private var bandRule: some View {
-        Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
+        Rectangle().fill(theme.hair).frame(height: 1)
     }
 
     private func roomChip(_ room: String) -> some View {
         Text(room)
             .font(ChromeType.chatPopoverChipLabel)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .padding(.vertical, ChromeMetrics.ChatPopover.Status.roomChipVerticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPopover.Status.roomChipHorizontalPadding)
             .frame(height: ChromeMetrics.ChatPopover.Status.roomChipHeight)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.roomChipCornerRadius).fill(Color(theme.palette.activeRowBg)))
+            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.roomChipCornerRadius).fill(theme.lift))
     }
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(ChromeType.chatPopoverSectionLabel)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, ChromeMetrics.ChatPopover.SectionLabel.topPadding)
             .padding(.trailing, ChromeMetrics.ChatPopover.SectionLabel.trailingPadding)
@@ -403,21 +404,21 @@ struct ChatPopover: View {
                 Image(systemName: feature.symbolName)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.accent : theme.overlay0))
+                    .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.textStrong : theme.textLabel))
                     .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
                 Text(feature.title)
                     .font(ChromeType.chatPopoverFeatureName)
-                    .foregroundStyle(isDisabled ? theme.overlay0 : theme.text)
+                    .foregroundStyle(isDisabled ? theme.overlay0 : theme.textDim)
                 Spacer(minLength: 0)
                 if let shortcut = feature.shortcut {
                     Text(shortcut)
                         .font(ChromeType.chatPopoverFeatureShortcut)
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                 } else if !isDisabled {
                     Image(systemName: "chevron.right")
                         .resizable()
                         .scaledToFit()
-                        .foregroundStyle(theme.overlay0)
+                        .foregroundStyle(theme.textLabel)
                         .frame(width: ChromeMetrics.ChatPopover.Features.chevronSize.width, height: ChromeMetrics.ChatPopover.Features.chevronSize.height)
                 }
             }
@@ -451,28 +452,8 @@ struct ChatPopover: View {
 
     private var signOutIsBlocked: Bool { slackRow?.blocksSignOut ?? false }
 
-    var signButtonsBlock: some View {
-        VStack(spacing: ChromeMetrics.ChatPopover.SignButtons.hintGap) {
-            signButton(for: ChatPresence.signAction(for: status))
-            if signOutIsBlocked {
-                Text("End the Slack chat first")
-                    .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.overlay0)
-                    .frame(height: ChromeMetrics.ChatPopover.SignButtons.hintHeight)
-            }
-        }
-        .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
-        .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
-        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
-        .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: signButtonsHeight, alignment: .top)
-    }
-
-    private var signButtonsHeight: CGFloat {
-        let band = ChromeMetrics.ChatPopover.SignButtons.self
-        return signOutIsBlocked ? band.bandHeight + band.hintGap + band.hintHeight : band.bandHeight
-    }
-
+    /// A small text button at the end of the status line: signing in or out
+    /// is this pane's one action, and it should not outweigh the features.
     private func signButton(for signAction: ChatSignAction) -> some View {
         let title: String
         let symbolName: String
@@ -490,27 +471,29 @@ struct ChatPopover: View {
             isEnabled = !signOutIsBlocked
             action = onSignOut
         }
+        let metrics = ChromeMetrics.ChatPopover.SignButtons.self
         return Button(action: action) {
-            HStack(spacing: ChromeMetrics.ChatPopover.SignButtons.contentGap) {
+            HStack(spacing: metrics.contentGap) {
                 Image(systemName: symbolName)
                     .resizable()
                     .scaledToFit()
-                    .frame(
-                        width: ChromeMetrics.ChatPopover.SignButtons.iconSize.width,
-                        height: ChromeMetrics.ChatPopover.SignButtons.iconSize.height
-                    )
+                    .frame(width: metrics.iconSize.width, height: metrics.iconSize.height)
                 Text(title)
-                    .font(ChromeType.chatPopoverButtonLabel)
+                    .font(ChromeType.chatPopoverStateWord)
             }
-            .foregroundStyle(signOutIsBlocked ? theme.overlay0 : Color(theme.palette.panelBg))
-            .frame(width: ChromeMetrics.ChatPopover.SignButtons.buttonSize.width, height: ChromeMetrics.ChatPopover.SignButtons.buttonSize.height)
+            .foregroundStyle(isEnabled ? (isSignHovered ? theme.textStrong : theme.textLabel) : theme.overlay0)
+            .padding(.horizontal, metrics.buttonHorizontalPadding)
+            .padding(.vertical, metrics.buttonVerticalPadding)
             .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                    .fill(signOutIsBlocked ? Color(theme.palette.surface0) : theme.accent)
+                RoundedRectangle(cornerRadius: metrics.cornerRadius)
+                    .fill(isSignHovered && isEnabled ? theme.lift : .clear)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isSignHovered = $0 }
         .disabled(!isEnabled)
+        .help(signOutIsBlocked ? "End the Slack chat first" : title)
     }
 
     // MARK: - Feature route

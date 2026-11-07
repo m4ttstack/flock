@@ -79,7 +79,8 @@ final class GridControlAppearanceTests: XCTestCase {
 
     func testAPaneHoverRingNeverReplacesTheBlockedOrPreviewedOutline() {
         XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .blocked, isSelected: false, pane: .hover), theme.red)
-        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isSelected: true, pane: .hover), theme.accent)
+        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isSelected: true, pane: .hover), theme.hairFocus)
+        XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .blocked, isSelected: true, pane: .rest), theme.hairFocus)
         XCTAssertEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isSelected: false, pane: .rest), theme.rule)
         XCTAssertNotEqual(ThumbnailPart.paneOutline(theme: theme, status: .idle, isSelected: false, pane: .hover), theme.rule)
     }

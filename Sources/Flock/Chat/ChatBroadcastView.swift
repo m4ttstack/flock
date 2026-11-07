@@ -2,8 +2,7 @@ import FlockCore
 import SwiftUI
 
 /// Chat broadcast: every pane on chat with a checkbox, select-all, one
-/// message, and a `mauve` send button -- the one place it and Quick send's
-/// `accent` button deliberately differ.
+/// message, and the shared compose send button.
 ///
 /// A broadcast's own two failure shapes differ in exit code: every pane
 /// refusing still decodes (`ChatStore.broadcast` returns it, refusals
@@ -26,6 +25,8 @@ struct ChatBroadcastView: View {
     @State private var buddies: [ChatBuddy] = []
     @State private var checked: Set<String> = []
     @State private var message = ""
+    @State private var isSelectAllHovered = false
+    @FocusState private var isFieldFocused: Bool
 
     /// `previewBuddies` exists only so a geometry test can measure a
     /// populated pane list without a live `ChatStore` in the environment --
@@ -66,12 +67,15 @@ struct ChatBroadcastView: View {
     /// off its `.frame`, the same way `ChatPopover`'s own bands are read.
     var selectHead: some View {
         HStack(spacing: 0) {
-            Text("PANES").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.overlay0)
+            Text("PANES").font(ChromeType.chatPopoverSectionLabel).foregroundStyle(theme.textLabel)
             Spacer(minLength: 0)
             Button(action: selectAll) {
-                Text("Select all").font(ChromeType.chatBroadcastSelectAll).foregroundStyle(theme.accent)
+                Text("Select all")
+                    .font(ChromeType.chatBroadcastSelectAll)
+                    .foregroundStyle(isSelectAllHovered ? theme.textStrong : theme.textLabel)
             }
             .buttonStyle(.plain)
+            .onHover { isSelectAllHovered = $0 }
         }
         .padding(.top, ChromeMetrics.ChatBroadcast.SelectHead.topPadding)
         .padding(.trailing, ChromeMetrics.ChatBroadcast.SelectHead.trailingPadding)
@@ -89,32 +93,32 @@ struct ChatBroadcastView: View {
                     .fill(dotColor(for: buddy.status))
                     .frame(width: ChromeMetrics.ChatBroadcast.PaneRow.dotSize, height: ChromeMetrics.ChatBroadcast.PaneRow.dotSize)
                 VStack(alignment: .leading, spacing: ChromeMetrics.ChatBroadcast.PaneRow.stackGap) {
-                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
-                    Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.overlay0)
+                    Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.textStrong)
+                    Text(location(for: buddy)).font(ChromeType.chatPeekLocation).foregroundStyle(theme.textLabel)
                 }
                 Spacer(minLength: 0)
             }
             .padding(.vertical, ChromeMetrics.ChatBroadcast.PaneRow.verticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatBroadcast.PaneRow.horizontalPadding)
             .frame(width: ChromeMetrics.ChatBroadcast.width, height: ChromeMetrics.ChatBroadcast.PaneRow.height)
-            .background(isChecked ? Color(theme.palette.activeRowBg) : Color.clear)
+            .background(isChecked ? theme.lift : Color.clear)
         }
         .buttonStyle(.plain)
     }
 
     private func checkbox(checked isChecked: Bool) -> some View {
         RoundedRectangle(cornerRadius: ChromeMetrics.ChatBroadcast.PaneRow.checkboxCornerRadius)
-            .fill(isChecked ? theme.accent : Color.clear)
+            .fill(isChecked ? theme.lift : Color.clear)
             .overlay(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatBroadcast.PaneRow.checkboxCornerRadius)
-                    .strokeBorder(isChecked ? Color.clear : theme.surface1, lineWidth: 1)
+                    .strokeBorder(isChecked ? theme.hairFocus : theme.hair, lineWidth: 1)
             )
             .overlay {
                 if isChecked {
                     Image(systemName: "checkmark")
                         .resizable()
                         .scaledToFit()
-                        .foregroundStyle(Color(theme.palette.panelBg))
+                        .foregroundStyle(theme.textStrong)
                         .frame(width: ChromeMetrics.ChatBroadcast.PaneRow.checkTickSize, height: ChromeMetrics.ChatBroadcast.PaneRow.checkTickSize)
                 }
             }
@@ -131,13 +135,15 @@ struct ChatBroadcastView: View {
                 theme: theme, text: $message, size: ChromeMetrics.ChatBroadcast.FieldBand.fieldSize,
                 cornerRadius: ChromeMetrics.ChatBroadcast.FieldBand.fieldCornerRadius,
                 verticalPadding: ChromeMetrics.ChatBroadcast.FieldBand.fieldVerticalPadding,
-                horizontalPadding: ChromeMetrics.ChatBroadcast.FieldBand.fieldHorizontalPadding
+                horizontalPadding: ChromeMetrics.ChatBroadcast.FieldBand.fieldHorizontalPadding,
+                isFocused: isFieldFocused
             )
+            .focused($isFieldFocused)
             HStack(spacing: 0) {
-                Text("\(checked.count) panes").font(ChromeType.chatComposeFooterHint).foregroundStyle(theme.overlay0)
+                Text("\(checked.count) panes").font(ChromeType.chatComposeFooterHint).foregroundStyle(theme.textLabel)
                 Spacer(minLength: 0)
                 ChatComposeSendButton(
-                    theme: theme, title: "Broadcast", fill: theme.mauve, size: ChromeMetrics.ChatBroadcast.FieldBand.sendButtonSize,
+                    theme: theme, title: "Broadcast", size: ChromeMetrics.ChatBroadcast.FieldBand.sendButtonSize,
                     cornerRadius: ChromeMetrics.ChatBroadcast.FieldBand.sendButtonCornerRadius,
                     verticalPadding: ChromeMetrics.ChatBroadcast.FieldBand.sendButtonVerticalPadding,
                     horizontalPadding: ChromeMetrics.ChatBroadcast.FieldBand.sendButtonHorizontalPadding,
@@ -150,7 +156,7 @@ struct ChatBroadcastView: View {
         .padding(ChromeMetrics.ChatBroadcast.FieldBand.padding)
         .frame(width: ChromeMetrics.ChatBroadcast.width, height: ChromeMetrics.ChatBroadcast.FieldBand.height, alignment: .topLeading)
         .overlay(alignment: .top) {
-            Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
+            Rectangle().fill(theme.hair).frame(height: 1)
         }
     }
 
@@ -158,7 +164,7 @@ struct ChatBroadcastView: View {
         switch AgentStatus(rawValue: status) ?? .unknown {
         case .working: theme.yellow
         case .idle: theme.green
-        case .done: theme.accent
+        case .done: theme.teal
         case .blocked: theme.red
         case .unknown: theme.overlay0
         }

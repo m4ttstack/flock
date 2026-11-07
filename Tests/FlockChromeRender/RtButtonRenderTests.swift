@@ -115,19 +115,21 @@ final class RtButtonRenderTests: XCTestCase {
             let palette = theme.palette
             let expectedAppearance: NSAppearance.Name = ChromeRoles.isLight(panelBg: palette.panelBg) ? .aqua : .darkAqua
             XCTAssertEqual(window.appearance?.name, expectedAppearance, "\(label): the popover's window appearance")
-            XCTAssertEqual(hex(image, at: point(150, 20)), palette.panelBg.hex, "\(label): the popover's ground")
-            XCTAssertEqual(hex(image, at: point(0.5, 100)), palette.surface1.hex, "\(label): the outer stroke")
-            XCTAssertEqual(hex(image, at: point(150, 40.5)), palette.surface0.hex, "\(label): the header rule")
+            let ground = theme.panelSurfaceRGB
+            let roles = theme.roles
+            XCTAssertEqual(hex(image, at: point(150, 20)), ground.hex, "\(label): the popover's lifted ground")
+            XCTAssertEqual(hex(image, at: point(0.5, 100)), roles.hair.hex, "\(label): the outer stroke")
+            XCTAssertEqual(hex(image, at: point(150, 40.5)), roles.hair.hex, "\(label): the header rule")
             XCTAssertEqual(hex(image, at: point(16, 15)), Self.plum, "\(label): the header badge")
             XCTAssertLessThanOrEqual(
-                hexChannelDistance(hex(image, at: point(180, 50)), palette.panelBg.underHoverWash(theme).hex), 1,
+                hexChannelDistance(hex(image, at: point(180, 50)), ground.underHoverWash(theme).hex), 1,
                 "\(label): the hovered row wears the hover wash"
             )
-            XCTAssertEqual(hex(image, at: point(180, 81)), palette.panelBg.hex, "\(label): a row not hovered has no fill")
-            XCTAssertEqual(hex(image, at: point(180, 239)), palette.activeRowBg.hex, "\(label): the running item's fill")
-            XCTAssertEqual(hex(image, at: point(180, 270)), palette.panelBg.hex, "\(label): a finished item has no fill")
-            XCTAssertEqual(hex(image, at: point(150, 303)), palette.panelBg.hex, "\(label): the runs band's bottom padding")
-            XCTAssertNotEqual(hex(image, at: point(150, 307)), palette.panelBg.hex, "\(label): the popover runs past its runs")
+            XCTAssertEqual(hex(image, at: point(180, 81)), ground.hex, "\(label): a row not hovered has no fill")
+            XCTAssertEqual(hex(image, at: point(180, 239)), roles.lift.hex, "\(label): the running item's lift")
+            XCTAssertEqual(hex(image, at: point(180, 270)), ground.hex, "\(label): a finished item has no fill")
+            XCTAssertEqual(hex(image, at: point(150, 303)), ground.hex, "\(label): the runs band's bottom padding")
+            XCTAssertNotEqual(hex(image, at: point(150, 307)), ground.hex, "\(label): the popover runs past its runs")
         }
     }
 

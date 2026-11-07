@@ -59,6 +59,10 @@ public final class SessionViewModel {
     @ObservationIgnored private var pinFolderReads: Set<PinID> = []
     public var pinAwaitingFolder: PinID? { pinFolderAsk?.pin }
     public private(set) var optimisticFocusedPaneID: PaneID?
+    /// A pane flock just created and predicted focus on, which the model may
+    /// not hold yet: the one prediction that counts before its pane exists.
+    private var awaitingCreatedPane: PaneID?
+    static let createdPaneEchoDeadline: Duration = .seconds(2)
     public private(set) var lastLines: [PaneID: String] = [:]
     /// Arrange's tails, one per pane a tile has read.
     public private(set) var paneTails: [PaneID: PaneTail] = [:]
@@ -381,6 +385,15 @@ public final class SessionViewModel {
         // own field drive `resolvedFocusedPaneID` again.
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
+        }
+        // A predicted pane that the model had and has now dropped (a tab
+        // close removed it) predicts nothing. One the model has not seen yet
+        // is a creation still waiting for its echo, and keeps its claim.
+        if let predicted = optimisticFocusedPaneID, previousModel?.panes[predicted] != nil, model?.panes[predicted] == nil {
+            optimisticFocusedPaneID = nil
+        }
+        if let awaited = awaitingCreatedPane, model?.panes[awaited] != nil {
+            awaitingCreatedPane = nil
         }
         if externalFocusWatch.observed(focus: model?.focusedPaneID, ownTarget: paneShownInOverview, at: now()) {
             externalFocusMoves += 1
@@ -882,8 +895,15 @@ public final class SessionViewModel {
     /// on the same frame as the click rather than 24-100+ms later. The same
     /// field decides which pane's surface accepts input, mouse and wheel
     /// (`InputSinkDisposition`, `MouseForwarding`).
+    ///
+    /// Each candidate counts only while its pane still exists, except a
+    /// creation still waiting for its echo; with none left, the shown tab's
+    /// own remembered pane takes it, which is the pane herdr itself focuses
+    /// there.
     public var resolvedFocusedPaneID: PaneID? {
-        optimisticFocusedPaneID ?? model?.focusedPaneID
+        let live: (PaneID?) -> PaneID? = { id in id.flatMap { self.model?.panes[$0] != nil ? $0 : nil } }
+        let awaited = optimisticFocusedPaneID.flatMap { $0 == awaitingCreatedPane ? $0 : nil }
+        return live(optimisticFocusedPaneID) ?? awaited ?? live(model?.focusedPaneID) ?? live(selectedLayout?.focusedPane)
     }
 
     /// The pane the main canvas draws as focused and lets take the keyboard.
@@ -1745,6 +1765,13 @@ public final class SessionViewModel {
     /// just made.
     private func landIn(pane: PaneID) {
         optimisticFocusedPaneID = pane
+        awaitingCreatedPane = pane
+        // A pane that exits before any event reduces it in never arrives;
+        // past this its prediction stops counting and focus falls back.
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.createdPaneEchoDeadline)
+            if self?.awaitingCreatedPane == pane { self?.awaitingCreatedPane = nil }
+        }
         launcherChange(pane) { $0.recordCreated(pane) }
     }
 

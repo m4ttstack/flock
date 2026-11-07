@@ -16,6 +16,7 @@ struct PaneHoverLift: ViewModifier {
     /// the caster itself stays hidden under an opaque pane.
     let fill: Color
     let active: Bool
+    var cornerRadius: CGFloat = PaneChrome.cornerRadius
 
     static let shadowRadius: CGFloat = 16
     static let shadowOpacity: Double = 0.5
@@ -23,7 +24,7 @@ struct PaneHoverLift: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background {
-            RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
+            RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(fill)
                 .shadow(
                     color: .black.opacity(active ? Self.shadowOpacity : 0),
@@ -58,15 +59,6 @@ extension EnvironmentValues {
 /// attach badge covers that whole wait. The status card (glyph/cwd) is
 /// only for an app with no ghostty host.
 struct PaneCellView: View {
-    /// What the canvas subtracts from a box before deriving the whole-cell
-    /// grid, so the chrome never eats a terminal cell. Must agree with
-    /// `contentInsets` exactly.
-    static let chrome = PaneChrome.size
-
-    private static let contentInsets = EdgeInsets(
-        top: PaneChrome.contentTop, leading: PaneChrome.horizontalPadding,
-        bottom: PaneChrome.verticalPadding, trailing: PaneChrome.horizontalPadding
-    )
 
     let theme: Theme
     let viewModel: SessionViewModel
@@ -100,9 +92,11 @@ struct PaneCellView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
     @Environment(BoardStore.self) private var board: BoardStore?
+    @Environment(PaneAppearanceStore.self) private var appearance: PaneAppearanceStore?
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
+    @State private var chatPopoverClosedAt: Date?
     @State private var isChatChipHovered = false
     /// Read once by `chatPopover`'s own `initialFeature`: nil for an
     /// ordinary click (always the status root), set only by the Chat menu's
@@ -110,6 +104,7 @@ struct PaneCellView: View {
     /// click never inherits a stale route from an earlier shortcut.
     @State private var pendingPopoverFeature: ChatPopoverFeature?
     @State private var isRtPopoverPresented = false
+    @State private var rtPopoverClosedAt: Date?
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
     @State private var bodyFrame: CGRect = .zero
@@ -229,10 +224,13 @@ struct PaneCellView: View {
 
     private func cell(editorIsOpen: Bool) -> some View {
         box(editorIsOpen: editorIsOpen)
-            .overlay(alignment: .topLeading) { title }
-            .overlay(alignment: .topTrailing) { legendControls }
+            // An agent arriving grows the header from compact to full, and
+            // leaving shrinks it back, rather than jumping.
+            .animation(focusFade, value: isCompact)
+            .overlay(alignment: .topLeading) { title.opacity(headerOpacity).animation(focusFade, value: isFocused) }
+            .overlay(alignment: .topTrailing) { legendControls.opacity(headerOpacity).animation(focusFade, value: isFocused) }
             // Last, so a long title running under it never takes its press.
-            .overlay(alignment: .top) { if role == .canvas { grip } }
+            .overlay(alignment: .top) { if role == .canvas { grip.opacity(headerOpacity) } }
             // While rearranging a drag starts from ANY point on the pane,
             // gutters and sub-cell remainder included, which no subview of the
             // cell covers. Arming this as well as the body's own AppKit path
@@ -290,7 +288,7 @@ struct PaneCellView: View {
     /// row. Rearrange mode drags from anywhere on the pane instead.
     private var grip: some View {
         PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
-            .padding(.top, PaneChrome.titleRowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
             .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
@@ -354,8 +352,10 @@ struct PaneCellView: View {
             // clip eats the OLDEST lines off the top and leaves the newest
             // ones, which are the ones being watched, against the edge.
             .frame(width: surfaceSize.width, height: surfaceSize.height, alignment: .bottomLeading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(Self.contentInsets)
+            // The rows a box cannot fill whole are split above and below the
+            // surface, so no dead strip collects at the bottom.
+            .modifier(RowRemainderSplit(surfaceHeight: surfaceSize.height))
+            .padding(contentInsets)
             // While the launcher shows, the surface claims no point at all
             // (`GhosttySurfaceView.hitTest`), which also removes ITS own
             // click-to-focus -- this is that route's SwiftUI equivalent,
@@ -374,17 +374,28 @@ struct PaneCellView: View {
                 focusInHerdr()
             }
             .background(theme.pane)
+            .overlay(alignment: .top) {
+                PaneStatusLine(
+                    theme: theme, lineTop: PaneChrome.statusLineTop(compact: isCompact),
+                    status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .standard,
+                    backgroundWork: DevStatusOverride.shared.backgroundWork(
+                        real: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
+                    )
+                )
+                    .opacity(statusLineOpacity)
+            }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
-            .clipShape(RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .overlay { focusWash.animation(.easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration), value: isFocused) }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
             // leave the thumb unable to reach the last row.
             .overlay(alignment: .trailing) {
                 PaneScrollIndicator(theme: theme, scroll: pane.scroll)
-                    .padding(.top, Self.contentInsets.top)
-                    .padding(.bottom, Self.contentInsets.bottom)
+                    .padding(.top, contentInsets.top)
+                    .padding(.bottom, contentInsets.bottom)
                     .padding(.trailing, ChromeMetrics.Pane.scrollIndicatorInset)
             }
             .overlay {
@@ -392,19 +403,127 @@ struct PaneCellView: View {
                     rearrangePaint
                 }
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
-                    .strokeBorder(borderColor, lineWidth: isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth)
-            )
-            .modifier(PaneHoverLift(fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging))
+            .overlay {
+                if let border {
+                    RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(border.color, lineWidth: border.width)
+                }
+            }
+            .modifier(PaneHoverLift(
+                fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging, cornerRadius: cornerRadius
+            ))
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
     }
 
-    private var borderColor: Color {
-        rearrangeMode.active || isFocused ? theme.accent : theme.paneBorder
+    /// Must agree exactly with what the canvas subtracts from the box before
+    /// deriving the whole-cell grid (`PaneChrome.size(flush:)`), so the
+    /// chrome never eats a terminal cell.
+    private var contentInsets: EdgeInsets {
+        let flush = PaneChrome.isFlush(agent: pane.agent)
+        let side = PaneChrome.horizontalPadding(flush: flush)
+        return EdgeInsets(
+            top: PaneChrome.contentTop(compact: isCompact), leading: side, bottom: PaneChrome.bottomPadding(flush: flush), trailing: side
+        )
     }
+
+    private var isCompact: Bool { PaneChrome.isCompact(agent: pane.agent) }
+
+    private var focusFade: Animation { .easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration) }
+
+    private var dimness: Double { appearance?.dimness ?? PaneAppearanceStore.standardDimness }
+
+    private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .standard }
+
+    private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
+
+    private var cornerRadius: CGFloat { isEdgeToEdge ? 0 : PaneChrome.cornerRadius }
+
+    /// Edge to edge, the canvas draws the line between panes, so a pane only
+    /// strokes its own edge to say it has focus.
+    private var border: (color: Color, width: CGFloat)? {
+        if rearrangeMode.active {
+            return (theme.accent, isFocused ? ChromeMetrics.selectionOutlineWidth : ChromeMetrics.ruleWidth)
+        }
+        switch focusStyle {
+        case .brighterBorder:
+            if isFocused { return (theme.hairFocus, ChromeMetrics.ruleWidth) }
+            return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
+        case .dimOthers, .drainColour, .quietChrome:
+            return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
+        case .lift:
+            return nil
+        }
+    }
+
+    /// The header draws over the box, outside the dim scrim, so it fades by
+    /// the scrim's own amount to match.
+    /// Dim others and drain colour shade the whole box, line included;
+    /// quiet chrome leaves the box alone and fades the line here instead.
+    private var statusLineOpacity: Double {
+        guard !rearrangeMode.active, !isFocused, focusStyle == .quietChrome else { return 1 }
+        return ChromeMetrics.Pane.Focus.chromeFadeOpacity
+    }
+
+    private var headerOpacity: Double {
+        guard !rearrangeMode.active, !isFocused else { return 1 }
+        switch focusStyle {
+        case .quietChrome: return ChromeMetrics.Pane.Focus.chromeFadeOpacity
+        // The header draws above the box's veil, so it fades by the veil's
+        // own amount to match.
+        case .dimOthers, .drainColour: return 1 - surfaceShade.veil
+        case .brighterBorder, .lift: return 1
+        }
+    }
+
+    /// What an unfocused pane's terminal is shaded by: both styles pull it
+    /// toward its own ground, which lowers contrast where black would only
+    /// darken; drain colour also drains some colour.
+    private var surfaceShade: SurfaceShade {
+        guard !rearrangeMode.active, !isFocused else { return .none }
+        let ground = NSColor(theme.pane).cgColor
+        switch focusStyle {
+        case .dimOthers: return SurfaceShade(drain: 0, veil: dimness, ground: ground)
+        case .drainColour:
+            let drain = appearance?.desaturation ?? PaneAppearanceStore.standardDesaturation
+            return SurfaceShade(drain: drain, veil: dimness, ground: ground)
+        case .brighterBorder, .quietChrome, .lift: return .none
+        }
+    }
+
+    /// The same ground over the rest of the box (the status line and wash in
+    /// the header), with a hole where the surface shades itself, so nothing
+    /// is veiled twice.
+    private var chromeVeil: some View {
+        let box = CGRect(origin: .zero, size: surfaceSize)
+        return GeometryReader { proxy in
+            Path { path in
+                path.addRect(CGRect(origin: .zero, size: proxy.size))
+                let available = proxy.size.height - contentInsets.top - contentInsets.bottom
+                let split = RowRemainderSplit.offset(available: available, surfaceHeight: surfaceSize.height)
+                path.addRect(box.offsetBy(dx: contentInsets.leading, dy: contentInsets.top + split))
+            }
+            .fill(theme.pane.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var focusWash: some View {
+        if !rearrangeMode.active {
+            switch focusStyle {
+            // Drawn focused or not, at no strength when focused, so its fade
+            // runs both ways.
+            case .dimOthers, .drainColour:
+                chromeVeil
+            case .lift where isFocused:
+                theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
+            default:
+                EmptyView()
+            }
+        }
+    }
+
 
     /// Rearrange mode's repaint, per the spec's "Grabbing a pane" bullet:
     /// terminal content dims under a scrim and a centered grip glyph appears.
@@ -449,27 +568,30 @@ struct PaneCellView: View {
                 onCancel: { viewModel.cancelRename() }
             )
             .frame(width: ChromeMetrics.Rename.paneWidth, height: PaneChrome.titleRowHeight)
-            .padding(.top, PaneChrome.titleRowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {
-                statusDot
                 if showsWindowButton { windowButton }
                 titleLabel
             }
             .frame(height: ChromeMetrics.PaneBar.rowHeight)
-            .padding(.top, ChromeMetrics.PaneBar.rowTop)
+            .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .padding(.leading, PaneChrome.horizontalPadding)
         }
     }
 
     /// A hidden title keeps its place and its clicks, so nothing beside it moves.
+    /// With no title of its own (the tab's stands for it), the row says
+    /// where the pane is instead: its checkout and branch, as Overview's
+    /// cards do, read from the files the repository keeps on disk.
     private var titleLabel: some View {
         let shown = shownTitle
-        return Text(shown ?? pane.displayTitle)
-            .font(ChromeType.paneTitle)
-            .foregroundStyle(shown == nil ? Color.clear : isFocused ? theme.textStrong : theme.textDim)
-            .accessibilityHidden(shown == nil)
+        return Text(shown ?? viewModel.repoBranches.repoBranch(for: pane.foregroundCwd ?? pane.cwd).text)
+            .font(shown == nil ? ChromeType.paneTitlePlace : ChromeType.paneTitle)
+            // A shell's own prompt already says where it is, so its compact
+            // header leaves the place out rather than repeat it.
+            .foregroundStyle(shown == nil ? (isCompact ? Color.clear : theme.textLabel) : isFocused ? theme.textStrong : theme.textDim)
             .lineLimit(1)
             .frame(height: ChromeMetrics.PaneBar.rowHeight)
             .contentShape(Rectangle())
@@ -509,22 +631,18 @@ struct PaneCellView: View {
     /// so who is in the pane sits in the same corner whatever else it shows.
     private var legendControls: some View {
         HStack(spacing: ChromeMetrics.PaneBar.trailingGap) {
-            if ghosttySurface?.programHasMouse == true { mouseBadge }
-            rtButton
+            // The pane's tools step back when it has no focus; who is in it
+            // (the chat chip) stays readable.
+            Group {
+                if ghosttySurface?.programHasMouse == true { mouseBadge }
+                rtButton
+            }
+            .opacity(isFocused ? 1 : ChromeMetrics.Pane.Focus.unfocusedToolOpacity)
             if chatButtonAppearance != .absent { chatButton }
         }
         .frame(height: ChromeMetrics.PaneBar.rowHeight)
-        .padding(.top, ChromeMetrics.PaneBar.rowTop)
+        .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
         .padding(.trailing, PaneChrome.horizontalPadding)
-    }
-
-    private var statusDot: some View {
-        let appearance = statusChipAppearance
-        return PaneStatusDot(
-            theme: theme,
-            color: appearance.color,
-            label: appearance.label.prefix(1).uppercased() + appearance.label.dropFirst()
-        )
     }
 
     /// Maximizing the only pane in a tab would change nothing. A solo cell
@@ -556,7 +674,12 @@ struct PaneCellView: View {
     /// with which branch is live.
     private var chatButton: some View {
         chatButtonContent
-            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
+            .anchoredPanel(isPresented: $isChatPopoverPresented) {
+                chatPopover.environment(chatStore).environment(toastCenter)
+            }
+            .onChange(of: isChatPopoverPresented) { _, shown in
+                if !shown { chatPopoverClosedAt = Date() }
+            }
     }
 
     @ViewBuilder
@@ -612,7 +735,13 @@ struct PaneCellView: View {
     /// Always the status root: only the Chat menu's `onChange` above sets
     /// `pendingPopoverFeature`, so a plain click never inherits a stale one
     /// left over from an earlier shortcut.
+    /// A click on the chip while the popover is open closes it on the press
+    /// and would reopen it on the release; a reopen that soon after a close
+    /// is that same click, so it is dropped.
     private func openChatPopover() {
+        if let closed = chatPopoverClosedAt, Date().timeIntervalSince(closed) < ChromeMetrics.ChatPopover.reopenGuard {
+            return
+        }
         pendingPopoverFeature = nil
         isChatPopoverPresented = true
     }
@@ -632,10 +761,23 @@ struct PaneCellView: View {
         RtButton(
             theme: theme, paneID: pane.paneID,
             appearance: viewModel.rt.buttonAppearance(linkedTo: pane.terminalID, rtInstalled: RtAvailability.installed),
-            onOpenPopover: { isRtPopoverPresented = true },
+            onOpenPopover: { openRtPopover() },
             onShowRunner: { showRunner() }
         )
-        .popover(isPresented: $isRtPopoverPresented, arrowEdge: .bottom) { rtPopover }
+        .anchoredPanel(isPresented: $isRtPopoverPresented) {
+            rtPopover.environment(chatStore).environment(toastCenter)
+        }
+        .onChange(of: isRtPopoverPresented) { _, shown in
+            if !shown { rtPopoverClosedAt = Date() }
+        }
+    }
+
+    /// The chat popover's guard against the closing click reopening it.
+    private func openRtPopover() {
+        if let closed = rtPopoverClosedAt, Date().timeIntervalSince(closed) < ChromeMetrics.ChatPopover.reopenGuard {
+            return
+        }
+        isRtPopoverPresented = true
     }
 
     @ViewBuilder
@@ -678,20 +820,6 @@ struct PaneCellView: View {
             theme: theme, paneID: pane.paneID, mode: viewModel.rightClicks.mode(for: pane.terminalID),
             onToggle: pane.terminalID.map { terminal in { viewModel.rightClicks.toggle(terminal) } }
         )
-    }
-
-    /// Every pane wears a chip. Idle takes herdr's idle green, which
-    /// `agentStatusColor` leaves out because the dots draw idle as a hollow
-    /// ring; unknown (no agent detected) reads as idle, dimmed, rather than
-    /// naming a state herdr never reported.
-    private var statusChipAppearance: (label: String, color: Color) {
-        let shown = ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork)
-        if let reason = shown.backgroundWork { return (reason, theme.backgroundWorkColor) }
-        return switch pane.agentStatus {
-        case .idle: ("idle", theme.green)
-        case .unknown: ("idle", theme.overlay0)
-        default: (pane.agentStatus.rawValue, theme.agentStatusColor(pane.agentStatus) ?? theme.overlay0)
-        }
     }
 
     /// True once the badge has actually appeared, and for however much longer
@@ -802,8 +930,10 @@ struct PaneCellView: View {
         }
     }
 
+    /// Only on the focused pane: the launch keys act there alone, and a strip
+    /// under another pane's shade would fight it.
     private var showsLauncherStrip: Bool {
-        guard let ghosttySurface else { return false }
+        guard isFocused, let ghosttySurface else { return false }
         return PaneLoaderPolicy.showsLauncherOverlay(
             // A key press hides the launcher as it launches; the lit item
             // stays on screen until its flash ends.
@@ -831,6 +961,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
+                    shade: surfaceShade,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),
@@ -1024,5 +1155,22 @@ struct PaneCopiedToastPill: View {
         .shadow(color: theme.chrome.opacity(0.4), radius: ChromeMetrics.Toast.shadowRadius, y: ChromeMetrics.Toast.copiedShadowY)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)
+    }
+}
+
+/// Places the whole-cell surface in the box's content area with the part of
+/// a row it cannot fill split above and below it, rounded down to a whole
+/// point so the surface stays on the pixel grid the box was snapped to.
+struct RowRemainderSplit: ViewModifier {
+    let surfaceHeight: CGFloat
+
+    static func offset(available: CGFloat, surfaceHeight: CGFloat) -> CGFloat {
+        max(0, ((available - surfaceHeight) / 2).rounded(.down))
+    }
+
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            content.offset(y: Self.offset(available: proxy.size.height, surfaceHeight: surfaceHeight))
+        }
     }
 }

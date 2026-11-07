@@ -47,7 +47,7 @@ struct MessageDock: View {
 
     private var cardLimit: Int {
         guard let railHeight else { return AttentionToastStack.minimumVisible }
-        let fixed = ChromeMetrics.ruleWidth + ChromeMetrics.Dock.ruleToFirstItem + ChromeMetrics.Dock.bottomInset
+        let fixed = ChromeMetrics.Dock.ruleToFirstItem + ChromeMetrics.Dock.bottomInset
             + (notice == nil ? 0 : noticeHeight + ChromeMetrics.Dock.itemSpacing)
         return DockCapacity.cardLimit(
             cards: viewModel.attentionToasts.toasts.count, railHeight: railHeight, fixedHeight: fixed,
@@ -62,11 +62,6 @@ struct MessageDock: View {
     var body: some View {
         if notice != nil || showsCards {
             VStack(spacing: 0) {
-                if placement == .rail {
-                    Rectangle()
-                        .fill(theme.rule)
-                        .frame(height: ChromeMetrics.ruleWidth)
-                }
                 VStack(alignment: .leading, spacing: ChromeMetrics.Dock.itemSpacing) {
                     if let notice {
                         NoticeCard(theme: theme, toast: notice, isFloating: isFloating)
@@ -86,7 +81,6 @@ struct MessageDock: View {
                 .padding(.bottom, ChromeMetrics.Dock.bottomInset)
                 .padding(.horizontal, ChromeMetrics.Dock.horizontalInset)
             }
-            .background(placement == .rail ? theme.tabRest : .clear)
             .animation(.easeOut(duration: 0.15), value: notice)
         }
     }
@@ -105,7 +99,7 @@ struct DockCardChrome: ViewModifier {
             .padding(.horizontal, ChromeMetrics.AttentionToast.horizontalPadding)
             .padding(.vertical, ChromeMetrics.AttentionToast.verticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.chrome, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
+            .background(isFloating ? theme.chrome : theme.lift, in: RoundedRectangle(cornerRadius: PaneChrome.cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: PaneChrome.cornerRadius)
                     .strokeBorder(border, lineWidth: ChromeMetrics.ruleWidth)
@@ -140,7 +134,7 @@ private struct NoticeCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .modifier(DockCardChrome(theme: theme, border: theme.rule, isFloating: isFloating))
+        .modifier(DockCardChrome(theme: theme, border: theme.hair, isFloating: isFloating))
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(toast.accessibilityIdentifier)

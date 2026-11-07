@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// The message field both compose surfaces (Quick send, Broadcast) share:
-/// `surface0` fill, an `accent` stroke, identical text and padding treatment.
-/// Only the box's own size and padding numbers differ between the two, so
-/// both are parameters rather than a second copy of this view.
+/// The message field the compose surfaces (Quick send, Broadcast, Slack
+/// support) share: `lift` fill, a `hair` edge that turns `hairFocus` while
+/// focused, identical text and padding treatment. Only the box's own size and
+/// padding numbers differ between them, so those are parameters rather than a
+/// second copy of this view. Focus lives with the caller, which applies
+/// `.focused` to this view and passes the result back as `isFocused`.
 struct ChatComposeField: View {
     let theme: Theme
     @Binding var text: String
@@ -11,36 +13,36 @@ struct ChatComposeField: View {
     let cornerRadius: CGFloat
     let verticalPadding: CGFloat
     let horizontalPadding: CGFloat
-    var stroke: Color? = nil
+    var isFocused = false
 
     var body: some View {
         TextEditor(text: $text)
             .font(ChromeType.chatComposeFieldText)
-            .foregroundStyle(theme.text)
+            .foregroundStyle(theme.textStrong)
             .scrollContentBackground(.hidden)
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
             .frame(width: size.width, height: size.height)
-            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(Color(theme.palette.surface0)))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(stroke ?? theme.accent, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(theme.lift))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(isFocused ? theme.hairFocus : theme.hair, lineWidth: 1))
     }
 }
 
-/// The send button both compose surfaces share, down to the `⌘⏎` beside the
-/// label at 67% of the label's own colour. Only `fill` differs: `accent` for
-/// Quick send, `mauve` for Broadcast -- the one place the two surfaces are
-/// deliberately not identical.
+/// The send button every compose surface shares: a `lift` fill with a
+/// `textStrong` label and the `⌘⏎` beside it at 67% of the label's colour.
+/// Disabled reads from the environment (`.disabled` at each call site), which
+/// fades the fill and drops the label to `textLabel`.
 struct ChatComposeSendButton: View {
     let theme: Theme
     let title: String
-    let fill: Color
     let size: CGSize
     let cornerRadius: CGFloat
     let verticalPadding: CGFloat
     let horizontalPadding: CGFloat
     let gap: CGFloat
-    var labelColor: Color? = nil
     let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
@@ -48,11 +50,11 @@ struct ChatComposeSendButton: View {
                 Text(title).font(ChromeType.chatComposeSendLabel)
                 Text("⌘⏎").font(ChromeType.chatComposeSendShortcut).opacity(0.67)
             }
-            .foregroundStyle(labelColor ?? Color(theme.palette.panelBg))
+            .foregroundStyle(isEnabled ? theme.textStrong : theme.textLabel)
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
             .frame(width: size.width, height: size.height)
-            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(fill))
+            .background(RoundedRectangle(cornerRadius: cornerRadius).fill(theme.lift.opacity(isEnabled ? 1 : 0.5)))
         }
         .buttonStyle(.plain)
         // The one binding for the `⌘⏎` this button already draws: disabled

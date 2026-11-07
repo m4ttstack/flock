@@ -165,7 +165,7 @@ struct CommandPaletteView: View {
         }
         .padding(.horizontal, Metrics.rowPadding)
         .frame(height: Metrics.rowHeight)
-        .background(RoundedRectangle(cornerRadius: Metrics.rowCornerRadius).fill(selected ? theme.selection : .clear))
+        .background(RoundedRectangle(cornerRadius: Metrics.rowCornerRadius).fill(selected ? theme.lift : .clear))
         .hoverWash(theme, cornerRadius: Metrics.rowCornerRadius)
         .contentShape(Rectangle())
         .accessibilityIdentifier("flock.palette.row.\(row.command.id)")

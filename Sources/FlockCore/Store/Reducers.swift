@@ -92,6 +92,14 @@ private func reduce(_ event: HerdrEvent, into model: inout SessionModel) {
 
     case .tabFocused(let tabID):
         model.focusedTabID = tabID
+        // herdr's focused pane is the tab's own `layout.focused()`, and when a
+        // tab close hands focus to another tab it reports only this event, no
+        // `pane.focused`. Without the tab's remembered pane, nothing would hold
+        // focus until the next click.
+        let focusIsOnTab = model.focusedPaneID.flatMap { model.panes[$0] }?.tabID == tabID
+        if !focusIsOnTab, let remembered = model.layouts[tabID]?.focusedPane, model.panes[remembered] != nil {
+            model.focusedPaneID = remembered
+        }
         // The owning workspace remembers it too. Without this, activeTabID
         // moves only on a full snapshot, so selecting a workspace lands on
         // whichever tab was current when that snapshot was taken and then

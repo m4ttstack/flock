@@ -106,7 +106,7 @@ struct RailRowChrome: ViewModifier {
             .padding(.horizontal, ChromeMetrics.WorkspaceRow.horizontalPadding)
             .background {
                 RoundedRectangle(cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius)
-                    .fill(showsFill ? theme.selection : .clear)
+                    .fill(showsFill ? theme.lift : .clear)
                     .overlay { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.WorkspaceRow.cornerRadius) } }
             }
             .contentShape(Rectangle())

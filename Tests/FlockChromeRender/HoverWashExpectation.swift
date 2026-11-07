@@ -21,3 +21,17 @@ func hexChannelDistance(_ a: String, _ b: String) -> Int {
     }
     return zip(channels(a), channels(b)).map { abs($0 - $1) }.max() ?? .max
 }
+
+extension Theme {
+    /// `panelSurface` as bytes: the ground every anchored panel (chat, rt,
+    /// palette-style popovers) paints.
+    var panelSurfaceRGB: RGB {
+        let isDark = !ChromeRoles.isLight(panelBg: palette.panelBg)
+        return palette.terminalGround.mixed(
+            with: isDark ? RGB(255, 255, 255) : RGB(0, 0, 0), amount: ChromeMetrics.AnchoredPanel.surfaceLift
+        )
+    }
+
+    /// The quiet chrome's neutral roles as bytes, for exact pixel samples.
+    var roles: ChromeRoles { palette.chromeRoles }
+}

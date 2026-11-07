@@ -7,6 +7,9 @@ struct ViewTabBar: View {
     var blockedCount = 0
     /// Per tab, for renders.
     var forced: [ViewTab: ControlInteraction] = [:]
+    /// Off in the one-row title bar, where the tab strip needs the room; the
+    /// help tag still names each view.
+    var showsTitles = true
 
     @Environment(DragCoordinator.self) private var drag
     @Environment(AllWorkspacesModeStore.self) private var mode
@@ -16,21 +19,17 @@ struct ViewTabBar: View {
     var body: some View {
         let selected = navigator.selected
         let inert = navigator.dragInFlight
-        HStack(spacing: 0) {
+        HStack(spacing: showsTitles ? ChromeMetrics.TitleBar.tabGap : ChromeMetrics.TitleBar.iconTabGap) {
             ForEach(ViewTab.allCases, id: \.self) { tab in
                 ViewTabButton(
                     theme: theme, tab: tab, isSelected: tab == selected, hoverEnabled: !inert,
-                    badge: tab == .overview && selected != .overview ? blockedCount : 0, forced: forced[tab]
+                    badge: tab == .overview && selected != .overview ? blockedCount : 0, forced: forced[tab],
+                    showsTitle: showsTitles
                 ) { navigator.choose(tab) }
             }
         }
-        // The viewer's tabs: flat cells the bar's full height, ruled apart.
-        .overlay(alignment: .leading) { rule }
+        .frame(maxHeight: .infinity)
         .allowsHitTesting(!inert)
-    }
-
-    private var rule: some View {
-        Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
     }
 }
 
@@ -42,15 +41,32 @@ struct ViewTabButton: View {
     /// Needs-you cards waiting, on Overview's tab; none drawn at zero.
     var badge = 0
     var forced: ControlInteraction?
+    var showsTitle = true
     let action: () -> Void
 
-    private static let shape = AnyShape(Rectangle())
+    private var glyphSize: CGFloat {
+        showsTitle ? ChromeMetrics.TitleBar.tabGlyphSize : ChromeMetrics.TitleBar.iconTabGlyphSize
+    }
+
+    private var iconBadge: some View {
+        Text("\(badge)")
+            .font(ChromeType.viewTabBadge)
+            .foregroundStyle(theme.textStrong)
+            .padding(.horizontal, ChromeMetrics.TitleBar.badgeHorizontalPadding / 2)
+            .frame(minWidth: ChromeMetrics.TitleBar.badgeHeight - 2, minHeight: ChromeMetrics.TitleBar.badgeHeight - 2)
+            .background(theme.red, in: Capsule())
+            .offset(ChromeMetrics.TitleBar.iconBadgeOffset)
+            .allowsHitTesting(false)
+            .accessibilityLabel("\(badge) blocked")
+    }
+
+    private static let shape = AnyShape(RoundedRectangle(cornerRadius: ChromeMetrics.TitleBar.tabRadius))
 
     var body: some View {
         GridControlButton(
             theme: theme, shape: Self.shape,
-            restFill: isSelected ? theme.tabRest : .clear,
-            restForeground: isSelected ? theme.textStrong : theme.textDim,
+            restFill: isSelected ? theme.lift : .clear,
+            restForeground: isSelected ? theme.textStrong : theme.textLabel,
             hoverEnabled: hoverEnabled, forced: forced, action: action
         ) {
             HStack(spacing: ChromeMetrics.TitleBar.tabGlyphGap) {
@@ -58,11 +74,13 @@ struct ViewTabButton: View {
                 // layout box carries the font's descent and sits the drawing
                 // low.
                 ViewTabGlyph(tab: tab)
-                    .frame(width: ChromeMetrics.TitleBar.tabGlyphSize, height: ChromeMetrics.TitleBar.tabGlyphSize)
-                    .foregroundStyle(isSelected ? theme.accent : theme.textLabel)
-                Text(tab.title)
-                    .font(ChromeType.viewTab(selected: isSelected))
-                if badge > 0 {
+                    .frame(width: glyphSize, height: glyphSize)
+                    .foregroundStyle(isSelected ? theme.textStrong : theme.textLabel)
+                if showsTitle {
+                    Text(tab.title)
+                        .font(ChromeType.viewTab(selected: isSelected))
+                }
+                if badge > 0, showsTitle {
                     Text("\(badge)")
                         .font(ChromeType.viewTabBadge)
                         .foregroundStyle(theme.red)
@@ -72,19 +90,16 @@ struct ViewTabButton: View {
                         .accessibilityLabel("\(badge) blocked")
                 }
             }
-            .padding(.horizontal, ChromeMetrics.TitleBar.tabHorizontalPadding)
-            .frame(maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
-                if isSelected {
-                    Rectangle().fill(theme.accent).frame(height: ChromeMetrics.TitleBar.tabUnderline)
-                }
-            }
+            .padding(.horizontal, showsTitle ? ChromeMetrics.TitleBar.tabHorizontalPadding : ChromeMetrics.TitleBar.iconTabHorizontalPadding)
+            .frame(height: ChromeMetrics.TitleBar.tabHeight)
+            .frame(minWidth: showsTitle ? nil : ChromeMetrics.TitleBar.tabHeight)
         }
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(theme.rule).frame(width: ChromeMetrics.ruleWidth).allowsHitTesting(false)
+        .overlay(alignment: .topTrailing) {
+            if badge > 0, !showsTitle { iconBadge }
         }
         .background(WindowDragExclusion())
         .help("\(tab.title) (\(ShortcutLabel.text(key: ViewCommand.show(tab).key, modifiers: ViewCommand.show(tab).modifiers)))")
+        .accessibilityLabel(tab.title)
         .accessibilityIdentifier("flock.titleBar.tab.\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

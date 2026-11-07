@@ -44,7 +44,7 @@ enum ChromeType {
     static let railSectionChevron = Font.system(size: 8, weight: .bold)
 
     static let tabLabelSize: CGFloat = 14
-    static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }
+    static func tabLabelWeight(selected: Bool) -> Weight { selected ? .semibold : .regular }
     static func tabLabel(selected: Bool) -> Font { inter(tabLabelSize, tabLabelWeight(selected: selected)) }
     /// Leads a tab title borrowed from its one pane; the pane's own symbol
     /// wherever flock draws one, as on a pane's drag ghost.
@@ -144,6 +144,8 @@ enum ChromeType {
     static let missionCardTitle = inter(14.5, .medium)
     static let missionCardDetail = inter(12)
     static let missionCardMono = mono(11)
+    /// A pane header's repo @ branch, where its title would be.
+    static let paneTitlePlace = mono(11)
     static let missionGroupName = inter(11.5, .semibold)
     static let missionEmpty = inter(12.5)
     static let focusedBack = inter(12, .medium)
