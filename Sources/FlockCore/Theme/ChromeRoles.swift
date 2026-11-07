@@ -48,12 +48,13 @@ public struct RGB: Hashable, Sendable, CustomStringConvertible {
 }
 
 /// The shell chrome palette: every non-terminal color the window paints.
+/// `chrome` is the terminal ground itself, so sidebar, strip and panes read as
+/// one surface; the ladder below supplies every other role.
 ///
 /// Dark themes take fixed per-channel offsets from `panelBg`, calibrated so
 /// Tokyo Night reproduces the approved hexes exactly. A light `panelBg` has no
 /// headroom for those offsets (they would clamp to white), so light themes
-/// run the ladder the other way: chrome is lifted slightly above the panel and
-/// every darker role is the panel's own color scaled toward black by the same
+/// run the ladder the other way: every darker role is the panel's own color scaled toward black by the same
 /// mean step its dark offset takes, which keeps the theme's hue instead of
 /// saturating it the way a flat subtraction from a tinted panel would.
 public struct ChromeRoles: Equatable, Sendable {
@@ -121,18 +122,18 @@ public struct ChromeRoles: Equatable, Sendable {
         let pane = terminalGround(panelBg: panelBg)
         let ink = light ? RGB(0, 0, 0) : RGB(255, 255, 255)
         return ChromeRoles(
-            chrome: ladder.chrome,
+            chrome: pane,
             rule: ladder.rule,
             canvas: ladder.canvas,
             pane: pane,
             paneBorder: ladder.paneBorder,
             tabRest: ladder.tabRest,
-            selection: selectionOverride ?? ladder.chrome.mixed(with: accent, amount: selectionAccentAmount),
+            selection: selectionOverride ?? pane.mixed(with: accent, amount: selectionAccentAmount),
             textStrong: ladder.textStrong,
             textDim: ladder.textDim,
             textLabel: ladder.textLabel,
             accent: accent,
-            lift: ladder.chrome.mixed(with: ink, amount: light ? liftAmount.light : liftAmount.dark),
+            lift: pane.mixed(with: ink, amount: light ? liftAmount.light : liftAmount.dark),
             hair: pane.mixed(with: ink, amount: light ? hairAmount.light : hairAmount.dark),
             hairFocus: pane.mixed(with: ink, amount: light ? hairFocusAmount.light : hairFocusAmount.dark)
         )
