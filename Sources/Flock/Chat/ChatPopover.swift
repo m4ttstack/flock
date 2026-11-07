@@ -84,6 +84,7 @@ struct ChatPopover: View {
     @Binding private var isPresented: Bool
     @State private var route: Route = .status
     @State private var hoveredFeature: ChatPopoverFeature?
+    @State private var isSignHovered = false
 
     enum Route: Equatable {
         case status
@@ -140,10 +141,10 @@ struct ChatPopover: View {
             case let .feature(feature): featureBody(feature)
             }
         }
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(theme.chrome))
+        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(LauncherStripStyle(theme: theme).band))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius)
-                .strokeBorder(theme.hairFocus, lineWidth: 1)
+                .strokeBorder(theme.hair, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius))
         .background(ChatPopoverEscMonitor(isPresented: $isPresented, isDrilledIn: isDrilledIn))
@@ -462,9 +463,8 @@ struct ChatPopover: View {
             }
         }
         .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
-        .padding(.trailing, ChromeMetrics.ChatPopover.SignButtons.trailingPadding)
+        .padding(.horizontal, ChromeMetrics.ChatPopover.Features.horizontalInset)
         .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
-        .padding(.leading, ChromeMetrics.ChatPopover.SignButtons.leadingPadding)
         .frame(width: ChromeMetrics.ChatPopover.width, height: signButtonsHeight, alignment: .top)
     }
 
@@ -490,26 +490,32 @@ struct ChatPopover: View {
             isEnabled = !signOutIsBlocked
             action = onSignOut
         }
+        // A row like the features above it rather than a filled button: the
+        // popover's one action should not outweigh everything it offers.
+        let features = ChromeMetrics.ChatPopover.Features.self
         return Button(action: action) {
-            HStack(spacing: ChromeMetrics.ChatPopover.SignButtons.contentGap) {
+            HStack(spacing: features.rowGap) {
                 Image(systemName: symbolName)
                     .resizable()
                     .scaledToFit()
-                    .frame(
-                        width: ChromeMetrics.ChatPopover.SignButtons.iconSize.width,
-                        height: ChromeMetrics.ChatPopover.SignButtons.iconSize.height
-                    )
+                    .foregroundStyle(isEnabled ? (isSignHovered ? theme.textStrong : theme.textLabel) : theme.overlay0)
+                    .frame(width: features.iconSize.width, height: features.iconSize.height)
                 Text(title)
-                    .font(ChromeType.chatPopoverButtonLabel)
+                    .font(ChromeType.chatPopoverFeatureName)
+                    .foregroundStyle(isEnabled ? theme.text : theme.overlay0)
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(signOutIsBlocked ? theme.overlay0 : theme.textStrong)
-            .frame(width: ChromeMetrics.ChatPopover.SignButtons.buttonSize.width, height: ChromeMetrics.ChatPopover.SignButtons.buttonSize.height)
+            .padding(.horizontal, features.rowHorizontalPadding)
+            .frame(height: features.rowSize.height)
+            .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                    .fill(theme.lift)
+                RoundedRectangle(cornerRadius: features.rowCornerRadius)
+                    .fill(isSignHovered && isEnabled ? theme.lift : .clear)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isSignHovered = $0 }
         .disabled(!isEnabled)
     }
 

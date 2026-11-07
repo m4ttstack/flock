@@ -74,7 +74,9 @@ final class AnchoredPanelAnchor: NSView {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // Flat, like the quick launch strip: the system shadow lays a bright
+        // edge around a dark window.
+        panel.hasShadow = false
         panel.animationBehavior = .none
         panel.contentView = host
         parent.addChildWindow(panel, ordered: .above)
