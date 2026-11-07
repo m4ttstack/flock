@@ -376,6 +376,11 @@ enum ChromeMetrics {
     /// against these named totals so the two can never drift apart.
     enum ChatPopover {
         static let width: CGFloat = 360
+        /// What AppKit reserves under the anchor for a popover's arrow,
+        /// drawn or not.
+        static let hiddenArrowRoom: CGFloat = 11
+        /// Seconds after a close in which a chip click is the closing click.
+        static let reopenGuard: Double = 0.35
         static let signedOutHeight: CGFloat = 325
         static let signedInHeight: CGFloat = 348
         static let cornerRadius: CGFloat = ChromeRadius.container

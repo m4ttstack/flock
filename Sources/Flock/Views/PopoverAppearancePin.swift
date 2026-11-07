@@ -37,21 +37,27 @@ struct PopoverAppearancePin: NSViewRepresentable {
 /// the arrow rather than crashing.
 @MainActor
 enum PopoverSnap {
-    private static var observer: NSObjectProtocol?
+    private static var observers: [NSObjectProtocol] = []
     private static let hideAnchor = Selector(("setShouldHideAnchor:"))
 
     static func install() {
-        guard observer == nil else { return }
-        observer = NotificationCenter.default.addObserver(
-            forName: NSPopover.willShowNotification, object: nil, queue: .main
-        ) { note in
-            let popover = note.object as? NSPopover
-            MainActor.assumeIsolated {
-                popover?.animates = false
-                if let popover, popover.responds(to: hideAnchor) {
-                    popover.setValue(true, forKey: "shouldHideAnchor")
-                }
-            }
+        guard observers.isEmpty else { return }
+        // At close too: SwiftUI can hand the same popover back with its
+        // animation on, and the window keeps a fade of its own.
+        for name in [NSPopover.willShowNotification, NSPopover.willCloseNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                let popover = note.object as? NSPopover
+                MainActor.assumeIsolated { snap(popover) }
+            })
+        }
+    }
+
+    private static func snap(_ popover: NSPopover?) {
+        guard let popover else { return }
+        popover.animates = false
+        popover.contentViewController?.view.window?.animationBehavior = .none
+        if popover.responds(to: hideAnchor) {
+            popover.setValue(true, forKey: "shouldHideAnchor")
         }
     }
 }
