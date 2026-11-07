@@ -378,7 +378,7 @@ struct PaneCellView: View {
             .background(theme.pane)
             .overlay(alignment: .top) {
                 PaneStatusLine(
-                    theme: theme, status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .glint,
+                    theme: theme, status: DevStatusOverride.shared.status(for: pane), style: appearance?.statusLine ?? .standard,
                     backgroundWork: DevStatusOverride.shared.backgroundWork(
                         real: ShownStatus.of(pane, backgroundWork: viewModel.backgroundWork).backgroundWork
                     )
@@ -417,9 +417,9 @@ struct PaneCellView: View {
             .animation(.easeOut(duration: 0.12), value: isHoveringWhileRearranging)
     }
 
-    private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .brighterBorder }
+    private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .standard }
 
-    private var isEdgeToEdge: Bool { appearance?.layout == .edgeToEdge }
+    private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
 
     private var cornerRadius: CGFloat { isEdgeToEdge ? 0 : PaneChrome.cornerRadius }
 

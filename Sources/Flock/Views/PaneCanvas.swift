@@ -30,7 +30,7 @@ struct PaneCanvas: View {
     /// intermediate frame and so can never tell a resize from its end.
     @State private var isWindowResizing = false
 
-    private var isEdgeToEdge: Bool { appearance?.layout == .edgeToEdge }
+    private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
 
     private var dividerThickness: CGFloat {
         isEdgeToEdge ? ChromeMetrics.Pane.EdgeToEdge.gutter : DividerBand.gutter

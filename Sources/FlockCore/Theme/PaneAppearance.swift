@@ -3,6 +3,9 @@ import Observation
 
 /// How the canvas tells the focused pane from the rest.
 public enum PaneFocusStyle: String, CaseIterable, Sendable {
+    /// What a fresh install shows.
+    public static let standard: PaneFocusStyle = .dimOthers
+
     case brighterBorder
     case dimOthers
     case lift
@@ -18,6 +21,9 @@ public enum PaneFocusStyle: String, CaseIterable, Sendable {
 
 /// Whether panes sit as boxes on the canvas or fill it, ruled apart.
 public enum PaneLayoutStyle: String, CaseIterable, Sendable {
+    /// What a fresh install shows.
+    public static let standard: PaneLayoutStyle = .edgeToEdge
+
     case boxed
     case edgeToEdge
 
@@ -33,6 +39,9 @@ public enum PaneLayoutStyle: String, CaseIterable, Sendable {
 /// takes the chosen motion; blocked always breathes red and done is a faint
 /// still line, whatever is picked here.
 public enum PaneStatusLineStyle: String, CaseIterable, Sendable {
+    /// What a fresh install shows.
+    public static let standard: PaneStatusLineStyle = .aurora
+
     case off
     case glint
     case comet
@@ -67,9 +76,9 @@ public final class PaneAppearanceStore {
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        focusStyle = userDefaults.string(forKey: Self.focusStyleKey).flatMap(PaneFocusStyle.init(rawValue:)) ?? .brighterBorder
-        layout = userDefaults.string(forKey: Self.layoutKey).flatMap(PaneLayoutStyle.init(rawValue:)) ?? .boxed
-        statusLine = userDefaults.string(forKey: Self.statusLineKey).flatMap(PaneStatusLineStyle.init(rawValue:)) ?? .glint
+        focusStyle = userDefaults.string(forKey: Self.focusStyleKey).flatMap(PaneFocusStyle.init(rawValue:)) ?? .standard
+        layout = userDefaults.string(forKey: Self.layoutKey).flatMap(PaneLayoutStyle.init(rawValue:)) ?? .standard
+        statusLine = userDefaults.string(forKey: Self.statusLineKey).flatMap(PaneStatusLineStyle.init(rawValue:)) ?? .standard
     }
 
     public func select(_ value: PaneFocusStyle) {
