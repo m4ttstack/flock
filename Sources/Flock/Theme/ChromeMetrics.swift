@@ -294,13 +294,13 @@ enum ChromeMetrics {
             static let glintHalfWidth: CGFloat = 0.45
             static let glintRest: Double = 0.12
             static let glintPeak: Double = 0.85
-            static let cometPeriod: Double = 4.0
+            static let cometPeriod: Double = 3.2
             static let cometTail: CGFloat = 0.85
             /// A bright core with a halo, wider than the line it rides.
             static let cometHeadSize: CGFloat = 7
             /// Each period: crossing, then the impact burst, then a rest.
-            static let cometTravelShare: Double = 0.7
-            static let cometBurstShare: Double = 0.21
+            static let cometTravelShare: Double = 0.62
+            static let cometBurstShare: Double = 0.26
             /// Above 1 the head gathers speed on its way across.
             static let cometAcceleration: Double = 1.25
             static let cometFadeIn: Double = 0.1
