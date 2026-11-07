@@ -383,11 +383,7 @@ struct FlockApp: App {
                 // A hand-run `herdr update` replaces the binary under a row
                 // that would otherwise keep describing the old one.
                 .onChange(of: viewModel.model?.herdrVersion) { herdrMousePatchStore.refresh() }
-                .onChange(of: herdrStore.model) {
-                    viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
-                }
                 .onChange(of: herdrStore.connection) {
-                    viewModel.update(model: herdrStore.model, connection: herdrStore.connection)
                     if case .notRunning = herdrStore.connection { return }
                     session.isStartingHerdr = false
                     session.herdrStartFailure = nil

@@ -190,6 +190,9 @@ final class FlockSession: ProfileSession {
             cswapAccounts: CswapList.read
         )
         self.viewModel = viewModel
+        herdrStore.onChange = { [weak viewModel] model, connection in
+            viewModel?.update(model: model, connection: connection)
+        }
         herdrHoldCoordinator = HerdrHoldCoordinator(viewModel: viewModel)
         let rearrangeMode = RearrangeMode(afterMove: { rearrangeAfterMoveStore.active })
         self.rearrangeMode = rearrangeMode

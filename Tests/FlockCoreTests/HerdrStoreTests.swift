@@ -271,6 +271,35 @@ final class HerdrStoreTests: XCTestCase {
         }
     }
 
+    /// herdr's burst for a focused `tab.create`, in its own order: the tab
+    /// record comes after its pane, so a reader that misses the burst's last
+    /// change has the pane on screen and no tab for it in the strip.
+    @MainActor
+    func testEveryModelOfACreationBurstReachesTheChangeHook() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: snapshotResultJSON())
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        var delivered: [(model: SessionModel?, connection: ConnectionState)] = []
+        store.onChange = { delivered.append(($0, $1)) }
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let burst = [
+            #"{"data":{"type":"layout_updated","layout":{"workspace_id":"w1","tab_id":"w1:t2","zoomed":false,"area":{"x":0,"y":0,"width":20,"height":10},"focused_pane_id":"w1:p2","panes":[{"pane_id":"w1:p2","focused":true,"rect":{"x":0,"y":0,"width":20,"height":10}}],"splits":[]}}}"#,
+            #"{"data":{"type":"pane_created","pane":{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t2","focused":true,"agent_status":"unknown","revision":0,"cwd":"/tmp"}}}"#,
+            #"{"data":{"type":"pane_focused","pane_id":"w1:p2","workspace_id":"w1"}}"#,
+            #"{"data":{"type":"tab_created","tab":{"tab_id":"w1:t2","workspace_id":"w1","label":"2","number":2,"pane_count":1,"agent_status":"unknown"}}}"#,
+        ]
+        for line in burst { fake.pushEventLine(line) }
+
+        try await waitUntil { store.model?.tabs[WorkspaceID(rawValue: "w1")]?.count == 2 }
+        XCTAssertEqual(delivered.last?.model, store.model)
+        XCTAssertEqual(delivered.last?.connection, .live)
+    }
+
     @MainActor
     func testProtocolFloorSurfacesAsUnsupported() async throws {
         let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }

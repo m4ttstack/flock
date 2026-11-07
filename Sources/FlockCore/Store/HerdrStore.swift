@@ -37,8 +37,18 @@ extension HerdrClientError: Equatable {
 @MainActor
 @Observable
 public final class HerdrStore {
-    public private(set) var model: SessionModel?
-    public private(set) var connection: ConnectionState = .connecting
+    public private(set) var model: SessionModel? {
+        didSet { onChange?(model, connection) }
+    }
+    public private(set) var connection: ConnectionState = .connecting {
+        didSet { onChange?(model, connection) }
+    }
+
+    /// Called with every model and connection the store installs, at once.
+    /// A SwiftUI `onChange` cannot stand in for it: it drops a change that
+    /// lands in the same frame as the one before, and herdr sends a tab's
+    /// creation as a burst whose last event is the `tab_created` itself.
+    @ObservationIgnored public var onChange: (@MainActor (SessionModel?, ConnectionState) -> Void)?
 
     private let socketPath: String
     private let resnapshotInterval: Duration
