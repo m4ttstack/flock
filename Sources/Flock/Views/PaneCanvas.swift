@@ -161,6 +161,7 @@ struct PaneCanvas: View {
                 }
             }
             .background { WindowLiveResizeReporter { isWindowResizing = $0 } }
+            .environment(\.paneStatusSpan, proxy.frame(in: DragSpace.coordinateSpace))
         }
         .padding(canvasPadding)
         // Edge to edge, the one point between panes is all of the canvas

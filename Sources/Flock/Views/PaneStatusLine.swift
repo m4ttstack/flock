@@ -9,6 +9,26 @@ import SwiftUI
 /// Every paint varies across the width only, so one paint serves both the
 /// line and the wash: the wash is that paint stretched up the header and
 /// faded toward the top.
+private struct PaneStatusSpanKey: EnvironmentKey {
+    static let defaultValue: CGRect? = nil
+}
+
+extension EnvironmentValues {
+    /// The canvas the status lines share, in `DragSpace`: lines lay their
+    /// motion out across it, so panes side by side read as one line.
+    var paneStatusSpan: CGRect? {
+        get { self[PaneStatusSpanKey.self] }
+        set { self[PaneStatusSpanKey.self] = newValue }
+    }
+}
+
+/// Where one pane's line sits within the line the canvas shares: `origin`
+/// from the canvas's leading edge, `total` its whole width.
+private struct LineSpan {
+    let origin: CGFloat
+    let total: CGFloat
+}
+
 struct PaneStatusLine: View {
     let theme: Theme
     let status: AgentStatus
@@ -16,6 +36,8 @@ struct PaneStatusLine: View {
     /// What a pane whose agent rests is still running (a shell job, say),
     /// which outranks the resting line as the header dot it replaces did.
     var backgroundWork: String? = nil
+
+    @Environment(\.paneStatusSpan) private var sharedSpan
 
     private typealias M = ChromeMetrics.Pane.StatusLine
 
@@ -90,10 +112,16 @@ struct PaneStatusLine: View {
         .help(backgroundWork ?? status.rawValue)
     }
 
+    private func span(_ proxy: GeometryProxy) -> LineSpan {
+        guard let sharedSpan, sharedSpan.width > 0 else { return LineSpan(origin: 0, total: proxy.size.width) }
+        return LineSpan(origin: proxy.frame(in: DragSpace.coordinateSpace).minX - sharedSpan.minX, total: sharedSpan.width)
+    }
+
     private func stack(_ paint: Paint, t: Double) -> some View {
         GeometryReader { proxy in
+            let span = span(proxy)
             VStack(spacing: 0) {
-                fill(paint, t: t, width: proxy.size.width)
+                fill(paint, t: t, width: proxy.size.width, span: span)
                     .mask(
                         LinearGradient(
                             stops: [
@@ -106,11 +134,11 @@ struct PaneStatusLine: View {
                     )
                     .opacity(M.washStrength)
                     .frame(height: M.washHeight)
-                fill(paint, t: t, width: proxy.size.width)
+                fill(paint, t: t, width: proxy.size.width, span: span)
                     .frame(height: lineHeight)
                     .overlay(alignment: .leading) {
                         if case .comet(let motion) = paint {
-                            cometHead(motion, t: t, width: proxy.size.width)
+                            cometHead(motion, t: t, span: span)
                         }
                     }
             }
@@ -146,17 +174,21 @@ struct PaneStatusLine: View {
     }
 
     @ViewBuilder
-    private func cometHead(_ motion: Motion, t: Double, width: CGFloat) -> some View {
+    /// The head and burst are placed on the shared line, so only the pane
+    /// the head is crossing shows it, and the burst lands on the canvas's own
+    /// trailing edge; the pane's clip hides what falls outside it.
+    private func cometHead(_ motion: Motion, t: Double, span: LineSpan) -> some View {
         let flight = cometFlight(motion, t: t)
         let size = M.cometHeadSize
+        let wall = span.total - span.origin
         if let burst = flight.burst {
             cometBurst(motion, progress: burst, pass: flight.pass, seconds: burst * M.cometPeriod * motion.slowdown * M.cometBurstShare)
-                .offset(x: width - M.cometBurstCanvas / 2 - size / 2)
+                .offset(x: wall - M.cometBurstCanvas / 2 - size / 2)
         } else {
             Circle()
                 .fill(headGlow(motion, radius: size / 2))
                 .frame(width: size, height: size)
-                .offset(x: min(width * flight.head, width - size / 2) - size / 2)
+                .offset(x: min(span.total * flight.head, span.total - size / 2) - span.origin - size / 2)
                 .opacity(flight.envelope)
         }
     }
@@ -230,18 +262,18 @@ struct PaneStatusLine: View {
     }
 
     @ViewBuilder
-    private func fill(_ paint: Paint, t: Double, width: CGFloat) -> some View {
+    private func fill(_ paint: Paint, t: Double, width: CGFloat, span: LineSpan) -> some View {
         switch paint {
         case .still(let color, let opacity): color.opacity(opacity)
-        case .glint(let motion): glint(motion, t: t, width: width)
-        case .comet(let motion): comet(motion, t: t, width: width)
-        case .aurora(let motion): aurora(motion, t: t)
+        case .glint(let motion): glint(motion, t: t, width: width, span: span)
+        case .comet(let motion): comet(motion, t: t, width: width, span: span)
+        case .aurora(let motion): aurora(motion, t: t, width: width, span: span)
         case .breathe(let color, let period, let low, let high, let expands):
             breathe(color, t: t, width: width, period: period, low: low, high: high, expands: expands)
         }
     }
 
-    private func glint(_ motion: Motion, t: Double, width: CGFloat) -> some View {
+    private func glint(_ motion: Motion, t: Double, width: CGFloat, span: LineSpan) -> some View {
         let half = M.glintHalfWidth
         let color = Color(motion.color)
         // Right and back again on a cosine, so it eases into each turn.
@@ -256,15 +288,15 @@ struct PaneStatusLine: View {
                 ],
                 startPoint: .leading, endPoint: .trailing
             )
-            .frame(width: width * 2 * half)
-            .offset(x: width * (position - half))
+            .frame(width: span.total * 2 * half)
+            .offset(x: span.total * (position - half) - span.origin)
         }
         .frame(width: width, alignment: .leading)
     }
 
     /// The tail alone; the head is `cometHead`, drawn over the line only so
     /// the wash above takes the tail's glow without a stretched head.
-    private func comet(_ motion: Motion, t: Double, width: CGFloat) -> some View {
+    private func comet(_ motion: Motion, t: Double, width: CGFloat, span: LineSpan) -> some View {
         let tail = M.cometTail
         let color = Color(motion.color)
         let flight = cometFlight(motion, t: t)
@@ -278,22 +310,23 @@ struct PaneStatusLine: View {
             ],
             startPoint: .leading, endPoint: .trailing
         )
-        .frame(width: width * tail)
-        .offset(x: width * (flight.head - tail))
+        .frame(width: span.total * tail)
+        .offset(x: span.total * (flight.head - tail) - span.origin)
         .frame(width: width, alignment: .leading)
         .opacity(flight.envelope)
     }
 
-    private func aurora(_ motion: Motion, t: Double) -> some View {
+    private func aurora(_ motion: Motion, t: Double, width: CGFloat, span: LineSpan) -> some View {
         let clock = t / motion.slowdown
         let stops = (0...M.auroraStops).map { index -> Gradient.Stop in
-            let x = Double(index) / Double(M.auroraStops)
+            let local = Double(index) / Double(M.auroraStops)
+            let x = Double(span.origin + CGFloat(local) * width) / Double(span.total)
             let hue = 0.5 + 0.5 * sin((x * 2 - clock * 0.25) * 2 * .pi)
             let glow = 0.5 + 0.5 * sin((x * 3.3 + clock * 0.17) * 2 * .pi)
             return .init(
                 color: Color(motion.color.mixed(with: motion.partner, amount: hue))
                     .opacity(M.auroraOpacity * motion.intensity * (0.35 + 0.65 * glow)),
-                location: x
+                location: local
             )
         }
         return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
