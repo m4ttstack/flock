@@ -31,8 +31,6 @@ enum ChromeMetrics {
     enum TitleBar {
         static let height: CGFloat = 40
         static let trailingInset: CGFloat = 10
-        static let clusterDividerHeight: CGFloat = 16
-        static let clusterDividerPadding: CGFloat = 10
         /// An icon-only view tab, square so the three read as one control.
         static let iconTabHorizontalPadding: CGFloat = 6
         static let noticeSpacing: CGFloat = 6

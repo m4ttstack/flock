@@ -442,6 +442,13 @@ struct TitleBar: View {
                 .frame(height: ChromeMetrics.ruleWidth)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .allowsHitTesting(false)
+            // Over the rail, beside the window buttons: the bar's one empty
+            // stretch, which keeps the trailing corner clear of the pane's own
+            // controls below it.
+            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs, showsTitles: false)
+                .frame(height: ChromeMetrics.TitleBar.height)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
             trailingCluster
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
@@ -474,16 +481,9 @@ struct TitleBar: View {
                 TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: false)
                     .frame(height: ChromeMetrics.TitleBar.height)
                     .fixedSize()
-                Rectangle()
-                    .fill(theme.hair)
-                    .frame(width: ChromeMetrics.ruleWidth, height: ChromeMetrics.TitleBar.clusterDividerHeight)
-                    .padding(.horizontal, ChromeMetrics.TitleBar.clusterDividerPadding)
             }
-            ViewTabBar(theme: theme, blockedCount: blockedCount, forced: forcedTabs, showsTitles: false)
-                .frame(height: ChromeMetrics.TitleBar.height)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         }
+        .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onTrailingWidth?($0) }
     }
 
