@@ -39,12 +39,15 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     }
 
     private func makeStore(
-        catalogued: Bool = true, body: Data? = nil, probes: ProbeCounter? = nil, defaults: UserDefaults = .standard
+        catalogued: Bool = true, body: Data? = nil, probes: ProbeCounter? = nil, defaults: UserDefaults = .standard,
+        revision: Int = 1, superseded: Set<String> = []
     ) -> HerdrMousePatchStore {
-        let sha = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
+        let sha = Self.sha256(patched)
         return HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
-            catalog: { catalogued ? HerdrMousePatchEntry(version: $0, sha256: sha) : nil },
+            catalog: {
+                catalogued ? HerdrMousePatchEntry(version: $0, sha256: sha, revision: revision, superseded: superseded) : nil
+            },
             downloader: HerdrMousePatchDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: body ?? patched)
             ),
@@ -56,6 +59,109 @@ final class HerdrMousePatchStoreTests: XCTestCase {
                 )
             }
         )
+    }
+
+    private static func sha256(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private let olderRevision = Data("herdr 0.9.1 terminal.mouse_capture older revision".utf8)
+
+    /// flock's revision 1 patch installed by hand: the original herdr in the
+    /// backup, the older patched build live.
+    private func installOlderRevision() throws {
+        try FileManager.default.copyItem(atPath: binaryPath, toPath: HerdrMousePatchInstaller.backupPath(for: binaryPath))
+        try olderRevision.write(to: URL(fileURLWithPath: binaryPath))
+    }
+
+    private func makeStoreOverOlderRevision(defaults: UserDefaults = .standard, body: Data? = nil) -> HerdrMousePatchStore {
+        makeStore(body: body, defaults: defaults, revision: 2, superseded: [Self.sha256(olderRevision)])
+    }
+
+    private var outdatedState: HerdrMousePatchRowState {
+        .outdated(
+            installPath: binaryPath, version: "0.9.1", release: "0.9.1-r2",
+            backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)
+        )
+    }
+
+    func testAnEarlierRevisionOfFlocksPatchIsOutdatedAndOffered() throws {
+        try installOlderRevision()
+        let store = makeStoreOverOlderRevision()
+
+        XCTAssertEqual(store.state, outdatedState)
+        XCTAssertTrue(store.shouldOfferBanner)
+    }
+
+    /// A patch flock did not publish, or the current revision, is installed.
+    func testAPatchNoRevisionSupersedesIsInstalled() throws {
+        try installOlderRevision()
+        let store = makeStore(revision: 2, superseded: [String(repeating: "f", count: 64)])
+
+        XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
+        XCTAssertFalse(store.shouldOfferBanner)
+    }
+
+    /// Update names the binary it replaces, swaps in the newer revision and
+    /// keeps the original herdr as the backup Restore puts back.
+    func testUpdatingAnOutdatedPatchInstallsTheNewerRevisionAndKeepsTheOriginal() async throws {
+        try installOlderRevision()
+        let store = makeStoreOverOlderRevision()
+
+        store.requestInstall(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.confirmation.title, "Update mouse support?")
+        XCTAssertTrue(store.pendingConfirmation?.confirmation.message.contains(binaryPath) ?? false)
+        await confirmAndWait(store)
+
+        XCTAssertNil(store.lastErrorMessage)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binaryPath)), patched)
+        XCTAssertEqual(
+            try String(contentsOfFile: HerdrMousePatchInstaller.backupPath(for: binaryPath), encoding: .utf8),
+            "herdr 0.9.1 unpatched build"
+        )
+        XCTAssertEqual(store.state, .installed(backupPath: HerdrMousePatchInstaller.backupPath(for: binaryPath)))
+        XCTAssertEqual(store.restartReason, .updated)
+    }
+
+    func testAFailedUpdateDownloadLeavesTheOlderRevisionInPlace() async throws {
+        try installOlderRevision()
+        let store = makeStoreOverOlderRevision(body: Data("<html>".utf8))
+
+        store.requestInstall(source: .settings)
+        await confirmAndWait(store)
+
+        XCTAssertEqual(store.lastErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binaryPath)), olderRevision)
+        XCTAssertEqual(store.state, outdatedState)
+    }
+
+    /// The original stays one click away while an update is on offer.
+    func testAnOutdatedPatchCanStillBeRestored() throws {
+        try installOlderRevision()
+        let store = makeStoreOverOlderRevision()
+
+        store.requestRevert(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.action, .revert)
+        store.confirmPendingAction()
+
+        XCTAssertEqual(store.state, .patchable(installPath: binaryPath, version: "0.9.1"))
+    }
+
+    /// Waving the update away is remembered against the newer release, so an
+    /// earlier "Not now" to installing on this version does not hide it.
+    func testDismissingTheUpdateIsKeyedOnTheNewerRelease() throws {
+        let suite = "flock-patch-update-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("0.9.1", forKey: "flock.herdrMousePatch.offerDismissedForVersion")
+        try installOlderRevision()
+        let store = makeStoreOverOlderRevision(defaults: defaults)
+        XCTAssertTrue(store.shouldOfferBanner)
+
+        store.dismissBannerOffer()
+
+        XCTAssertFalse(store.shouldOfferBanner)
+        XCTAssertEqual(defaults.string(forKey: "flock.herdrMousePatch.offerDismissedForVersion"), "0.9.1-r2")
     }
 
     private func touch(_ path: String, at date: Date) throws {

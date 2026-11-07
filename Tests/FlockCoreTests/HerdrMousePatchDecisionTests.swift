@@ -10,12 +10,12 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
 
     private func decide(
         hasVerbs: Bool, hasBackup: Bool, version: String? = "0.9.2",
-        isWritable: Bool = true
+        isWritable: Bool = true, newerRelease: String? = nil
     ) -> HerdrMousePatchRowState {
         HerdrMousePatchDecision.decide(
             hasVerbs: hasVerbs, hasBackup: hasBackup, version: version,
             isWritable: isWritable,
-            installPath: installPath, backupPath: backupPath
+            installPath: installPath, backupPath: backupPath, newerRelease: newerRelease
         )
     }
 
@@ -96,6 +96,37 @@ final class HerdrMousePatchDecisionTests: XCTestCase {
     func testNoVerbsWithAStaleBackupStillFallsThroughToTheOrdinaryRules() {
         XCTAssertEqual(
             decide(hasVerbs: false, hasBackup: true, version: "0.9.2", isWritable: true),
+            .patchable(installPath: installPath, version: "0.9.2")
+        )
+    }
+
+    /// flock's own patch at a revision the catalog has replaced.
+    func testFlocksPatchWithANewerRevisionReadsAsOutdated() {
+        let state = decide(hasVerbs: true, hasBackup: true, newerRelease: "0.9.2-r2")
+        XCTAssertEqual(
+            state, .outdated(installPath: installPath, version: "0.9.2", release: "0.9.2-r2", backupPath: backupPath)
+        )
+        XCTAssertTrue(state.hasFlockPatch)
+    }
+
+    /// No backup means the verbs are not flock's, and an update flock cannot
+    /// write, or has no catalogued version for, leaves the patch installed.
+    func testAnOutdatedPatchNeedsABackupAWritableLocationAndACataloguedVersion() {
+        XCTAssertEqual(decide(hasVerbs: true, hasBackup: false, newerRelease: "0.9.2-r2"), .supportedByHerdr)
+        XCTAssertEqual(
+            decide(hasVerbs: true, hasBackup: true, isWritable: false, newerRelease: "0.9.2-r2"),
+            .installed(backupPath: backupPath)
+        )
+        XCTAssertEqual(
+            decide(hasVerbs: true, hasBackup: true, version: nil, newerRelease: "0.9.2-r2"),
+            .installed(backupPath: backupPath)
+        )
+    }
+
+    /// A stock herdr is never outdated: there is no patch on it to replace.
+    func testANewerReleaseMeansNothingWithoutTheVerbs() {
+        XCTAssertEqual(
+            decide(hasVerbs: false, hasBackup: false, newerRelease: "0.9.2-r2"),
             .patchable(installPath: installPath, version: "0.9.2")
         )
     }

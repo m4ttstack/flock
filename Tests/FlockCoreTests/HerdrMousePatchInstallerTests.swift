@@ -113,6 +113,50 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
         }
     }
 
+    // MARK: - update
+
+    private func installOlderRevision() throws {
+        try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath)
+        try Data("newer revision carrying terminal.mouse_capture and host_theme".utf8)
+            .write(to: URL(fileURLWithPath: artifactPath))
+    }
+
+    /// The backup is the original herdr, not the older patch: an update
+    /// swaps only the binary and Restore still puts the original back.
+    func testUpdateSwapsInTheNewerRevisionAndKeepsTheOriginalBackup() throws {
+        try installOlderRevision()
+
+        try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)
+
+        XCTAssertEqual(
+            try String(contentsOfFile: binaryPath, encoding: .utf8),
+            "newer revision carrying terminal.mouse_capture and host_theme"
+        )
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.stagingPath(for: binaryPath)))
+    }
+
+    func testUpdateRefusesWithoutTheOriginalBackup() throws {
+        try Data("herdr carrying terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: binaryPath))
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .backupMissing)
+        }
+        XCTAssertEqual(try String(contentsOfFile: binaryPath, encoding: .utf8), "herdr carrying terminal.mouse_capture")
+    }
+
+    /// A newer revision that does not verify puts the original herdr back,
+    /// the same outcome a failed install has.
+    func testAnUpdateThatFailsVerificationRestoresTheOriginal() throws {
+        try installOlderRevision()
+        try Data("not actually patched".utf8).write(to: URL(fileURLWithPath: artifactPath))
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .verificationFailed)
+        }
+        XCTAssertEqual(try String(contentsOfFile: binaryPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+    }
+
     // MARK: - revert
 
     func testRevertRestoresTheBackupAndRemovesIt() throws {
@@ -175,6 +219,13 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
         XCTAssertTrue(probe.hasVerbs)
         XCTAssertTrue(probe.hasBackup)
+        XCTAssertEqual(probe.sha256, try HerdrMousePatchDownloader.sha256(ofFileAt: URL(fileURLWithPath: binaryPath)))
+    }
+
+    /// Only a binary with the verbs can be an outdated patch, so a stock
+    /// herdr is never hashed.
+    func testProbeHashesOnlyABinaryThatCarriesTheVerbs() {
+        XCTAssertNil(probe().sha256)
     }
 
     func testProbeReportsTheVersionHerdrPrints() {

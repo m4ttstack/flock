@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -9,6 +10,7 @@ public enum HerdrMousePatchInstaller {
     public enum InstallError: Error, Equatable {
         case sourceUnreadable
         case backupAlreadyExists
+        case backupMissing
         case destinationNotWritable
         case renameFailed(errno: Int32)
         case verificationFailed
@@ -27,6 +29,9 @@ public enum HerdrMousePatchInstaller {
         public let isWritable: Bool
         /// The patchable herdr version this binary reports, nil for any other.
         public let version: String?
+        /// The binary's SHA-256, read only when it carries the verbs: it is
+        /// what tells an outdated revision of flock's patch from the current one.
+        public let sha256: String?
     }
 
     /// Matches the name the owner's own hand-verified install already uses
@@ -52,12 +57,46 @@ public enum HerdrMousePatchInstaller {
         readVersionOutput: (String) -> String?
     ) -> Probe {
         let data = fileManager.contents(atPath: binaryPath) ?? Data()
+        let hasVerbs = HerdrMouseVerbs.present(in: data)
         return Probe(
-            hasVerbs: HerdrMouseVerbs.present(in: data),
+            hasVerbs: hasVerbs,
             hasBackup: fileManager.fileExists(atPath: backupPath(for: binaryPath)),
             isWritable: fileManager.isWritableFile(atPath: directory(of: binaryPath)),
-            version: HerdrMousePatchVersion.supportedVersion(fromVersionOutput: readVersionOutput(binaryPath))
+            version: HerdrMousePatchVersion.supportedVersion(fromVersionOutput: readVersionOutput(binaryPath)),
+            sha256: hasVerbs ? SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() : nil
         )
+    }
+
+    /// Replaces an outdated revision of flock's patch with a newer one. The
+    /// backup beside it is the original herdr and stays untouched; a newer
+    /// patch that fails verification puts that original back, as a failed
+    /// install does.
+    public static func update(artifactPath: String, binaryPath: String, fileManager: FileManager = .default) throws {
+        guard fileManager.isReadableFile(atPath: artifactPath) else { throw InstallError.sourceUnreadable }
+        let backup = backupPath(for: binaryPath)
+        guard fileManager.fileExists(atPath: backup) else { throw InstallError.backupMissing }
+        guard fileManager.isWritableFile(atPath: directory(of: binaryPath)) else {
+            throw InstallError.destinationNotWritable
+        }
+
+        let staging = stagingPath(for: binaryPath)
+        if fileManager.fileExists(atPath: staging) {
+            try fileManager.removeItem(atPath: staging)
+        }
+        try fileManager.copyItem(atPath: artifactPath, toPath: staging)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging)
+
+        do {
+            try atomicRename(from: staging, to: binaryPath)
+        } catch let failure as RenameFailure {
+            try? fileManager.removeItem(atPath: staging)
+            throw InstallError.renameFailed(errno: failure.errno)
+        }
+
+        guard HerdrMouseVerbs.present(in: fileManager.contents(atPath: binaryPath) ?? Data()) else {
+            try? atomicRename(from: backup, to: binaryPath)
+            throw InstallError.verificationFailed
+        }
     }
 
     /// 1. Copy the current binary to a backup beside it -- kept even if a

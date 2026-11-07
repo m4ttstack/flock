@@ -3,9 +3,9 @@ import SwiftUI
 
 /// The version of herdr flock is connected to, then the one row flock's
 /// settings show about herdr's mouse support: whichever
-/// of the six states `HerdrMousePatchDecision` found, its explanation, and
-/// the single action (if any) that state offers. Install and Restore both gate
-/// behind the same confirmation dialog, driven by the store rather than local
+/// of the states `HerdrMousePatchDecision` found, its explanation, and
+/// the actions (if any) that state offers. Install, Update and Restore gate
+/// behind one confirmation dialog, driven by the store rather than local
 /// view state, so the exact path being replaced is always named.
 ///
 /// Built from `Section` and `LabeledContent` so it inherits the system's
@@ -77,14 +77,20 @@ struct HerdrMousePatchRow: View {
             ProgressView().controlSize(.small)
         case .idle:
             if !store.herdrUpdateInProgress, let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
-                Button(title) {
-                    switch state {
-                    case .patchable: store.requestInstall(source: .settings)
-                    case .installed: store.requestRevert(source: .settings)
-                    case .supportedByHerdr, .notWritable, .unsupportedVersion: break
+                HStack {
+                    if let secondary = HerdrMousePatchCopy.secondaryActionTitle(for: state) {
+                        Button(secondary) { store.requestRevert(source: .settings) }
+                            .accessibilityIdentifier("flock.settings.herdrMousePatch.secondaryAction")
                     }
+                    Button(title) {
+                        switch state {
+                        case .patchable, .outdated: store.requestInstall(source: .settings)
+                        case .installed: store.requestRevert(source: .settings)
+                        case .supportedByHerdr, .notWritable, .unsupportedVersion: break
+                        }
+                    }
+                    .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
                 }
-                .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
             }
         }
     }

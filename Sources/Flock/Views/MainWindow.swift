@@ -656,10 +656,10 @@ private struct HerdrMousePatchBanner: View {
                     .truncationMode(.tail)
                     .accessibilityIdentifier("flock.herdrMousePatch.banner.error")
             } else {
-                Text(HerdrMousePatchOffer.bannerHeadline)
+                Text(HerdrMousePatchOffer.bannerHeadline(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textStrong)
-                Text(HerdrMousePatchOffer.bannerDetail)
+                Text(HerdrMousePatchOffer.bannerDetail(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
@@ -687,9 +687,11 @@ private struct HerdrMousePatchBanner: View {
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
                 .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            if !store.herdrUpdateInProgress, case .patchable = store.state {
-                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) { store.requestInstall(source: .banner) }
-                    .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+            if !store.herdrUpdateInProgress, HerdrMousePatchOffer.hasAction(for: store.state) {
+                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle(for: store.state)) {
+                    store.requestInstall(source: .banner)
+                }
+                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
             }
         }
     }
@@ -699,7 +701,7 @@ private struct HerdrMousePatchBanner: View {
     /// banner at the height it has with Install showing.
     private func busy(_ title: String, fraction: Double) -> some View {
         ZStack(alignment: .trailing) {
-            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle) {}
+            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle(for: store.state)) {}
                 .hidden()
             HStack(spacing: ChromeMetrics.Banner.spacing) {
                 Text(title)

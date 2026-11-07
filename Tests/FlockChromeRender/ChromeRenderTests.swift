@@ -3014,6 +3014,74 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// An earlier revision of flock's patch: the banner offers Update, and
+    /// the herdr row offers Update beside Restore Original. Banner PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`, row PNGs to `FLOCK_SETTINGS_RENDER_DIR`.
+    func testAnOutdatedPatchIsOfferedTheUpdateOnTheBannerAndTheRow() async throws {
+        let chromeDirectory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let settingsDirectory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-outdated-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: herdrDir) }
+        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
+        let herdr = herdrDir.appendingPathComponent("herdr").path
+        let older = Data("herdr 0.9.5 terminal.mouse_capture revision 1".utf8)
+        try older.write(to: URL(fileURLWithPath: herdr))
+        try Data("herdr 0.9.5 stock".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
+        let olderSHA = SHA256.hash(data: older).map { String(format: "%02x", $0) }.joined()
+        let suite = "flock-outdated-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let store = HerdrMousePatchStore(
+                resolveBinaryPath: { herdr },
+                catalog: {
+                    HerdrMousePatchEntry(
+                        version: $0, sha256: String(repeating: "0", count: 64), revision: 2, superseded: [olderSHA]
+                    )
+                },
+                defaults: defaults,
+                readVersionOutput: HerdrVersionFixture.read
+            )
+            guard case .outdated = store.state else { return XCTFail("\(scheme): \(String(describing: store.state))") }
+            XCTAssertTrue(store.shouldOfferBanner, "\(scheme): an outdated patch should be offered the update")
+
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+            await settle(window)
+            let image = try snapshot(window)
+            if let chromeDirectory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: chromeDirectory).appendingPathComponent("mouse-banner-update-\(scheme)-\(id).png"))
+            }
+            XCTAssertGreaterThan(
+                count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme): no Update pill at the right"
+            )
+            window.close()
+
+            let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
+            let rowWindow = NSWindow(
+                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
+                styleMask: [.titled, .closable], backing: .buffered, defer: false
+            )
+            rowWindow.isReleasedWhenClosed = false
+            rowWindow.appearance = NSAppearance(named: appearance)
+            rowWindow.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
+                .formStyle(.grouped)
+                .frame(width: FlockSettingsView.size.width, height: 240))
+            rowWindow.orderFront(nil)
+            await settle(rowWindow)
+            let rowImage = try snapshot(rowWindow)
+            if let settingsDirectory {
+                try XCTUnwrap(rowImage.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: settingsDirectory).appendingPathComponent("settings-herdr-outdated-\(scheme).png"))
+            }
+            rowWindow.close()
+        }
+    }
+
     /// The herdr row while a patch downloads. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheHerdrRowShowsDownloadProgress() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
