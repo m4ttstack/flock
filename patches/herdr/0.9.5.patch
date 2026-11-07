@@ -454,10 +454,22 @@ index efe554e6..e196932e 100644
      fn a_manifest_written_before_the_host_shutdown_field_still_loads() {
          let manifest = manifest_for(empty_snapshot(), Vec::new(), None, None, None, None);
 diff --git a/src/server/headless.rs b/src/server/headless.rs
-index cb2c6196..5dee169c 100644
+index cb2c6196..5770c81a 100644
 --- a/src/server/headless.rs
 +++ b/src/server/headless.rs
-@@ -188,6 +188,78 @@ enum AltScreenReadConflict {
+@@ -165,6 +165,11 @@ const SHUTDOWN_API_TIMEOUT: Duration = Duration::from_secs(5);
+ /// otherwise idle. Keep this much slower than the old resize-poll cadence to
+ /// avoid reintroducing the idle CPU spin.
+ const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
++/// A `terminal.host_theme` line reaches the server as one update per field,
++/// written back to back. Held agent resumes start only once the theme has
++/// gone this long without another update, so a resumed agent never sees the
++/// background without the foreground of the same line.
++const HOST_THEME_LINE_SETTLE: Duration = Duration::from_millis(25);
+ 
+ // Split shell redraws need several early updates; sustained output still coalesces.
+ const INTERACTIVE_RENDER_BUDGET: u8 = 16;
+@@ -188,6 +193,78 @@ enum AltScreenReadConflict {
      Defer,
  }
  
@@ -536,7 +548,7 @@ index cb2c6196..5dee169c 100644
  /// The headless server — runs the herdr event loop without a real terminal.
  pub struct HeadlessServer {
      app: app::App,
-@@ -208,6 +280,12 @@ pub struct HeadlessServer {
+@@ -208,6 +285,14 @@ pub struct HeadlessServer {
      next_client_id: u64,
      /// The client currently driving session-wide host presentation and side effects.
      foreground_client_id: Option<u64>,
@@ -546,19 +558,22 @@ index cb2c6196..5dee169c 100644
 +    /// Keyed by terminal, so a second attach to the same terminal replaces
 +    /// the first one's wait rather than starting a second resume.
 +    theme_waiting_resumes: HashMap<crate::terminal::TerminalId, ThemeWaitingResume>,
++    /// When the terminal controller's latest theme update has settled.
++    host_theme_settles_at: Option<Instant>,
      /// Ephemeral shell connection controlling PTY geometry for each stable tab id.
      tab_geometry_controllers: HashMap<String, u64>,
      /// Stable tab id whose viewers may see and interact with the one terminal popup.
-@@ -364,6 +442,8 @@ impl HeadlessServer {
+@@ -364,6 +449,9 @@ impl HeadlessServer {
              #[cfg(unix)]
              next_client_id: 1,
              foreground_client_id: None,
 +            terminal_attach_host_theme: None,
 +            theme_waiting_resumes: HashMap::new(),
++            host_theme_settles_at: None,
              tab_geometry_controllers: HashMap::new(),
              popup_owner_tab_id: None,
              client_shell_boot_id: format!(
-@@ -616,6 +696,10 @@ impl HeadlessServer {
+@@ -616,6 +704,10 @@ impl HeadlessServer {
                  )
                  .map(|deadline| deadline.min(now + CLIENT_ACCEPT_POLL_INTERVAL))
                  .or(Some(now + CLIENT_ACCEPT_POLL_INTERVAL));
@@ -569,7 +584,7 @@ index cb2c6196..5dee169c 100644
              let next_deadline = self
                  .pending_alt_screen_reads
                  .iter()
-@@ -809,6 +893,7 @@ impl HeadlessServer {
+@@ -809,6 +901,7 @@ impl HeadlessServer {
              let server_keybindings = self.server_keybindings.clone();
              apply_keybindings(&mut self.app, &server_keybindings);
              self.sync_visible_server_config_diagnostic(false);
@@ -577,7 +592,7 @@ index cb2c6196..5dee169c 100644
              return;
          };
          let Some(client) = self.clients.get(&client_id) else {
-@@ -820,6 +905,7 @@ impl HeadlessServer {
+@@ -820,6 +913,7 @@ impl HeadlessServer {
              let server_keybindings = self.server_keybindings.clone();
              apply_keybindings(&mut self.app, &server_keybindings);
              self.sync_visible_server_config_diagnostic(false);
@@ -585,7 +600,7 @@ index cb2c6196..5dee169c 100644
              return;
          };
  
-@@ -852,6 +938,85 @@ impl HeadlessServer {
+@@ -852,6 +946,93 @@ impl HeadlessServer {
          self.app.set_host_terminal_theme(host_terminal_theme);
      }
  
@@ -607,18 +622,21 @@ index cb2c6196..5dee169c 100644
 +        self.apply_terminal_attach_host_theme(applied);
 +    }
 +
-+    /// Starts every held-back resume once the session has a host theme, and
-+    /// any whose wait ran out without one. A terminal whose controller is
-+    /// still attached resumes at that controller's current size.
++    /// Starts every held-back resume once the session has a settled host
++    /// theme, and any whose wait ran out without one. A terminal whose
++    /// controller is still attached resumes at that controller's current size.
 +    fn start_theme_waiting_resumes(&mut self, now: Instant) -> bool {
 +        if self.theme_waiting_resumes.is_empty() {
 +            return false;
 +        }
-+        let theme_known = !self.app.state.host_terminal_theme.is_empty();
++        let theme_ready = !self.app.state.host_terminal_theme.is_empty()
++            && self
++                .host_theme_settles_at
++                .is_none_or(|settles| now >= settles);
 +        let due: Vec<_> = self
 +            .theme_waiting_resumes
 +            .iter()
-+            .filter(|(_, waiting)| theme_known || now >= waiting.deadline)
++            .filter(|(_, waiting)| theme_ready || now >= waiting.deadline)
 +            .map(|(terminal_id, waiting)| (terminal_id.clone(), waiting.clone()))
 +            .collect();
 +        let mut changed = false;
@@ -654,10 +672,15 @@ index cb2c6196..5dee169c 100644
 +    }
 +
 +    fn next_theme_waiting_resume_deadline(&self) -> Option<Instant> {
-+        self.theme_waiting_resumes
++        let deadline = self
++            .theme_waiting_resumes
 +            .values()
 +            .map(|waiting| waiting.deadline)
-+            .min()
++            .min()?;
++        Some(
++            self.host_theme_settles_at
++                .map_or(deadline, |settles| settles.min(deadline)),
++        )
 +    }
 +
 +    fn apply_terminal_attach_host_theme(&mut self, applied: TerminalAttachHostTheme) -> bool {
@@ -671,7 +694,7 @@ index cb2c6196..5dee169c 100644
      fn sync_visible_server_config_diagnostic(&mut self, uses_local_keybindings: bool) {
          let visible = if uses_local_keybindings {
              &self.server_config_diagnostic_without_keybindings
-@@ -1831,8 +1996,29 @@ impl HeadlessServer {
+@@ -1831,8 +2012,29 @@ impl HeadlessServer {
              .state
              .direct_attach_resize_locks
              .insert(real_terminal_id.clone());
@@ -703,7 +726,7 @@ index cb2c6196..5dee169c 100644
          if let Some(runtime) = self.app.terminal_runtimes.get(&real_terminal_id) {
              runtime.resize(rows, cols, cell_size.width_px, cell_size.height_px);
          }
-@@ -2261,6 +2447,27 @@ impl HeadlessServer {
+@@ -2261,6 +2463,27 @@ impl HeadlessServer {
                  let Some(client) = self.clients.get_mut(&client_id) else {
                      return false;
                  };
@@ -725,13 +748,13 @@ index cb2c6196..5dee169c 100644
 +                        appearance_explicit: client.host_terminal_appearance_explicit,
 +                    };
 +                    self.terminal_attach_host_theme = Some(applied);
-+                    let changed = self.apply_terminal_attach_host_theme(applied);
-+                    return self.start_theme_waiting_resumes(Instant::now()) | changed;
++                    self.host_theme_settles_at = Some(Instant::now() + HOST_THEME_LINE_SETTLE);
++                    return self.apply_terminal_attach_host_theme(applied);
 +                }
                  if !matches!(client.mode, ClientConnectionMode::ClientShell) {
                      return false;
                  }
-@@ -3366,6 +3573,7 @@ impl HeadlessServer {
+@@ -3366,6 +3589,7 @@ impl HeadlessServer {
          }
  
          changed |= self.app.handle_tab_bar_status_tasks(now);
@@ -779,19 +802,20 @@ index 8c6587ff..f401e6dd 100644
              import_exe.as_deref(),
              &socket_path,
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
-index 3ab7ec0f..8427ab2c 100644
+index 3ab7ec0f..6e04c495 100644
 --- a/src/server/headless/tests/mod.rs
 +++ b/src/server/headless/tests/mod.rs
-@@ -114,6 +114,8 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
+@@ -114,6 +114,9 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
          #[cfg(unix)]
          next_client_id: 1,
          foreground_client_id: None,
 +        terminal_attach_host_theme: None,
 +        theme_waiting_resumes: HashMap::new(),
++        host_theme_settles_at: None,
          tab_geometry_controllers: HashMap::new(),
          popup_owner_tab_id: None,
          client_shell_boot_id: "test-boot".into(),
-@@ -8333,3 +8335,315 @@ fn no_handle_internal_event_bypass_in_module() {
+@@ -8333,3 +8336,369 @@ fn no_handle_internal_event_bypass_in_module() {
          bypass_lines.join("\n  ")
      );
  }
@@ -1011,21 +1035,44 @@ index 3ab7ec0f..8427ab2c 100644
 +        client_id: 7,
 +        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
 +    });
++    let background = protocol::ClientHostThemeUpdate::DefaultColor {
++        kind: protocol::ClientHostDefaultColorKind::Background,
++        color: LIGHT_GROUND,
++    };
++    assert!(
++        server.handle_server_event(ServerEvent::ClientShellHostTheme {
++            client_id: 7,
++            update: background,
++        })
++    );
++    server.handle_scheduled_tasks_headless(Instant::now(), false);
 +    assert!(
 +        server.app.terminal_runtimes.get(&terminal_id).is_none(),
-+        "an appearance alone carries no colors to answer a query with"
++        "the background alone is not the whole line"
 +    );
 +    assert!(
 +        server.handle_server_event(ServerEvent::ClientShellHostTheme {
 +            client_id: 7,
 +            update: protocol::ClientHostThemeUpdate::DefaultColor {
-+                kind: protocol::ClientHostDefaultColorKind::Background,
-+                color: LIGHT_GROUND,
++                kind: protocol::ClientHostDefaultColorKind::Foreground,
++                color: DARK_TEXT,
 +            },
 +        })
 +    );
++    let settles = server
++        .host_theme_settles_at
++        .expect("a theme update should set the settle time");
++    assert_eq!(server.next_theme_waiting_resume_deadline(), Some(settles));
++    server.handle_scheduled_tasks_headless(settles - Duration::from_millis(1), false);
++    assert!(server.app.terminal_runtimes.get(&terminal_id).is_none());
 +
++    assert!(server.handle_scheduled_tasks_headless(settles, false));
 +    assert!(server.app.terminal_runtimes.get(&terminal_id).is_some());
++    assert_eq!(
++        server.app.state.host_terminal_theme.foreground,
++        Some(DARK_TEXT.into()),
++        "the agent starts with the whole line applied"
++    );
 +    assert!(server.theme_waiting_resumes.is_empty());
 +    assert!(server
 +        .app
@@ -1035,6 +1082,37 @@ index 3ab7ec0f..8427ab2c 100644
 +        .expect("test terminal should still exist")
 +        .pending_agent_resume_plan
 +        .is_none());
++    shutdown_test_runtimes(&mut server);
++}
++
++#[cfg(unix)]
++const DARK_TEXT: protocol::ClientHostColor = protocol::ClientHostColor {
++    r: 76,
++    g: 79,
++    b: 105,
++};
++
++/// A line carrying only a background still releases the resume once it has
++/// settled, well before the deadline.
++#[cfg(unix)]
++#[tokio::test]
++async fn a_partial_theme_line_releases_a_held_resume_once_it_settles() {
++    let (mut server, terminal_id) = server_with_pending_agent_resume();
++    control_terminal(&mut server, 7, &terminal_id);
++    let deadline = server.theme_waiting_resumes[&terminal_id].deadline;
++
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 7,
++        update: protocol::ClientHostThemeUpdate::DefaultColor {
++            kind: protocol::ClientHostDefaultColorKind::Background,
++            color: LIGHT_GROUND,
++        },
++    });
++    let settles = server.host_theme_settles_at.expect("settle time");
++    assert!(settles < deadline);
++
++    assert!(server.handle_scheduled_tasks_headless(settles, false));
++    assert!(server.app.terminal_runtimes.get(&terminal_id).is_some());
 +    shutdown_test_runtimes(&mut server);
 +}
 +
