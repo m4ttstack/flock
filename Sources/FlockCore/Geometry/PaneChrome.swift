@@ -7,11 +7,13 @@ import CoreGraphics
 public enum PaneChrome {
     public static let verticalPadding: CGFloat = 10
     public static let horizontalPadding: CGFloat = 13
-    public static let titleRowTop: CGFloat = 13
+    public static let titleRowTop: CGFloat = 10
     public static let titleRowHeight: CGFloat = 22
-    /// The chat chip is taller than the title row and overhangs it into this
-    /// gap, so the gap has to hold the overhang and the room under the chip.
-    public static let titleGap: CGFloat = 11
+    /// Holds the header band below the title row plus room before the first
+    /// terminal row; the chat chip's overhang stays inside the band.
+    public static let titleGap: CGFloat = 16
+    /// Centred on the title row, ending above the first terminal row.
+    public static var headerBandHeight: CGFloat { titleRowTop * 2 + titleRowHeight }
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.

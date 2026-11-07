@@ -376,6 +376,7 @@ struct PaneCellView: View {
                 focusInHerdr()
             }
             .background(theme.pane)
+            .overlay(alignment: .top) { headerBand }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
@@ -429,6 +430,17 @@ struct PaneCellView: View {
         case .lift:
             return nil
         }
+    }
+
+    /// The quick launch strip's own band, so the pane's top and bottom chrome
+    /// read as one material.
+    private var headerBand: some View {
+        VStack(spacing: 0) {
+            LauncherStripStyle(theme: theme).band
+                .frame(height: PaneChrome.headerBandHeight - ChromeMetrics.ruleWidth)
+            theme.hair.frame(height: ChromeMetrics.ruleWidth)
+        }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
