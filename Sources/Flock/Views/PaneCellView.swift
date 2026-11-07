@@ -465,9 +465,9 @@ struct PaneCellView: View {
         if !rearrangeMode.active {
             switch focusStyle {
             case .dimOthers where !isFocused:
-                PaneShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
+                PaneShade(veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
             case .drainColour where !isFocused:
-                PaneShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
+                PaneShade(veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
             default:
@@ -910,6 +910,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
+                    drained: !rearrangeMode.active && focusStyle == .drainColour && !isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),

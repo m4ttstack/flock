@@ -48,6 +48,32 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
+    /// Drains most of the colour from whatever the surface draws, through a
+    /// layer on top that blends by saturation; it has to sit in this view's
+    /// own layer tree to see the terminal beneath it.
+    var isDrained = false {
+        didSet {
+            guard oldValue != isDrained, let layer else { return }
+            if isDrained {
+                layerUsesCoreImageFilters = true
+                let drain = CALayer()
+                drain.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
+                drain.compositingFilter = CIFilter(name: "CISaturationBlendMode")
+                drain.opacity = Float(ChromeMetrics.Pane.Focus.drainAmount)
+                drain.frame = layer.bounds
+                drain.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+                drain.zPosition = .greatestFiniteMagnitude
+                layer.addSublayer(drain)
+                drainLayer = drain
+            } else {
+                drainLayer?.removeFromSuperlayer()
+                drainLayer = nil
+            }
+        }
+    }
+
+    private var drainLayer: CALayer?
+
     /// Whether this view should grab real AppKit key focus as soon as it has
     /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
     /// resolved-focused state. Read (not just written) from `updateNSView`
