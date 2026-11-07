@@ -30,7 +30,9 @@ enum ChromeMetrics {
 
     enum TitleBar {
         static let height: CGFloat = 40
-        static let trailingInset: CGFloat = 10
+        static let trailingInset: CGFloat = 12
+        /// Between the DEV tag, the notices and the top-bar workspaces.
+        static let clusterGap: CGFloat = 12
         /// An icon-only view tab, square so the three read as one control.
         static let iconTabHorizontalPadding: CGFloat = 6
         static let noticeSpacing: CGFloat = 6
@@ -92,7 +94,6 @@ enum ChromeMetrics {
     }
 
     enum Rail {
-        static let devTagInset: CGFloat = 10
         /// The rail's own width is the user's, and lives in
         /// `FlockCore.RailWidth` with the bounds it is kept inside.
         ///

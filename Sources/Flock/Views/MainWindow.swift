@@ -456,30 +456,42 @@ struct TitleBar: View {
         .frame(height: ChromeMetrics.TitleBar.height)
     }
 
+    private var hasNotices: Bool {
+        devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil
+            || herdrUpdate?.displayedNotice != nil
+    }
+
+    /// One even gap between whichever of these show, so a missing one leaves
+    /// no hole.
     private var trailingCluster: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                if let devBuild, devBuild.newerBuildReady {
-                    RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
-                } else if let devRebuild {
-                    DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
-                }
-                if let notice = herdrUpdate?.displayedNotice {
-                    HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
-                        settingsSelection?.tab = .herdr
-                        openSettings()
-                    }
-                }
-                connectionNotice
+        HStack(spacing: ChromeMetrics.TitleBar.clusterGap) {
+            if isDevBuild {
+                DevStatusMenu(theme: theme)
             }
-            .padding(.trailing, ChromeMetrics.TitleBar.noticeTrailingPadding)
-            .fixedSize()
+            if hasNotices {
+                HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
+                    if let devBuild, devBuild.newerBuildReady {
+                        RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
+                    } else if let devRebuild {
+                        DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
+                    }
+                    if let notice = herdrUpdate?.displayedNotice {
+                        HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
+                            settingsSelection?.tab = .herdr
+                            openSettings()
+                        }
+                    }
+                    connectionNotice
+                }
+                .fixedSize()
+            }
             if let viewModel, hasTopBarWorkspaces {
                 TopBarWorkspaceStrip(theme: theme, viewModel: viewModel, showsNames: false)
-                    .frame(height: ChromeMetrics.TitleBar.height)
                     .fixedSize()
             }
         }
+        // Every item centres on the bar's own height.
+        .frame(height: ChromeMetrics.TitleBar.height)
         .padding(.trailing, ChromeMetrics.TitleBar.trailingInset)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { onTrailingWidth?($0) }
     }
