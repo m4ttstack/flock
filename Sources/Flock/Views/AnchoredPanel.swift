@@ -66,9 +66,14 @@ final class AnchoredPanelAnchor: NSView {
     private var isClosing = false
 
     func present(_ content: AnyView) {
-        let sized = AnyView(content.onGeometryChange(for: CGSize.self) { $0.size } action: { [weak self] size in
-            self?.fit(size)
-        })
+        // The shadow is SwiftUI's, inside a margin of clear window, not the
+        // system's, which lays a bright edge around a dark window.
+        let sized = AnyView(
+            content
+                .shadow(color: .black.opacity(M.shadowOpacity), radius: M.shadowRadius, y: M.shadowY)
+                .padding(M.shadowMargin)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { [weak self] size in self?.fit(size) }
+        )
         if let host, panel != nil, !isClosing {
             host.rootView = sized
             return
@@ -86,8 +91,6 @@ final class AnchoredPanelAnchor: NSView {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // Flat, like the quick launch strip: the system shadow lays a bright
-        // edge around a dark window.
         panel.hasShadow = false
         panel.animationBehavior = .none
         panel.contentView = host
@@ -118,7 +121,11 @@ final class AnchoredPanelAnchor: NSView {
     private func frame(for size: CGSize) -> CGRect {
         guard let window else { return CGRect(origin: .zero, size: size) }
         let anchor = window.convertToScreen(convert(bounds, to: nil))
-        return CGRect(x: anchor.maxX - size.width, y: anchor.minY - M.gap - size.height, width: size.width, height: size.height)
+        let margin = M.shadowMargin
+        return CGRect(
+            x: anchor.maxX - size.width + margin, y: anchor.minY - M.gap - size.height + margin,
+            width: size.width, height: size.height
+        )
     }
 
     func dismiss(animated: Bool = true) {

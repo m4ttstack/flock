@@ -382,6 +382,12 @@ enum ChromeMetrics {
         static let openDuration: Double = 0.12
         static let closeDuration: Double = 0.08
         static let surfaceLift: Double = 0.045
+        /// A soft lift off the UI below; the margin is clear window it is
+        /// drawn into, kept clear of the anchor's own edge.
+        static let shadowOpacity: Double = 0.3
+        static let shadowRadius: CGFloat = 10
+        static let shadowY: CGFloat = 4
+        static let shadowMargin: CGFloat = 18
     }
 
     enum ChatPopover {
