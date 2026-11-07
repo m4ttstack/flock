@@ -17,15 +17,19 @@ struct ToolRunner: Sendable {
     /// nil inherits this process's own environment.
     let environment: [String: String]?
     let deadline: Duration
+    /// nil runs from the home folder.
+    let currentDirectory: String?
 
-    init(binaryPath: String, environment: [String: String]? = nil, deadline: Duration) {
+    init(binaryPath: String, environment: [String: String]? = nil, deadline: Duration, currentDirectory: String? = nil) {
         self.binaryPath = binaryPath
         self.environment = environment
         self.deadline = deadline
+        self.currentDirectory = currentDirectory
     }
 
-    func run(_ arguments: [String]) async throws -> (stdout: Data, exitCode: Int32) {
-        let output = try await run(arguments, capturingStderr: false)
+    /// `input` goes to the child's stdin, which then closes; nil leaves stdin as it was.
+    func run(_ arguments: [String], input: Data? = nil) async throws -> (stdout: Data, exitCode: Int32) {
+        let output = try await run(arguments, capturingStderr: false, input: input)
         return (output.stdout, output.exitCode)
     }
 
@@ -39,7 +43,7 @@ struct ToolRunner: Sendable {
     private func run(_ arguments: [String], capturingStderr: Bool, input: Data? = nil) async throws -> Output {
         let child = Child(
             binaryPath: binaryPath, arguments: arguments, environment: environment,
-            capturesStderr: capturingStderr, input: input
+            capturesStderr: capturingStderr, input: input, currentDirectory: currentDirectory
         )
 
         // A caller's `.task` is cancelled on teardown, not just timed out:
@@ -124,13 +128,14 @@ private final class Child: @unchecked Sendable {
 
     init(
         binaryPath: String, arguments: [String], environment: [String: String]?, capturesStderr: Bool,
-        input: Data? = nil
+        input: Data? = nil, currentDirectory: String?
     ) {
         process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
         // An app opened by launchd runs from `/`, and rt chat refuses to
         // name a caller from a directory that yields no handle.
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        process.currentDirectoryURL = currentDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
         if let environment { process.environment = environment }
         process.standardOutput = stdoutPipe
         stderrPipe = capturesStderr ? Pipe() : nil

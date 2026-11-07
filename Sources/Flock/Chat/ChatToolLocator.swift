@@ -84,49 +84,45 @@ enum ChatToolLocator {
         return try? await ToolRunner(binaryPath: binary, environment: environment, deadline: deadline).run(arguments)
     }
 
-    /// The new agent's pane, or nil when none started.
+    /// rt works out the repo from the folder it runs in and takes the problem
+    /// from stdin, so nothing is typed into any pane.
     @Sendable
-    static func startSlackAgent(repo: String) async -> String? {
-        guard let (stdout, exitCode) = await runTool(
-            "rt", arguments: ChatSlackAgent.startArguments(repo: repo), deadline: ChatSlackAgent.startDeadline
-        ) else { return nil }
-        return ChatSlackAgent.pane(stdout: stdout, exitCode: exitCode)
+    static func startSlackChat(person: String, brief: String, pane: String, repo: String) async -> ChatSlackOutcome {
+        await runSlack(
+            arguments: ChatSlackStart.arguments(person: person, requesterPane: pane), input: Data(brief.utf8),
+            directory: repo, deadline: ChatSlackStart.deadline, decode: ChatSlackStart.outcome
+        )
     }
 
     @Sendable
-    static func slackAgentRefusal(pane: String) async -> String? {
-        guard let (stdout, exitCode) = await runTool("rt", arguments: ChatSlackAgent.peekArguments(pane: pane)) else { return nil }
-        return ChatSlackAgent.refusal(stdout: stdout, exitCode: exitCode)
+    static func resumeSlackChat(conversation: Int) async -> ChatSlackOutcome {
+        await runSlack(
+            arguments: ChatSlackResume.arguments(conversation: conversation), input: nil, directory: nil,
+            deadline: ChatSlackResume.deadline, decode: ChatSlackResume.outcome
+        )
     }
 
-    @Sendable
-    static func slackAgentIsGone(pane: String) async -> Bool {
-        guard let (stdout, exitCode) = await runTool("rt", arguments: ChatSlackAgent.listArguments) else { return false }
-        return ChatSlackAgent.paneIsGone(pane, stdout: stdout, exitCode: exitCode)
-    }
-
-    /// A new agent can answer that it isn't running yet, so a clean failure is
-    /// tried again here, where `typeIntoPane` takes it as maybe typed. A call
-    /// cut off may have typed the line, and typing it twice opens two chats.
-    @Sendable
-    static func typeIntoAgent(_ pane: String, line: String) async -> String? {
+    /// A call that timed out may still have started the chat, so that failure
+    /// says to look rather than to try again.
+    private static func runSlack(
+        arguments: [String], input: Data?, directory: String?, deadline: Duration,
+        decode: (Data, Int32) -> ChatSlackOutcome
+    ) async -> ChatSlackOutcome {
         let resolved = await Task.detached(priority: .userInitiated) {
-            ToolPath.resolve("rt").map { ($0, ChatSlackCommand.sendEnvironment(ToolPath.childEnvironment())) }
+            ToolPath.resolve("rt").map { ($0, ChatSlackStart.environment(ToolPath.childEnvironment())) }
         }.value
-        guard let (rt, environment) = resolved else { return "rt not found" }
-        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: ChatSlackCommand.sendDeadline)
-        for _ in 0..<ChatSlackAgent.sendAttempts {
-            do {
-                let (stdout, exitCode) = try await runner.run(ChatSlackCommand.sendArguments(pane: pane, line: line))
-                if exitCode == 0 { return ChatSlackCommand.refusal(stdout: stdout, exitCode: exitCode) }
-            } catch ToolRunner.Failure.didNotStart(let reason) {
-                return "rt could not start: \(reason)"
-            } catch {
-                return nil
-            }
-            do { try await Task.sleep(for: ChatSlackAgent.sendRetryDelay) } catch { return nil }
+        guard let (rt, environment) = resolved else { return .failed("rt not found") }
+        let runner = ToolRunner(binaryPath: rt, environment: environment, deadline: deadline, currentDirectory: directory)
+        do {
+            let (stdout, exitCode) = try await runner.run(arguments, input: input)
+            return decode(stdout, exitCode)
+        } catch ToolRunner.Failure.didNotStart(let reason) {
+            return .failed("rt could not start: \(reason)")
+        } catch ToolRunner.Failure.timedOut {
+            return .failed("rt did not answer in time. Check the sidebar before trying again")
+        } catch {
+            return .failed("rt gave no answer")
         }
-        return "the agent didn't start"
     }
 
     /// Why `line` was not typed, or nil when it may have been.

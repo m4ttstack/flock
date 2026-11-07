@@ -75,45 +75,60 @@ final class ChatSidebarTests: XCTestCase {
         XCTAssertNil(ChatSidebarSelection.next(current: nil, open: [], focusedPane: nil, tabPanes: []))
     }
 
-    func testAStartedAgentAnswersWithItsPane() {
-        let reply = Data(#"{"agent":{"paneId":"bg:w1:p2"}}"#.utf8)
-        XCTAssertEqual(ChatSlackAgent.pane(stdout: reply, exitCode: 0), "bg:w1:p2")
-        XCTAssertNil(ChatSlackAgent.pane(stdout: reply, exitCode: 1))
-        XCTAssertNil(ChatSlackAgent.pane(stdout: Data("{}".utf8), exitCode: 0))
+    private func decoded(_ conversation: String) throws -> ChatSidebarChat {
+        let json = Data(#"{"conversations":[\#(conversation)]}"#.utf8)
+        return try XCTUnwrap(ChatSidebarChats.decode(stdout: json, exitCode: 0)?.first)
     }
 
-    func testAPaneListSaysWhetherTheAgentPaneIsGone() {
-        let list = Data(#"{"ok":true,"panes":[{"paneId":"bg:w9:p1"}]}"#.utf8)
-        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p1", stdout: list, exitCode: 0))
-        XCTAssertTrue(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 0))
-        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 1))
-        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: Data("{}".utf8), exitCode: 0))
+    func testAChatWithARequesterPaneShowsOnThatPanesTab() throws {
+        let chat = try decoded(
+            #"{"id":4,"room":"dm","pane":"bg:w9:p1","name":"alex","displayName":"Alex","requesterPane":"w2:p3"}"#
+        )
+        let selection = ChatSidebarSelection(chat: chat, isEnded: false)
+
+        XCTAssertEqual(chat.homePane, "w2:p3")
+        XCTAssertTrue(selection.isLinked(toTab: ["w2:p3"]))
+        XCTAssertFalse(selection.isLinked(toTab: ["w1:p1"]))
     }
 
-    func testTheAgentStartsInTheBackgroundInTheRepo() {
+    func testALinkedPaneStillBeatsTheRequesterPane() {
+        let chat = ChatSidebarChat(room: "a", pane: "bg:w1:p1", name: "a", linkedPane: "w2:p3", requesterPane: "w4:p4")
+        XCTAssertEqual(chat.homePane, "w2:p3")
+    }
+
+    func testAChatListedByItsAssignedPaneHasThatPaneAsItsAgent() throws {
+        let chat = try decoded(#"{"id":4,"room":"dm","name":"alex","assignedPane":"bg:w9:p2","requesterPane":"w2:p3"}"#)
+        XCTAssertEqual(chat.agentPane, "bg:w9:p2")
+        XCTAssertEqual(chat.id, 4)
+        XCTAssertEqual(try decoded(#"{"room":"dm","pane":"bg:w9:p1","name":"alex","assignedPane":"bg:w9:p2"}"#).agentPane, "bg:w9:p1")
+    }
+
+    func testStartTakesTheBriefOnStdinSoItsArgumentsCarryNoProblem() {
         XCTAssertEqual(
-            ChatSlackAgent.startArguments(repo: "/src/acme"),
-            ["agent", "start", "--bg", "--repo", "/src/acme", "--label", "slack-support", "--json"]
+            ChatSlackStart.arguments(person: "U0TEST", requesterPane: "w1:p2"),
+            ["chat", "slack-start", "U0TEST", "--brief", "-", "--requester-pane", "w1:p2", "--json"]
         )
     }
 
-    private func peek(_ lines: [String]) throws -> Data {
-        try JSONEncoder().encode(["lines": lines])
+    func testStartAndResumeRunWithNoCallerIdentity() {
+        let environment = ChatSlackStart.environment(
+            ["HERDR_PANE_ID": "w1:p9", "CLAUDE_CODE_SESSION_ID": "s", "PATH": "/opt/bin"]
+        )
+        XCTAssertEqual(environment, ["PATH": "/opt/bin"])
     }
 
-    func testARefusalIsReadOffTheAgentsScreen() throws {
-        let screen = try peek(["noise", "The Slack chat did not open: already in a", "   chat with them", "", "after"])
-        XCTAssertEqual(ChatSlackAgent.refusal(stdout: screen, exitCode: 0), "already in a chat with them")
+    func testTheOutcomeIsTheConversationRtAnswersWith() {
+        XCTAssertEqual(ChatSlackStart.outcome(stdout: Data(#"{"ok":true,"conversation":7}"#.utf8), exitCode: 0), .done)
+        XCTAssertEqual(
+            ChatSlackStart.outcome(stdout: Data(#"{"ok":false,"error":"already in a chat"}"#.utf8), exitCode: 1),
+            .failed("already in a chat")
+        )
+        XCTAssertEqual(ChatSlackStart.outcome(stdout: Data(), exitCode: 1), .failed("rt gave no answer"))
+        XCTAssertEqual(ChatSlackStart.outcome(stdout: Data(#"{"ok":true}"#.utf8), exitCode: 1), .failed("rt gave no answer"))
     }
 
-    func testTheLastRefusalOnScreenIsTheOneThatCounts() throws {
-        let screen = try peek(["The Slack chat did not open: old", "", "The Slack chat did not open: new"])
-        XCTAssertEqual(ChatSlackAgent.refusal(stdout: screen, exitCode: 0), "new")
-    }
-
-    func testAScreenWithNoRefusalSaysNothing() throws {
-        XCTAssertNil(ChatSlackAgent.refusal(stdout: try peek(["working"]), exitCode: 0))
-        XCTAssertNil(ChatSlackAgent.refusal(stdout: Data(), exitCode: 1))
+    func testResumeNamesTheClosedChatAndTakesTheTapAsApproval() {
+        XCTAssertEqual(ChatSlackResume.arguments(conversation: 7), ["chat", "slack-resume", "7", "--approved", "--json"])
     }
 
     func testARepoNamesItselfByItsFolder() {

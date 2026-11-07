@@ -81,9 +81,10 @@ private struct ChatSidebarHeader: View {
     let selection: ChatSidebarSelection
 
     @Environment(ChatStore.self) private var chatStore
+    @State private var isResuming = false
 
     private var pane: PaneID? {
-        selection.chat.pane.map { PaneID(rawValue: $0) }
+        selection.chat.agentPane.map { PaneID(rawValue: $0) }
     }
 
     private var isClosing: Bool {
@@ -119,6 +120,9 @@ private struct ChatSidebarHeader: View {
             if !selection.isEnded, let pane {
                 endButton(pane)
             }
+            if selection.isEnded, let conversation = selection.chat.id {
+                resumeButton(conversation)
+            }
             Button {
                 if selection.isEnded { store.close() } else { store.toggleCollapsed() }
             } label: {
@@ -134,6 +138,29 @@ private struct ChatSidebarHeader: View {
         .padding(.horizontal, ChromeMetrics.ChatSidebar.headerHorizontalPadding)
         .frame(height: ChromeMetrics.ChatSidebar.headerHeight)
         .task(id: selection.chat.room) { await chatStore.refreshBuddies() }
+    }
+
+    private func resumeButton(_ conversation: Int) -> some View {
+        Button {
+            isResuming = true
+            Task {
+                if await chatStore.resumeSlackChat(conversation) { await store.refresh() }
+                isResuming = false
+            }
+        } label: {
+            Text(isResuming ? "Resuming…" : "Resume")
+                .font(ChromeType.chatComposeFooterHint)
+                .foregroundStyle(isResuming ? theme.overlay0 : theme.accent)
+                .padding(.horizontal, ChromeMetrics.ChatSidebar.endHorizontalPadding)
+                .padding(.vertical, ChromeMetrics.ChatSidebar.endVerticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: ChromeRadius.tiny).fill(Color(theme.palette.surface0))
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isResuming)
+        .help("Pick this chat back up")
+        .accessibilityIdentifier("flock.chatSidebar.resume")
     }
 
     private func endButton(_ pane: PaneID) -> some View {

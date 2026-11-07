@@ -9,15 +9,26 @@ public struct ChatSidebarChat: Decodable, Equatable, Sendable {
     public var displayName: String? = nil
     /// The pane a background agent's chat was started from. Only Flock knows it.
     public var linkedPane: String? = nil
+    /// The pane rt recorded as the one that asked for the chat.
+    public var requesterPane: String? = nil
+    public var assignedPane: String? = nil
+    /// What `slack-resume` takes once the chat has closed.
+    public var id: Int? = nil
 
-    private enum CodingKeys: String, CodingKey { case room, pane, name, displayName }
+    private enum CodingKeys: String, CodingKey { case room, pane, name, displayName, requesterPane, assignedPane, id }
 
-    public init(room: String, pane: String? = nil, name: String, displayName: String? = nil, linkedPane: String? = nil) {
+    public init(
+        room: String, pane: String? = nil, name: String, displayName: String? = nil, linkedPane: String? = nil,
+        requesterPane: String? = nil, assignedPane: String? = nil, id: Int? = nil
+    ) {
         self.room = room
         self.pane = pane
         self.name = name
         self.displayName = displayName
         self.linkedPane = linkedPane
+        self.requesterPane = requesterPane
+        self.assignedPane = assignedPane
+        self.id = id
     }
 
     public var shownName: String {
@@ -26,7 +37,12 @@ public struct ChatSidebarChat: Decodable, Equatable, Sendable {
 
     /// The pane this chat belongs to on screen.
     public var homePane: String? {
-        linkedPane ?? pane
+        linkedPane ?? requesterPane ?? pane
+    }
+
+    /// The pane of the agent holding the chat, which is what closing it names.
+    public var agentPane: String? {
+        pane ?? assignedPane
     }
 }
 
@@ -83,77 +99,15 @@ public struct ChatSidebarSelection: Equatable, Sendable {
     }
 }
 
-/// The background agent a Slack chat runs on, so the chat stays out of the
-/// pane it was started from.
+/// What a Slack chat's background agent needs from Flock: how long a started
+/// chat has to appear in rt's list, and the line and delay that end an agent an
+/// older Flock started.
 public enum ChatSlackAgent {
     public static let exitLine = "/exit"
-    /// An agent has to launch and settle before `rt agent start` answers.
-    public static let startDeadline: Duration = .seconds(60)
-    /// Past this with no chat, the agent turned the command away. Its reason
-    /// is on a screen nobody can see.
+    /// Past this with no chat listed, a started chat is not coming.
     public static let openDeadline: Duration = .seconds(60)
     /// The agent's outcome DM to the operator goes out after the chat closes.
     public static let exitDelay: Duration = .seconds(30)
-    public static let sendAttempts = 10
-    public static let sendRetryDelay: Duration = .seconds(2)
-
-    public static func startArguments(repo: String) -> [String] {
-        ["agent", "start", "--bg", "--repo", repo, "--label", "slack-support", "--json"]
-    }
-
-    public static func pane(stdout: Data, exitCode: Int32) -> String? {
-        guard exitCode == 0 else { return nil }
-        return (try? JSONDecoder().decode(Started.self, from: stdout))?.agent.paneId
-    }
-
-    public static func peekArguments(pane: String) -> [String] {
-        ["pane", "peek", pane, "--lines", "40", "--json"]
-    }
-
-    public static let listArguments = ["pane", "list", "--json"]
-
-    /// True only when rt's pane list answered and no longer holds `pane`.
-    public static func paneIsGone(_ pane: String, stdout: Data, exitCode: Int32) -> Bool {
-        guard exitCode == 0, let list = try? JSONDecoder().decode(PaneList.self, from: stdout) else { return false }
-        return !list.panes.contains { $0.paneId == pane }
-    }
-
-    private struct PaneList: Decodable {
-        let panes: [Pane]
-
-        struct Pane: Decodable {
-            let paneId: String
-        }
-    }
-
-    /// Why the agent's screen says the chat did not open, or nil. A long
-    /// reason wraps, and a blank line ends it.
-    public static func refusal(stdout: Data, exitCode: Int32) -> String? {
-        let marker = "The Slack chat did not open: "
-        guard exitCode == 0, let lines = (try? JSONDecoder().decode(Peek.self, from: stdout))?.lines,
-              let start = lines.lastIndex(where: { $0.contains(marker) }),
-              let found = lines[start].range(of: marker)
-        else { return nil }
-        var parts = [String(lines[start][found.upperBound...])]
-        for line in lines[(start + 1)...] {
-            let text = line.trimmingCharacters(in: .whitespaces)
-            if text.isEmpty { break }
-            parts.append(text)
-        }
-        return parts.joined(separator: " ")
-    }
-
-    private struct Peek: Decodable {
-        let lines: [String]
-    }
-
-    private struct Started: Decodable {
-        let agent: Agent
-
-        struct Agent: Decodable {
-            let paneId: String
-        }
-    }
 }
 
 /// A repo the agent can read, always its main checkout: a worktree can vanish

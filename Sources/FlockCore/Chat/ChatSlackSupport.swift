@@ -45,8 +45,9 @@ public enum ChatSlackRow: Equatable, Sendable {
     }
 }
 
-/// On has no verb of its own: `/slack-support` typed into the pane is the only
-/// way a chat opens, so this builds that line and reads `rt pane send`'s reply.
+/// Nothing opens a chat by typing any more. `line` is how the form tells a
+/// usable person and problem from a blank one, and `rt pane send` still ends
+/// the agents an older Flock started.
 public enum ChatSlackCommand {
     /// rt waits for the pane to take the prompt, nudges it once and waits
     /// again, so the text can land after any shorter deadline has fired.
@@ -183,4 +184,59 @@ public struct ChatSlackPersonEntry: Equatable, Sendable {
 /// the pane says goodbye, so the store follows `slackChat`, not this.
 public struct ChatSlackClosed: Decodable, Equatable, Sendable {
     public let closed: Bool
+}
+
+/// How a `slack-start` or `slack-resume` call ended. rt prints its refusal in
+/// the envelope, so a failure carries the sentence a person reads.
+public enum ChatSlackOutcome: Equatable, Sendable {
+    case done
+    case failed(String)
+
+    static func decode(stdout: Data, exitCode: Int32) -> ChatSlackOutcome {
+        let reply = try? JSONDecoder().decode(Reply.self, from: stdout)
+        if exitCode == 0, reply?.ok == true { return .done }
+        return .failed(reply?.error ?? "rt gave no answer")
+    }
+
+    private struct Reply: Decodable {
+        let ok: Bool?
+        let error: String?
+    }
+}
+
+/// Start has a verb of its own: rt works out the repo from the folder it runs
+/// in, takes the brief from stdin so no line is typed anywhere, and records the
+/// pane that asked.
+public enum ChatSlackStart {
+    /// rt waits for the agent to launch and settle before it answers.
+    public static let deadline: Duration = .seconds(60)
+
+    public static func arguments(person: String, requesterPane: String) -> [String] {
+        ["chat", "slack-start", person, "--brief", "-", "--requester-pane", requesterPane, "--json"]
+    }
+
+    /// A caller naming a pane or session would be read as the requester.
+    public static func environment(_ base: [String: String]) -> [String: String] {
+        var environment = base
+        environment["HERDR_PANE_ID"] = nil
+        environment["CLAUDE_CODE_SESSION_ID"] = nil
+        return environment
+    }
+
+    public static func outcome(stdout: Data, exitCode: Int32) -> ChatSlackOutcome {
+        ChatSlackOutcome.decode(stdout: stdout, exitCode: exitCode)
+    }
+}
+
+/// The tap on Resume is the operator's own approval, so rt asks no one else.
+public enum ChatSlackResume {
+    public static let deadline: Duration = .seconds(60)
+
+    public static func arguments(conversation: Int) -> [String] {
+        ["chat", "slack-resume", String(conversation), "--approved", "--json"]
+    }
+
+    public static func outcome(stdout: Data, exitCode: Int32) -> ChatSlackOutcome {
+        ChatSlackOutcome.decode(stdout: stdout, exitCode: exitCode)
+    }
 }

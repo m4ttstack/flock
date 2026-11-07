@@ -11,17 +11,13 @@ struct ChatPopoverRequest: Equatable {
     let feature: ChatPopoverFeature?
 }
 
-/// A background agent this Flock started for a Slack chat. `name` stays nil
-/// until rt lists the chat. A relaunch restarts the wait for it to open.
+/// A background agent an older Flock started for a Slack chat, read back from
+/// its saved link so that chat still shows on its pane. rt records the
+/// requester itself now, and nothing writes a new one.
 struct ChatSlackAgentChat: Equatable, Codable {
     let pane: String
     let repoName: String
     var name: String?
-    var startedAt: ContinuousClock.Instant = .now
-    var timedOut = false
-    var missedTicks = 0
-
-    private enum CodingKeys: String, CodingKey { case pane, repoName, name }
 }
 
 /// The one thing every chat view reads and drives: whether chat exists on
@@ -74,20 +70,26 @@ final class ChatStore {
     /// reason stays on screen after a transient toast has faded.
     private var statusErrors: [PaneID: String] = [:]
     private var slackTransitions: [PaneID: ChatSlackTransition] = [:]
-    /// Keyed by the pane each was started from. Saved, because a chat outlives
-    /// the app and only Flock knows which pane it belongs to.
+    /// Links an older Flock saved, keyed by the pane each chat was started
+    /// from. Only read and retired: rt names the requester of every new chat.
     private var slackAgents: [PaneID: ChatSlackAgentChat] = [:] {
         didSet { saveSlackAgents() }
     }
+    /// What rt listed as open the last time it was asked.
+    private var openSlackChats: [ChatSidebarChat] = []
+    /// Panes whose start rt accepted but whose chat it has not listed yet.
+    private var pendingSlackStarts: [PaneID: ContinuousClock.Instant] = [:]
+    /// Panes whose requested chat has been told to close.
+    @ObservationIgnored private var closingSlackChats: Set<PaneID> = []
     @ObservationIgnored private var slackWatches: [PaneID: Task<Void, Never>] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
     @ObservationIgnored private let autoSignInIsOn: (String) async -> Bool
     @ObservationIgnored private let pause: (Duration) async throws -> Void
     @ObservationIgnored private let typeIntoPane: @Sendable (_ pane: String, _ line: String) async -> String?
-    @ObservationIgnored private let startAgent: @Sendable (_ repo: String) async -> String?
-    @ObservationIgnored private let typeIntoAgent: @Sendable (_ pane: String, _ line: String) async -> String?
-    @ObservationIgnored private let readAgentRefusal: @Sendable (_ pane: String) async -> String?
-    @ObservationIgnored private let agentIsGone: @Sendable (_ pane: String) async -> Bool
+    @ObservationIgnored private let startSlack: @Sendable (
+        _ person: String, _ brief: String, _ pane: String, _ repo: String
+    ) async -> ChatSlackOutcome
+    @ObservationIgnored private let resumeSlack: @Sendable (_ conversation: Int) async -> ChatSlackOutcome
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     /// A pane drawn in more than one place asks once, not once per view.
@@ -126,10 +128,10 @@ final class ChatStore {
         autoSignInIsOn: @escaping (String) async -> Bool = ChatToolLocator.autoSignInIsOn(folder:),
         pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         typeIntoPane: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoPane,
-        startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
-        typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
-        readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
-        agentIsGone: @escaping @Sendable (_ pane: String) async -> Bool = ChatToolLocator.slackAgentIsGone(pane:),
+        startSlack: @escaping @Sendable (
+            _ person: String, _ brief: String, _ pane: String, _ repo: String
+        ) async -> ChatSlackOutcome = ChatToolLocator.startSlackChat,
+        resumeSlack: @escaping @Sendable (_ conversation: Int) async -> ChatSlackOutcome = ChatToolLocator.resumeSlackChat,
         loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
         defaults: UserDefaults = .standard,
@@ -139,11 +141,9 @@ final class ChatStore {
         self.autoSignInIsOn = autoSignInIsOn
         self.pause = pause
         self.typeIntoPane = typeIntoPane
-        self.startAgent = startAgent
-        self.typeIntoAgent = typeIntoAgent
-        self.readAgentRefusal = readAgentRefusal
+        self.startSlack = startSlack
+        self.resumeSlack = resumeSlack
         self.loadFace = loadFace
-        self.agentIsGone = agentIsGone
         self.defaults = defaults
         self.now = now
         slackAgents = Self.savedSlackAgents(in: defaults)
@@ -311,11 +311,12 @@ final class ChatStore {
     }
 
     func slackRow(for pane: PaneID) -> ChatSlackRow? {
-        guard let agent = slackAgents[pane] else {
-            return ChatSlackRow.resolve(status: statuses[pane], transition: slackTransitions[pane])
+        let held = slackAgents[pane]?.name ?? requestedSlackChat(for: pane)?.shownName
+        if let held {
+            return slackTransitions[pane] == .closing ? .closing(name: held) : .open(name: held)
         }
-        guard let name = agent.name else { return .opening }
-        return slackTransitions[pane] == .closing ? .closing(name: name) : .open(name: name)
+        if pendingSlackStarts[pane] != nil { return .opening }
+        return ChatSlackRow.resolve(status: statuses[pane], transition: slackTransitions[pane])
     }
 
     func slackTransition(for pane: PaneID) -> ChatSlackTransition? {
@@ -324,7 +325,13 @@ final class ChatStore {
 
     /// The pane a background agent's chat was started from.
     func slackOwner(ofAgent pane: String) -> PaneID? {
-        slackAgents.first { $0.value.pane == pane }?.key
+        if let legacy = slackAgents.first(where: { $0.value.pane == pane })?.key { return legacy }
+        return openSlackChats.first { $0.agentPane == pane }?.requesterPane.map { PaneID(rawValue: $0) }
+    }
+
+    /// The open chat rt says `pane` asked for.
+    private func requestedSlackChat(for pane: PaneID) -> ChatSidebarChat? {
+        openSlackChats.first { $0.requesterPane == pane.rawValue }
     }
 
     func slackRepoName(ofAgent pane: String) -> String? {
@@ -343,76 +350,80 @@ final class ChatStore {
         return reply.people
     }
 
-    /// True once the line is in a new background agent. That says nothing
-    /// about the chat: `noteSlackChats` hears about that from rt.
+    /// True once rt took the start. That says nothing about the chat:
+    /// `noteSlackChats` hears about that from rt's list.
     func startSlackChat(_ pane: PaneID, person: String, problem: String, repo: ChatSlackRepo) async -> Bool {
-        guard isAvailable, let line = ChatSlackCommand.line(person: person, problem: problem) else { return false }
-        slackTransitions[pane] = .opening
-        guard let agent = await startAgent(repo.path) else {
-            slackTransitions[pane] = nil
-            toasts.show("Slack chat not started: no agent", kind: .info)
+        let person = person.trimmingCharacters(in: .whitespacesAndNewlines)
+        let brief = problem.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isAvailable, !person.isEmpty, !brief.isEmpty else { return false }
+        pendingSlackStarts[pane] = now()
+        switch await startSlack(person, brief, pane.rawValue, repo.path) {
+        case .done:
+            return true
+        case let .failed(reason):
+            pendingSlackStarts[pane] = nil
+            toasts.show("Slack chat not started: \(reason)", kind: .info)
             return false
         }
-        if let refusal = await typeIntoAgent(agent, line) {
-            slackTransitions[pane] = nil
-            toasts.show("Slack chat not started: \(refusal)", kind: .info)
-            exitAgent(agent, after: .zero)
-            return false
-        }
-        slackAgents[pane] = ChatSlackAgentChat(pane: agent, repoName: repo.name, name: nil, startedAt: now())
-        return true
     }
 
-    /// rt's list is the only word on a background agent's chat, and the
-    /// agent's screen the only word on why one never opened.
+    /// True once rt took the resume. The resumed chat keeps its requester, so
+    /// it comes back on the pane it was on.
+    func resumeSlackChat(_ conversation: Int) async -> Bool {
+        guard isAvailable else { return false }
+        switch await resumeSlack(conversation) {
+        case .done:
+            return true
+        case let .failed(reason):
+            toasts.show("Slack chat not resumed: \(reason)", kind: .info)
+            return false
+        }
+    }
+
+    /// rt's list is the only word on whether a chat is open, so every wait on
+    /// one ends here.
     func noteSlackChats(_ open: [ChatSidebarChat]) async {
+        openSlackChats = open
+        for (pane, startedAt) in pendingSlackStarts {
+            if open.contains(where: { $0.requesterPane == pane.rawValue }) {
+                pendingSlackStarts[pane] = nil
+            } else if now() - startedAt > ChatSlackAgent.openDeadline {
+                pendingSlackStarts[pane] = nil
+                toasts.show("Slack chat didn't open", kind: .info)
+            }
+        }
+        for pane in closingSlackChats where requestedSlackChat(for: pane) == nil {
+            closingSlackChats.remove(pane)
+            slackWatches[pane]?.cancel()
+            slackTransitions[pane] = nil
+        }
         for (owner, agent) in slackAgents {
             if let chat = open.first(where: { $0.pane == agent.pane }) {
                 if agent.name != chat.shownName { slackAgents[owner]?.name = chat.shownName }
-                if agent.timedOut { slackAgents[owner]?.timedOut = false }
-                if slackTransitions[owner] == .opening { slackTransitions[owner] = nil }
-            } else if agent.name != nil {
+            } else {
                 retire(owner, agent, after: ChatSlackAgent.exitDelay)
-            } else if let refusal = await readAgentRefusal(agent.pane) {
-                guard slackAgents[owner] == agent else { continue }
-                retire(owner, agent, after: .zero)
-                toasts.show("Slack chat not started: \(refusal)", kind: .info)
-            } else if !agent.timedOut, now() - agent.startedAt > ChatSlackAgent.openDeadline {
-                slackAgents[owner]?.timedOut = true
-                toasts.show("Slack chat didn't open", kind: .info)
-            } else if agent.timedOut {
-                let gone = await agentIsGone(agent.pane)
-                guard slackAgents[owner] == agent else { continue }
-                if !gone {
-                    if agent.missedTicks != 0 { slackAgents[owner]?.missedTicks = 0 }
-                } else if agent.missedTicks + 1 >= Self.missedTicksToRetire {
-                    retire(owner, agent, exit: false)
-                } else {
-                    slackAgents[owner]?.missedTicks = agent.missedTicks + 1
-                }
             }
         }
     }
 
-    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration = .zero, exit: Bool = true) {
+    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration) {
         slackWatches[owner]?.cancel()
         slackAgents[owner] = nil
         slackTransitions[owner] = nil
-        if exit { exitAgent(agent.pane, after: delay) }
+        exitAgent(agent.pane, after: delay)
     }
 
     private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
     /// Just under the last recheck, so whichever follow wakes first asks again.
     private static let faceVerbRecheck: Duration = .seconds(290)
-    /// The daemon's pane list silently omits background panes when their server is down.
-    private static let missedTicksToRetire = 2
     private static let slackAgentsKey = "chat.slackAgents"
 
+    /// A link that never saw its chat open has nothing left to read.
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {
         guard let data = defaults.data(forKey: slackAgentsKey),
               let saved = try? JSONDecoder().decode([String: ChatSlackAgentChat].self, from: data)
         else { return [:] }
-        return Dictionary(uniqueKeysWithValues: saved.map { (PaneID(rawValue: $0.key), $0.value) })
+        return Dictionary(uniqueKeysWithValues: saved.filter { $0.value.name != nil }.map { (PaneID(rawValue: $0.key), $0.value) })
     }
 
     private func saveSlackAgents() {
@@ -439,6 +450,18 @@ final class ChatStore {
             watchAgentClose(owner, agent: agent.pane)
             return
         }
+        if let agentPane = requestedSlackChat(for: owner)?.agentPane {
+            slackTransitions[owner] = .closing
+            closingSlackChats.insert(owner)
+            let closed: ChatSlackClosed? = await run(.slackClose(pane: agentPane))
+            guard closed != nil else {
+                slackTransitions[owner] = nil
+                closingSlackChats.remove(owner)
+                return
+            }
+            watchAgentClose(owner, agent: agentPane)
+            return
+        }
         slackTransitions[pane] = .closing
         let closed: ChatSlackClosed? = await run(.slackClose(pane: pane.rawValue))
         guard closed != nil else {
@@ -456,8 +479,11 @@ final class ChatStore {
         slackWatches[owner]?.cancel()
         slackWatches[owner] = Task { [weak self, pause] in
             do { try await pause(ChatSlackWatch.closeInterval * ChatSlackWatch.closeAttempts) } catch { return }
-            guard let self, self.slackAgents[owner]?.pane == agent, self.slackTransitions[owner] == .closing else { return }
+            guard let self, self.slackTransitions[owner] == .closing,
+                  self.slackAgents[owner]?.pane == agent || self.openSlackChats.contains(where: { $0.agentPane == agent })
+            else { return }
             self.slackTransitions[owner] = nil
+            self.closingSlackChats.remove(owner)
             self.toasts.show("Slack chat still open. Check the pane", kind: .info)
         }
     }

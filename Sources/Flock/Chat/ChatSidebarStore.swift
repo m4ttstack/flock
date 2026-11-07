@@ -60,7 +60,7 @@ final class ChatSidebarStore {
         await onChats?(open)
         let linked = open.map { chat in
             var chat = chat
-            chat.linkedPane = chat.pane.flatMap { owner?($0) }
+            chat.linkedPane = chat.agentPane.flatMap { owner?($0) }
             return chat
         }
         await select(

@@ -2,8 +2,7 @@ import FlockCore
 import SwiftUI
 
 /// The form behind FEATURES' Slack support row. It opens no chat itself:
-/// Start types `/slack-support` into a new background agent, the only way a
-/// chat opens.
+/// Start hands the person and the problem to `onStart`, which asks rt.
 ///
 /// The list is fetched once per form and filtered here, because Slack limits
 /// how often it can be read. With no list the box takes a typed name.
