@@ -140,10 +140,10 @@ struct ChatPopover: View {
             case let .feature(feature): featureBody(feature)
             }
         }
-        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(Color(theme.palette.panelBg)))
+        .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius).fill(theme.chrome))
         .overlay(
             RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius)
-                .strokeBorder(Color(theme.palette.surface1), lineWidth: 1)
+                .strokeBorder(theme.hairFocus, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.cornerRadius))
         .background(ChatPopoverEscMonitor(isPresented: $isPresented, isDrilledIn: isDrilledIn))
@@ -216,7 +216,7 @@ struct ChatPopover: View {
                 Button("Retry", action: onRetry)
                     .buttonStyle(.plain)
                     .font(ChromeType.chatPopoverFeatureShortcut)
-                    .foregroundStyle(theme.accent)
+                    .foregroundStyle(theme.textStrong)
             }
             .padding(.vertical, ChromeMetrics.ChatPopover.Status.gap)
             .padding(.horizontal, ChromeMetrics.ChatPopover.Status.leadingPadding)
@@ -332,7 +332,7 @@ struct ChatPopover: View {
                 .padding(.horizontal, ChromeMetrics.ChatPopover.Status.slackButtonHorizontalPadding)
                 .background(
                     RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.slackButtonCornerRadius)
-                        .fill(Color(theme.palette.surface0))
+                        .fill(theme.lift)
                 )
         }
         .buttonStyle(.plain)
@@ -340,19 +340,19 @@ struct ChatPopover: View {
     }
 
     /// The header and the status band are the only bands the popover rules
-    /// off: a 1pt line in `surface0`, never the outer stroke's own colour.
+    /// off: a 1pt `hair`, never the outer stroke's own colour.
     private var bandRule: some View {
-        Rectangle().fill(Color(theme.palette.surface0)).frame(height: 1)
+        Rectangle().fill(theme.hair).frame(height: 1)
     }
 
     private func roomChip(_ room: String) -> some View {
         Text(room)
             .font(ChromeType.chatPopoverChipLabel)
-            .foregroundStyle(theme.overlay0)
+            .foregroundStyle(theme.textLabel)
             .padding(.vertical, ChromeMetrics.ChatPopover.Status.roomChipVerticalPadding)
             .padding(.horizontal, ChromeMetrics.ChatPopover.Status.roomChipHorizontalPadding)
             .frame(height: ChromeMetrics.ChatPopover.Status.roomChipHeight)
-            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.roomChipCornerRadius).fill(Color(theme.palette.activeRowBg)))
+            .background(RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.Status.roomChipCornerRadius).fill(theme.lift))
     }
 
     private func sectionLabel(_ text: String) -> some View {
@@ -403,7 +403,7 @@ struct ChatPopover: View {
                 Image(systemName: feature.symbolName)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.accent : theme.overlay0))
+                    .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.textStrong : theme.textLabel))
                     .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
                 Text(feature.title)
                     .font(ChromeType.chatPopoverFeatureName)
@@ -502,11 +502,11 @@ struct ChatPopover: View {
                 Text(title)
                     .font(ChromeType.chatPopoverButtonLabel)
             }
-            .foregroundStyle(signOutIsBlocked ? theme.overlay0 : Color(theme.palette.panelBg))
+            .foregroundStyle(signOutIsBlocked ? theme.overlay0 : theme.textStrong)
             .frame(width: ChromeMetrics.ChatPopover.SignButtons.buttonSize.width, height: ChromeMetrics.ChatPopover.SignButtons.buttonSize.height)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.ChatPopover.SignButtons.cornerRadius)
-                    .fill(signOutIsBlocked ? Color(theme.palette.surface0) : theme.accent)
+                    .fill(theme.lift)
             )
         }
         .buttonStyle(.plain)
