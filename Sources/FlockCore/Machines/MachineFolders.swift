@@ -39,11 +39,11 @@ public struct MachineFolderListing: Equatable, Sendable {
         var path: String?
         var subfolders: [String] = []
         for line in String(decoding: stdout, as: UTF8.self).split(whereSeparator: \.isNewline) {
-            if let range = line.range(of: pathMarker) {
+            if line.hasPrefix(subfolderMarker) {
+                subfolders.append(String(line.dropFirst(subfolderMarker.count)))
+            } else if let range = line.range(of: pathMarker) {
                 path = String(line[range.upperBound...])
                 subfolders = []
-            } else if line.hasPrefix(subfolderMarker) {
-                subfolders.append(String(line.dropFirst(subfolderMarker.count)))
             }
         }
         guard let path, path.hasPrefix("/") else { return nil }

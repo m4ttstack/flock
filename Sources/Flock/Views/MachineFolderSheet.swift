@@ -192,7 +192,7 @@ private struct FolderRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(hovering ? theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hovering ? theme.selection : Color.clear, in: RoundedRectangle(cornerRadius: ChromeRadius.control))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -10,6 +10,11 @@ final class MachineFoldersTests: XCTestCase {
         )
     }
 
+    func testParseKeepsASubfolderNamedLikeTheMarker() {
+        let stdout = Data("flock-dir:/Users/acme\nflock-sub:a flock-dir:b\n".utf8)
+        XCTAssertEqual(MachineFolderListing.parse(stdout), MachineFolderListing(path: "/Users/acme", subfolders: ["a flock-dir:b"]))
+    }
+
     func testParseNeedsAnAbsolutePath() {
         XCTAssertNil(MachineFolderListing.parse(Data("flock-sub:a\n".utf8)))
         XCTAssertNil(MachineFolderListing.parse(Data("flock-dir:relative\n".utf8)))
