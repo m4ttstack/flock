@@ -8,12 +8,16 @@ public enum PaneFocusStyle: String, CaseIterable, Sendable {
 
     case brighterBorder
     case dimOthers
+    case drainColour
+    case quietChrome
     case lift
 
     public var displayName: String {
         switch self {
         case .brighterBorder: "Brighter border"
         case .dimOthers: "Dim others"
+        case .drainColour: "Drain colour"
+        case .quietChrome: "Quiet chrome"
         case .lift: "Lift"
         }
     }

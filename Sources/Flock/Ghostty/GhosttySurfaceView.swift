@@ -1,5 +1,6 @@
 // Portions derived from Herdglass (BSL-1.1), Sources/Herdglass/Ghostty/TerminalSurfaceView.swift.
 import AppKit
+import CoreImage
 import GhosttyKit
 import FlockCore
 
@@ -58,6 +59,24 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// `window` still nil -- silently lost, never retried, because nothing
     /// about this representable's inputs changes again after that to trigger
     /// a second `updateNSView` call).
+    /// Draws the surface with most of its colour gone and a touch darker,
+    /// through a Core Image filter on its own layer, so the terminal's text
+    /// stays crisp where a scrim over it would wash it out.
+    var isDrained = false {
+        didSet {
+            guard oldValue != isDrained else { return }
+            layerUsesCoreImageFilters = true
+            layer?.filters = isDrained ? [Self.drainFilter] : nil
+        }
+    }
+
+    private static let drainFilter: CIFilter = {
+        let filter = CIFilter(name: "CIColorControls")!
+        filter.setValue(ChromeMetrics.Pane.Focus.drainSaturation, forKey: kCIInputSaturationKey)
+        filter.setValue(ChromeMetrics.Pane.Focus.drainBrightness, forKey: kCIInputBrightnessKey)
+        return filter
+    }()
+
     /// Also gates link hover: an unfocused pane matches, underlines and
     /// offers no links, so a pointer crossing it stays quiet.
     var wantsFocus = false {

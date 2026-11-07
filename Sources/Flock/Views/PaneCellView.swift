@@ -386,6 +386,7 @@ struct PaneCellView: View {
                     )
                 )
                     .padding(.top, ChromeMetrics.Pane.StatusLine.top - ChromeMetrics.Pane.StatusLine.washHeight)
+                    .opacity(statusLineOpacity)
             }
             // On the box, not the surface: a surface holds whole cells, so it
             // can stop short of the pane's edge by part of a row.
@@ -435,7 +436,7 @@ struct PaneCellView: View {
         case .brighterBorder:
             if isFocused { return (theme.hairFocus, ChromeMetrics.ruleWidth) }
             return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
-        case .dimOthers:
+        case .dimOthers, .drainColour, .quietChrome:
             return isEdgeToEdge ? nil : (theme.hair, ChromeMetrics.ruleWidth)
         case .lift:
             return nil
@@ -444,9 +445,20 @@ struct PaneCellView: View {
 
     /// The header draws over the box, outside the dim scrim, so it fades by
     /// the scrim's own amount to match.
+    /// Dim others fades the line with its scrim; the two styles that leave
+    /// the terminal unscrimmed fade it here instead.
+    private var statusLineOpacity: Double {
+        guard !rearrangeMode.active, !isFocused, focusStyle == .drainColour || focusStyle == .quietChrome else { return 1 }
+        return ChromeMetrics.Pane.Focus.chromeFadeOpacity
+    }
+
     private var headerOpacity: Double {
-        guard !rearrangeMode.active, focusStyle == .dimOthers, !isFocused else { return 1 }
-        return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
+        guard !rearrangeMode.active, !isFocused else { return 1 }
+        switch focusStyle {
+        case .dimOthers: return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
+        case .drainColour, .quietChrome: return ChromeMetrics.Pane.Focus.chromeFadeOpacity
+        case .brighterBorder, .lift: return 1
+        }
     }
 
     @ViewBuilder
@@ -566,8 +578,13 @@ struct PaneCellView: View {
     /// so who is in the pane sits in the same corner whatever else it shows.
     private var legendControls: some View {
         HStack(spacing: ChromeMetrics.PaneBar.trailingGap) {
-            if ghosttySurface?.programHasMouse == true { mouseBadge }
-            rtButton
+            // The pane's tools step back when it has no focus; who is in it
+            // (the chat chip) stays readable.
+            Group {
+                if ghosttySurface?.programHasMouse == true { mouseBadge }
+                rtButton
+            }
+            .opacity(isFocused ? 1 : ChromeMetrics.Pane.Focus.unfocusedToolOpacity)
             if chatButtonAppearance != .absent { chatButton }
         }
         .frame(height: ChromeMetrics.PaneBar.rowHeight)
@@ -889,6 +906,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
+                    drained: !rearrangeMode.active && focusStyle == .drainColour && !isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),

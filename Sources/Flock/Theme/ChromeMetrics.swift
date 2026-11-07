@@ -280,6 +280,15 @@ enum ChromeMetrics {
             /// `textStrong` over the focused pane: white on a dark theme,
             /// near black on a light one, so it reads as `lift`.
             static let liftWashOpacity: Double = 0.05
+            /// Drain colour: what saturation an unfocused terminal keeps, and
+            /// how much darker it draws.
+            static let drainSaturation: Double = 0.2
+            static let drainBrightness: Double = -0.04
+            /// Drain colour and quiet chrome: what an unfocused pane's header,
+            /// status line and wash keep.
+            static let chromeFadeOpacity: Double = 0.45
+            /// The mouse and rt buttons on a pane without focus, in every style.
+            static let unfocusedToolOpacity: Double = 0.4
         }
 
         /// `PaneStatusLine`: the mock's shader values (R12), as points and seconds.
