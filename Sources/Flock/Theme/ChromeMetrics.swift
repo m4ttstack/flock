@@ -283,9 +283,9 @@ enum ChromeMetrics {
 
         /// `PaneStatusLine`: the mock's shader values (R12), as points and seconds.
         enum StatusLine {
-            /// Under the title row, clear of the chat chip's overhang and
-            /// above the first terminal row.
-            static let top: CGFloat = PaneChrome.contentTop - 4
+            /// Twice the title row's centre: as far below the centred chat chip
+            /// as the box's top edge is above it.
+            static let top: CGFloat = (PaneChrome.titleRowTop + PaneChrome.titleRowHeight / 2) * 2
             static let height: CGFloat = 1
             static let cometHeight: CGFloat = 1.5
             static let frameInterval: Double = 1.0 / 30

@@ -9,9 +9,10 @@ public enum PaneChrome {
     public static let horizontalPadding: CGFloat = 13
     public static let titleRowTop: CGFloat = 13
     public static let titleRowHeight: CGFloat = 22
-    /// The chat chip is taller than the title row and overhangs it into this
-    /// gap, so the gap has to hold the overhang and the room under the chip.
-    public static let titleGap: CGFloat = 11
+    /// Holds the chat chip's overhang below the title row, the status line
+    /// as far under the chip as the box's edge is above it, and room before
+    /// the first terminal row.
+    public static let titleGap: CGFloat = 19
     /// Every rounded shape drawn over or beside a box (drop preview, landing
     /// flash, ghost, toasts) takes this too, so an overlay's corners trace
     /// the box it lands on.
