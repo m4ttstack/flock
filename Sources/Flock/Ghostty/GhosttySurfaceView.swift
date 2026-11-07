@@ -318,7 +318,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyBackgroundColor()
-        session.applyColorScheme(appearance: effectiveAppearance)
     }
 
     override func updateLayer() {

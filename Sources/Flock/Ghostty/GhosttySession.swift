@@ -107,7 +107,13 @@ final class GhosttySession {
     /// view). Retained for the session's whole life: releasing it (session
     /// `deinit`) closes and unlinks the FIFO the same way freeing the
     /// libghostty surface ends the bridge's PTY.
-    var controlChannel: PaneControlChannel?
+    var controlChannel: PaneControlChannel? {
+        didSet {
+            sentHostTheme = nil
+            sendHostTheme()
+        }
+    }
+    private var sentHostTheme: HostTerminalTheme?
     /// The FIFO the bridge reports pane state on (`flock.mouse_capture`),
     /// set by `GhosttyControlSurfaceFactory` alongside `controlChannel` and
     /// retained for the session's whole life: releasing it (session `deinit`)
@@ -168,7 +174,7 @@ final class GhosttySession {
         resize(to: view.bounds.size)
         setDisplayID(displayID(of: view))
         setFocused(view.window?.firstResponder === view)
-        applyColorScheme(appearance: view.effectiveAppearance)
+        applyColorScheme()
     }
 
     /// `ghostty_surface_config_s` has no size field: a new surface is always
@@ -813,10 +819,20 @@ final class GhosttySession {
         }
     }
 
-    func applyColorScheme(appearance: NSAppearance? = nil) {
-        guard let surface, let scheme = colorScheme(for: appearance ?? view?.effectiveAppearance) else { return }
-        ghostty_surface_set_color_scheme(surface, scheme)
+    func applyColorScheme() {
+        guard let surface else { return }
+        ghostty_surface_set_color_scheme(surface, colorScheme)
         ghostty_surface_refresh(surface)
+    }
+
+    /// Tells herdr the pane's colors, which it answers a program's OSC 11 and
+    /// `CSI ? 996 n` queries from: without it a program set to match its
+    /// terminal never learns the theme and assumes dark.
+    private func sendHostTheme() {
+        let theme = HostTerminalTheme(colors: configuration.themeColors)
+        guard let controlChannel, theme != sentHostTheme else { return }
+        controlChannel.hostTheme(theme)
+        sentHostTheme = theme
     }
 
     /// Restyles a LIVE surface: unlike `createSurface`'s one-time app-config
@@ -837,6 +853,7 @@ final class GhosttySession {
         configuration.themeColors = colors
         configuration.fontSizePoints = fontSizePoints
         configuration.optionAsAlt = optionAsAlt
+        sendHostTheme()
         guard let surface else { return false }
         guard host.updateLiveConfig(
             surface: surface, colors: colors, commandArgv: configuration.commandArgv,
@@ -845,7 +862,7 @@ final class GhosttySession {
             return false
         }
         lastVerifiedGrid = nil
-        applyColorScheme(appearance: view?.effectiveAppearance)
+        applyColorScheme()
         requestRender()
         verifyExpectedGrid()
         return true
@@ -967,9 +984,7 @@ final class GhosttySession {
             optionAsAlt: configuration.optionAsAlt
         ) else { return }
 
-        if let scheme = colorScheme(for: view.effectiveAppearance) {
-            ghostty_app_set_color_scheme(app, scheme)
-        }
+        ghostty_app_set_color_scheme(app, colorScheme)
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -986,8 +1001,8 @@ final class GhosttySession {
             }
         }
 
-        if let surface, let scheme = colorScheme(for: view.effectiveAppearance) {
-            ghostty_surface_set_color_scheme(surface, scheme)
+        if let surface {
+            ghostty_surface_set_color_scheme(surface, colorScheme)
         }
     }
 
@@ -1019,10 +1034,11 @@ final class GhosttySession {
         return CGDirectDisplayID(screenNumber.uint32Value)
     }
 
-    private func colorScheme(for appearance: NSAppearance?) -> ghostty_color_scheme_e? {
-        let match = (appearance ?? NSApp?.effectiveAppearance ?? NSAppearance(named: .aqua))?
-            .bestMatch(from: [.darkAqua, .aqua])
-        return match == .darkAqua ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
+    /// The theme's lightness, never the system appearance: a light theme in
+    /// dark mode is still a light terminal to the programs in it.
+    private var colorScheme: ghostty_color_scheme_e {
+        HostTerminalTheme(colors: configuration.themeColors).isLight
+            ? GHOSTTY_COLOR_SCHEME_LIGHT : GHOSTTY_COLOR_SCHEME_DARK
     }
 
     /// `.other` carries AppKit's own `buttonNumber`, so it goes through the
