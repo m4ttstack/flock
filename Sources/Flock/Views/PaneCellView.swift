@@ -587,8 +587,7 @@ struct PaneCellView: View {
     /// cards do, read from the files the repository keeps on disk.
     private var titleLabel: some View {
         let shown = shownTitle
-        let place = viewModel.repoBranches.repoBranch(for: pane.foregroundCwd ?? pane.cwd).text
-        return Text(shown ?? place)
+        return Text(shown ?? viewModel.repoBranches.repoBranch(for: pane.foregroundCwd ?? pane.cwd).text)
             .font(shown == nil ? ChromeType.paneTitlePlace : ChromeType.paneTitle)
             // A shell's own prompt already says where it is, so its compact
             // header leaves the place out rather than repeat it.

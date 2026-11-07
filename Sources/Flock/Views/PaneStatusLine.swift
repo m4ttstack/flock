@@ -78,7 +78,6 @@ struct PaneStatusLine: View {
     }
 
     private var paint: Paint? {
-        guard style != .off else { return nil }
         switch status {
         case .idle where backgroundWork != nil, .unknown where backgroundWork != nil:
             return styled(Motion(
@@ -89,7 +88,7 @@ struct PaneStatusLine: View {
             return styled(Motion(color: theme.palette.yellow, partner: theme.palette.mauve, intensity: 1, slowdown: 1))
         case .blocked: return .breathe(theme.red, period: M.blockedPeriod, low: M.blockedLow, high: M.blockedHigh, expands: false)
         case .done: return .still(theme.teal, M.doneOpacity)
-        case .idle: return .still(theme.green, M.idleOpacity)
+        case .idle: return style == .off ? nil : .still(theme.green, M.idleOpacity)
         case .unknown: return nil
         }
     }

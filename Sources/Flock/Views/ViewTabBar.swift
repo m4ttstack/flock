@@ -99,6 +99,7 @@ struct ViewTabButton: View {
         }
         .background(WindowDragExclusion())
         .help("\(tab.title) (\(ShortcutLabel.text(key: ViewCommand.show(tab).key, modifiers: ViewCommand.show(tab).modifiers)))")
+        .accessibilityLabel(tab.title)
         .accessibilityIdentifier("flock.titleBar.tab.\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

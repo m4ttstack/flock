@@ -4,9 +4,6 @@ import CoreImage
 import GhosttyKit
 import FlockCore
 
-/// The `NSView` libghostty draws a surface into, and the AppKit end of its
-/// input: keys (including input methods), mouse, scroll and the context menu.
-@MainActor
 /// How far a terminal is set back: the share of its colour drained, and of
 /// its own ground laid over it, each 0 to 1.
 struct SurfaceShade: Equatable {
@@ -17,6 +14,9 @@ struct SurfaceShade: Equatable {
     static let none = SurfaceShade(drain: 0, veil: 0)
 }
 
+/// The `NSView` libghostty draws a surface into, and the AppKit end of its
+/// input: keys (including input methods), mouse, scroll and the context menu.
+@MainActor
 final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @preconcurrency NSMenuItemValidation {
     enum MouseButton: Equatable {
         case left

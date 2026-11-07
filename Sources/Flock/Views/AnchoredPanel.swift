@@ -83,7 +83,12 @@ final class AnchoredPanelAnchor: NSView {
 
     private func open(_ content: AnyView) {
         guard let parent = window else { return }
-        dismiss(animated: false)
+        // A panel still fading out goes at once, or the new one would open
+        // beside it and stay unfitted until the fade ends.
+        if let closing = panel {
+            stopWatching()
+            tearDown(closing)
+        }
         let host = NSHostingView(rootView: content)
         let size = host.fittingSize
         let panel = AnchoredPanelWindow(

@@ -359,7 +359,7 @@ enum ChromeMetrics {
         /// neighbours' padding, which no longer has a gutter in front of it.
         enum EdgeToEdge {
             static let gutter: CGFloat = 1
-            static let bandThickness: CGFloat = 2 * PaneChrome.verticalPadding
+            static let bandThickness: CGFloat = 2 * PaneChrome.flushSidePadding
         }
 
         /// The pane's drag grip: a 3x2 grid of dots in a pill that shows on
