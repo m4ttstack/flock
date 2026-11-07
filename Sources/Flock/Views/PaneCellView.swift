@@ -105,7 +105,6 @@ struct PaneCellView: View {
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
-    @State private var chatChipSize: CGSize = .zero
     @State private var chatPopoverClosedAt: Date?
     @State private var isChatChipHovered = false
     /// Read once by `chatPopover`'s own `initialFeature`: nil for an
@@ -114,7 +113,6 @@ struct PaneCellView: View {
     /// click never inherits a stale route from an earlier shortcut.
     @State private var pendingPopoverFeature: ChatPopoverFeature?
     @State private var isRtPopoverPresented = false
-    @State private var rtButtonSize: CGSize = .zero
     @State private var rtPopoverClosedAt: Date?
     /// The terminal body's frame in the drag space: what turns the body's own
     /// top-left point (AppKit) into a drag-space one.
@@ -606,20 +604,9 @@ struct PaneCellView: View {
     /// with which branch is live.
     private var chatButton: some View {
         chatButtonContent
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { chatChipSize = $0 }
-            // Anchored half the popover's width in from the chip's trailing
-            // edge, so it hangs from the chip's right corner rather than
-            // centring under it, and raised by the room AppKit still keeps
-            // for the arrow `PopoverSnap` hides.
-            .popover(
-                isPresented: $isChatPopoverPresented,
-                attachmentAnchor: .rect(.rect(CGRect(
-                    x: chatChipSize.width - ChromeMetrics.ChatPopover.width / 2,
-                    y: chatChipSize.height - ChromeMetrics.ChatPopover.hiddenArrowRoom,
-                    width: 0, height: 0
-                ))),
-                arrowEdge: .bottom
-            ) { chatPopover }
+            .anchoredPanel(isPresented: $isChatPopoverPresented) {
+                chatPopover.environment(chatStore).environment(toastCenter)
+            }
             .onChange(of: isChatPopoverPresented) { _, shown in
                 if !shown { chatPopoverClosedAt = Date() }
             }
@@ -679,8 +666,8 @@ struct PaneCellView: View {
     /// `pendingPopoverFeature`, so a plain click never inherits a stale one
     /// left over from an earlier shortcut.
     /// A click on the chip while the popover is open closes it on the press
-    /// (it is transient) and would reopen it on the release; a reopen that
-    /// soon after a close is that same click, so it is dropped.
+    /// and would reopen it on the release; a reopen that soon after a close
+    /// is that same click, so it is dropped.
     private func openChatPopover() {
         if let closed = chatPopoverClosedAt, Date().timeIntervalSince(closed) < ChromeMetrics.ChatPopover.reopenGuard {
             return
@@ -707,17 +694,9 @@ struct PaneCellView: View {
             onOpenPopover: { openRtPopover() },
             onShowRunner: { showRunner() }
         )
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { rtButtonSize = $0 }
-        // Hung from the button's right edge, as the chat popover is.
-        .popover(
-            isPresented: $isRtPopoverPresented,
-            attachmentAnchor: .rect(.rect(CGRect(
-                x: rtButtonSize.width - ChromeMetrics.RtPopover.width / 2,
-                y: rtButtonSize.height - ChromeMetrics.ChatPopover.hiddenArrowRoom,
-                width: 0, height: 0
-            ))),
-            arrowEdge: .bottom
-        ) { rtPopover }
+        .anchoredPanel(isPresented: $isRtPopoverPresented) {
+            rtPopover.environment(chatStore).environment(toastCenter)
+        }
         .onChange(of: isRtPopoverPresented) { _, shown in
             if !shown { rtPopoverClosedAt = Date() }
         }

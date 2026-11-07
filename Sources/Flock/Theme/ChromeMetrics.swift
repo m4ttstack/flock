@@ -374,16 +374,22 @@ enum ChromeMetrics {
     /// than sharing one uniform inset. `signedOutHeight`/`signedInHeight` are
     /// each band's own height summed; a geometry test cross-checks the sum
     /// against these named totals so the two can never drift apart.
+    /// `anchoredPanel`: a popover hung from its trigger's bottom-right corner.
+    enum AnchoredPanel {
+        static let gap: CGFloat = 4
+        /// How far the panel drops into place as it fades in.
+        static let dropDistance: CGFloat = 6
+        static let openDuration: Double = 0.12
+        static let closeDuration: Double = 0.08
+    }
+
     enum ChatPopover {
         static let width: CGFloat = 360
-        /// What AppKit reserves under the anchor for a popover's arrow,
-        /// drawn or not.
-        static let hiddenArrowRoom: CGFloat = 11
         /// Seconds after a close in which a chip click is the closing click.
         static let reopenGuard: Double = 0.35
         static let signedOutHeight: CGFloat = 325
         static let signedInHeight: CGFloat = 348
-        static let cornerRadius: CGFloat = ChromeRadius.container
+        static let cornerRadius: CGFloat = ChromeRadius.surface
 
         enum Header {
             static let height: CGFloat = 41
@@ -791,7 +797,7 @@ enum ChromeMetrics {
     /// no gap between them.
     enum RtPopover {
         static let width: CGFloat = 270
-        static let cornerRadius: CGFloat = ChromeRadius.container
+        static let cornerRadius: CGFloat = ChromeRadius.surface
 
         /// The 18pt folder chip is a point taller than the 17 the canvas's
         /// 12pt vertical padding leaves inside 41, so the height is fixed and
