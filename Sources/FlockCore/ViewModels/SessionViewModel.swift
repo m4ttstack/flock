@@ -875,8 +875,14 @@ public final class SessionViewModel {
     /// on the same frame as the click rather than 24-100+ms later. The same
     /// field decides which pane's surface accepts input, mouse and wheel
     /// (`InputSinkDisposition`, `MouseForwarding`).
+    ///
+    /// Each candidate counts only while its pane still exists: a click on a
+    /// pane that a tab close then removed would otherwise hold focus on
+    /// nothing. With neither left, the shown tab's own remembered pane takes
+    /// it, which is the pane herdr itself focuses there.
     public var resolvedFocusedPaneID: PaneID? {
-        optimisticFocusedPaneID ?? model?.focusedPaneID
+        let live: (PaneID?) -> PaneID? = { id in id.flatMap { self.model?.panes[$0] != nil ? $0 : nil } }
+        return live(optimisticFocusedPaneID) ?? live(model?.focusedPaneID) ?? live(selectedLayout?.focusedPane)
     }
 
     /// The pane the main canvas draws as focused and lets take the keyboard.
