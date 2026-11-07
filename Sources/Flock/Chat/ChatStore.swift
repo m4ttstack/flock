@@ -86,6 +86,7 @@ final class ChatStore {
     @ObservationIgnored private let startAgent: @Sendable (_ repo: String) async -> String?
     @ObservationIgnored private let typeIntoAgent: @Sendable (_ pane: String, _ line: String) async -> String?
     @ObservationIgnored private let readAgentRefusal: @Sendable (_ pane: String) async -> String?
+    @ObservationIgnored private let agentIsGone: @Sendable (_ pane: String) async -> Bool
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let now: @MainActor () -> ContinuousClock.Instant
     /// A pane drawn in more than one place asks once, not once per view.
@@ -127,6 +128,7 @@ final class ChatStore {
         startAgent: @escaping @Sendable (_ repo: String) async -> String? = ChatToolLocator.startSlackAgent,
         typeIntoAgent: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoAgent,
         readAgentRefusal: @escaping @Sendable (_ pane: String) async -> String? = ChatToolLocator.slackAgentRefusal(pane:),
+        agentIsGone: @escaping @Sendable (_ pane: String) async -> Bool = ChatToolLocator.slackAgentIsGone(pane:),
         loadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
         defaults: UserDefaults = .standard
@@ -139,6 +141,7 @@ final class ChatStore {
         self.typeIntoAgent = typeIntoAgent
         self.readAgentRefusal = readAgentRefusal
         self.loadFace = loadFace
+        self.agentIsGone = agentIsGone
         self.defaults = defaults
         self.now = now
         slackAgents = Self.savedSlackAgents(in: defaults)
@@ -371,15 +374,18 @@ final class ChatStore {
             } else if !agent.timedOut, now() - agent.startedAt > ChatSlackAgent.openDeadline {
                 slackAgents[owner]?.timedOut = true
                 toasts.show("Slack chat didn't open", kind: .info)
+            } else if agent.timedOut, await agentIsGone(agent.pane) {
+                guard slackAgents[owner] == agent else { continue }
+                retire(owner, agent, exit: false)
             }
         }
     }
 
-    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration) {
+    private func retire(_ owner: PaneID, _ agent: ChatSlackAgentChat, after delay: Duration = .zero, exit: Bool = true) {
         slackWatches[owner]?.cancel()
         slackAgents[owner] = nil
         slackTransitions[owner] = nil
-        exitAgent(agent.pane, after: delay)
+        if exit { exitAgent(agent.pane, after: delay) }
     }
 
     private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]

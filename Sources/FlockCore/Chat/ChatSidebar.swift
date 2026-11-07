@@ -109,6 +109,22 @@ public enum ChatSlackAgent {
         ["pane", "peek", pane, "--lines", "40", "--json"]
     }
 
+    public static let listArguments = ["pane", "list", "--json"]
+
+    /// True only when rt's pane list answered and no longer holds `pane`.
+    public static func paneIsGone(_ pane: String, stdout: Data, exitCode: Int32) -> Bool {
+        guard exitCode == 0, let list = try? JSONDecoder().decode(PaneList.self, from: stdout) else { return false }
+        return !list.panes.contains { $0.paneId == pane }
+    }
+
+    private struct PaneList: Decodable {
+        let panes: [Pane]
+
+        struct Pane: Decodable {
+            let paneId: String
+        }
+    }
+
     /// Why the agent's screen says the chat did not open, or nil. A long
     /// reason wraps, and a blank line ends it.
     public static func refusal(stdout: Data, exitCode: Int32) -> String? {
