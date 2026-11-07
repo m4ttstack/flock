@@ -294,7 +294,15 @@ enum ChromeMetrics {
             static let glintRest: Double = 0.12
             static let glintPeak: Double = 0.85
             static let cometPeriod: Double = 1.8
-            static let cometTail: CGFloat = 0.35
+            static let cometTail: CGFloat = 0.3
+            /// A bright core with a halo, wider than the line it rides.
+            static let cometHeadSize: CGFloat = 7
+            /// The share of each period spent crossing; the rest is a rest.
+            static let cometTravelShare: Double = 0.8
+            /// Where the head ends its pass; it has dimmed out by then.
+            static let cometReach: Double = 1.0
+            static let cometFadeIn: Double = 0.1
+            static let cometFadeOutStart: Double = 0.75
             static let auroraStops = 16
             static let auroraOpacity: Double = 0.55
             static let workingBreathePeriod: Double = 3.4

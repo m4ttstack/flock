@@ -108,10 +108,51 @@ struct PaneStatusLine: View {
                     .frame(height: M.washHeight)
                 fill(paint, t: t, width: proxy.size.width)
                     .frame(height: lineHeight)
+                    .overlay(alignment: .leading) {
+                        if case .comet(let motion) = paint {
+                            cometHead(motion, t: t, width: proxy.size.width)
+                        }
+                    }
             }
         }
         .frame(height: M.washHeight + lineHeight)
-        .clipped()
+    }
+
+    /// Where a comet's head is (0 at the leading edge, 1 at the trailing) and
+    /// how visible the whole comet is: it eases in, dims out before the far
+    /// edge, and rests between passes.
+    private func cometFlight(_ motion: Motion, t: Double) -> (head: Double, envelope: Double) {
+        let phase = fraction(t / (M.cometPeriod * motion.slowdown)) / M.cometTravelShare
+        guard phase < 1 else { return (0, 0) }
+        let head = phase * M.cometReach
+        let envelope = min(smoothstep(0, M.cometFadeIn, head), 1 - smoothstep(M.cometFadeOutStart, M.cometReach, head))
+        return (head, envelope)
+    }
+
+    private func cometHead(_ motion: Motion, t: Double, width: CGFloat) -> some View {
+        let flight = cometFlight(motion, t: t)
+        let color = Color(motion.color)
+        let size = M.cometHeadSize
+        return Circle()
+            .fill(
+                RadialGradient(
+                    stops: [
+                        .init(color: Color.white.opacity(0.9 * motion.intensity), location: 0),
+                        .init(color: color.opacity(motion.intensity), location: 0.3),
+                        .init(color: color.opacity(0.25 * motion.intensity), location: 0.6),
+                        .init(color: color.opacity(0), location: 1),
+                    ],
+                    center: .center, startRadius: 0, endRadius: size / 2
+                )
+            )
+            .frame(width: size, height: size)
+            .offset(x: width * flight.head - size / 2)
+            .opacity(flight.envelope)
+    }
+
+    private func smoothstep(_ edge0: Double, _ edge1: Double, _ x: Double) -> Double {
+        let t = min(max((x - edge0) / (edge1 - edge0), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 
     @ViewBuilder
@@ -145,22 +186,26 @@ struct PaneStatusLine: View {
         .frame(width: width, alignment: .leading)
     }
 
+    /// The tail alone; the head is `cometHead`, drawn over the line only so
+    /// the wash above takes the tail's glow without a stretched head.
     private func comet(_ motion: Motion, t: Double, width: CGFloat) -> some View {
         let tail = M.cometTail
         let color = Color(motion.color)
-        let head = fraction(t / (M.cometPeriod * motion.slowdown)) * (1 + tail)
+        let flight = cometFlight(motion, t: t)
         return LinearGradient(
             stops: [
                 .init(color: color.opacity(0), location: 0),
-                .init(color: color.opacity(0.12 * motion.intensity), location: 0.5),
-                .init(color: color.opacity(0.5 * motion.intensity), location: 0.8),
+                .init(color: color.opacity(0.06 * motion.intensity), location: 0.35),
+                .init(color: color.opacity(0.25 * motion.intensity), location: 0.7),
+                .init(color: color.opacity(0.7 * motion.intensity), location: 0.95),
                 .init(color: color.opacity(motion.intensity), location: 1),
             ],
             startPoint: .leading, endPoint: .trailing
         )
         .frame(width: width * tail)
-        .offset(x: width * (head - tail))
+        .offset(x: width * (flight.head - tail))
         .frame(width: width, alignment: .leading)
+        .opacity(flight.envelope)
     }
 
     private func aurora(_ motion: Motion, t: Double) -> some View {
