@@ -48,47 +48,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
-    /// Drains most of the colour from whatever the surface draws, through a
-    /// layer on top that blends by saturation. A filter on the surface's own
-    /// layer would also catch the transparent ground libghostty leaves for
-    /// this view's background, and render it black.
-    var isDrained = false {
-        didSet {
-            guard oldValue != isDrained, let layer else { return }
-            if isDrained {
-                layerUsesCoreImageFilters = true
-                let drain = CALayer()
-                drain.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
-                drain.compositingFilter = CIFilter(name: "CISaturationBlendMode")
-                drain.opacity = Float(ChromeMetrics.Pane.Focus.drainAmount)
-                drain.frame = layer.bounds
-                drain.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-                drain.zPosition = .greatestFiniteMagnitude
-                layer.addSublayer(drain)
-                // Above the drain and inside this view: a SwiftUI overlay
-                // draws under the surface's own layer, so it could only
-                // darken the ground libghostty leaves clear, never the text.
-                let veil = CALayer()
-                veil.backgroundColor = NSColor.black.cgColor
-                veil.opacity = Float(ChromeMetrics.Pane.Focus.drainVeilOpacity)
-                veil.frame = layer.bounds
-                veil.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-                veil.zPosition = .greatestFiniteMagnitude
-                layer.addSublayer(veil)
-                drainLayer = drain
-                veilLayer = veil
-            } else {
-                drainLayer?.removeFromSuperlayer()
-                drainLayer = nil
-                veilLayer?.removeFromSuperlayer()
-                veilLayer = nil
-            }
-        }
-    }
-
-    private var drainLayer: CALayer?
-    private var veilLayer: CALayer?
-
     /// Whether this view should grab real AppKit key focus as soon as it has
     /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
     /// resolved-focused state. Read (not just written) from `updateNSView`

@@ -16,9 +16,6 @@ struct GhosttyPaneTerminalView: View {
     let grid: PTYSize
     let theme: Theme
     let isFocused: Bool
-    /// `PaneFocusStyle.drainColour` on a pane without focus: the surface
-    /// loses most of its colour.
-    var drained = false
     /// The Terminal Text size every pane shares.
     let fontSizePoints: Double
     /// Whether Option acts as Alt, and on which key, every pane shares.
@@ -65,8 +62,8 @@ struct GhosttyPaneTerminalView: View {
     private static let space = "flock.pane.terminal"
 
     init(
-        surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, drained: Bool = false,
-        fontSizePoints: Double, optionAsAlt: OptionAsAlt,
+        surface: any GhosttyPaneSurface, grid: PTYSize, theme: Theme, isFocused: Bool, fontSizePoints: Double,
+        optionAsAlt: OptionAsAlt,
         rearrangeActive: Bool = false, rightClickMode: RightClickMode = .program,
         paneDragInProgress: Bool = false, isLauncherShowing: Bool = false,
         editorIsOpen: Bool = false,
@@ -78,7 +75,6 @@ struct GhosttyPaneTerminalView: View {
         self.grid = grid
         self.theme = theme
         self.isFocused = isFocused
-        self.drained = drained
         self.fontSizePoints = fontSizePoints
         self.optionAsAlt = optionAsAlt
         self.rearrangeActive = rearrangeActive
@@ -100,7 +96,7 @@ struct GhosttyPaneTerminalView: View {
         ZStack(alignment: .topTrailing) {
             GhosttySurfaceRepresentable(
                 surface: surface, grid: grid, theme: theme, isFocused: isFocused, fontSizePoints: fontSizePoints,
-                optionAsAlt: optionAsAlt, drained: drained,
+                optionAsAlt: optionAsAlt,
                 rearrangeActive: rearrangeActive, rightClickMode: rightClickMode,
                 paneDragInProgress: paneDragInProgress, isLauncherShowing: isLauncherShowing,
                 // The find field is an editor too: while it holds the
@@ -199,7 +195,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
     let isFocused: Bool
     let fontSizePoints: Double
     let optionAsAlt: OptionAsAlt
-    var drained = false
     var rearrangeActive: Bool = false
     var rightClickMode: RightClickMode = .program
     var paneDragInProgress: Bool = false
@@ -261,7 +256,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             handle.unpark()
             applyAppearanceIfStale(to: session, context: context)
             existingView.wantsFocus = isFocused
-            existingView.isDrained = drained
             existingView.rearrangeActive = rearrangeActive
             existingView.rightClickMode = rightClickMode
             existingView.paneDragInProgress = paneDragInProgress
@@ -276,7 +270,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
         applyAppearanceIfStale(to: session, context: context)
         let view = GhosttySurfaceView(session: session)
         view.wantsFocus = isFocused
-        view.isDrained = drained
         view.rearrangeActive = rearrangeActive
         view.rightClickMode = rightClickMode
         view.paneDragInProgress = paneDragInProgress
@@ -316,7 +309,6 @@ private struct GhosttySurfaceRepresentable: NSViewRepresentable {
             )
         }
         ghosttyView.wantsFocus = isFocused
-        ghosttyView.isDrained = drained
         ghosttyView.rearrangeActive = rearrangeActive
         ghosttyView.rightClickMode = rightClickMode
         ghosttyView.paneDragInProgress = paneDragInProgress

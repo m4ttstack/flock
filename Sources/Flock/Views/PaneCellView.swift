@@ -445,19 +445,18 @@ struct PaneCellView: View {
 
     /// The header draws over the box, outside the dim scrim, so it fades by
     /// the scrim's own amount to match.
-    /// Dim others fades the line with its scrim; the two styles that leave
-    /// the terminal unscrimmed fade it here instead.
+    /// Dim others and drain colour shade the whole box, line included;
+    /// quiet chrome leaves the box alone and fades the line here instead.
     private var statusLineOpacity: Double {
-        guard !rearrangeMode.active, !isFocused, focusStyle == .drainColour || focusStyle == .quietChrome else { return 1 }
+        guard !rearrangeMode.active, !isFocused, focusStyle == .quietChrome else { return 1 }
         return ChromeMetrics.Pane.Focus.chromeFadeOpacity
     }
 
     private var headerOpacity: Double {
         guard !rearrangeMode.active, !isFocused else { return 1 }
         switch focusStyle {
-        case .dimOthers: return 1 - ChromeMetrics.Pane.Focus.dimScrimOpacity
-        case .drainColour, .quietChrome: return ChromeMetrics.Pane.Focus.chromeFadeOpacity
-        case .brighterBorder, .lift: return 1
+        case .quietChrome: return ChromeMetrics.Pane.Focus.chromeFadeOpacity
+        case .dimOthers, .drainColour, .brighterBorder, .lift: return 1
         }
     }
 
@@ -466,7 +465,9 @@ struct PaneCellView: View {
         if !rearrangeMode.active {
             switch focusStyle {
             case .dimOthers where !isFocused:
-                theme.pane.opacity(ChromeMetrics.Pane.Focus.dimScrimOpacity).allowsHitTesting(false)
+                PaneShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
+            case .drainColour where !isFocused:
+                PaneShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
             default:
@@ -909,7 +910,6 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
-                    drained: !rearrangeMode.active && focusStyle == .drainColour && !isFocused,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),
