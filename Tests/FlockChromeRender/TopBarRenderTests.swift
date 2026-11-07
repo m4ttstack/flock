@@ -4,12 +4,13 @@ import SwiftUI
 import XCTest
 
 /// The title bar carrying three top-bar workspaces: `dash` live and working,
-/// `logs` empty, `board` live with its overlay open. Drawn icon only, with
-/// names, and named in a window too narrow for names, in a dark and a light
-/// theme. PNGs are written only when `FLOCK_CHROME_RENDER_DIR` is set.
+/// `logs` empty, `board` live with its overlay open. The one-row title bar
+/// draws them icon only whatever the label setting asks, wide or narrow, in
+/// a dark and a light theme. PNGs are written only when
+/// `FLOCK_CHROME_RENDER_DIR` is set.
 @MainActor
 final class TopBarRenderTests: XCTestCase {
-    private static let height: CGFloat = 38
+    private static let height = ChromeMetrics.TitleBar.height
     private static let scale: CGFloat = 2
     private static let main = WorkspaceID(rawValue: "w0")
     private static let dash = WorkspaceID(rawValue: "w1")
@@ -30,7 +31,7 @@ final class TopBarRenderTests: XCTestCase {
         return CGRect(x: button.minX + ChromeMetrics.TitleBar.topBarButtonPadding, y: button.midY - icon / 2, width: icon, height: icon)
     }
 
-    func testButtonsDrawIconOnlyWithNamesAndFallBackWhenNarrow() async throws {
+    func testButtonsDrawIconOnlyWhateverTheLabelSettingAndWidth() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let metrics = ChromeMetrics.TitleBar.self
@@ -64,11 +65,8 @@ final class TopBarRenderTests: XCTestCase {
                 for (a, b) in zip(buttons, buttons.dropFirst()) {
                     XCTAssertEqual(b.minX - a.maxX, metrics.topBarButtonGap, accuracy: 0.5, "\(message): the gap")
                 }
-                // A button is wider than its icon and padding exactly when it carries a name.
-                XCTAssertEqual(buttons.allSatisfy { $0.width > iconButtonWidth + 1 }, name == "names", "\(message): \(buttons)")
-                if name != "names" {
-                    XCTAssertTrue(buttons.allSatisfy { abs($0.width - iconButtonWidth) < 0.5 }, "\(message): \(buttons)")
-                }
+                // No button carries a name: each is its icon and padding.
+                XCTAssertTrue(buttons.allSatisfy { abs($0.width - iconButtonWidth) < 0.5 }, "\(message): \(buttons)")
                 XCTAssertEqual(
                     try XCTUnwrap(buttons.last).maxX, width - metrics.topBarEdgeInset, accuracy: 0.5, "\(message): inset from the edge"
                 )
@@ -167,7 +165,7 @@ final class TopBarRenderTests: XCTestCase {
     /// area it is mounted on, its title row names the pin, and each of the
     /// tab's panes sits in its layout box: one pane fills the content area as
     /// the rt modal's does, a split leaves one gutter between two outlined
-    /// boxes, the focused one in the accent.
+    /// boxes, the focused one in `hairFocus` and the other in `hair`.
     func testTheOverlayIsTheSharedModalHoldingTheTabsPanes() async throws {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -235,9 +233,9 @@ final class TopBarRenderTests: XCTestCase {
                         "\(message): each surface inside its outline"
                     )
                     let focused = try XCTUnwrap(sample(image, CGPoint(x: left.minX + 0.5, y: left.midY)))
-                    XCTAssertLessThanOrEqual(distance(focused, roles.accent), 3, "\(message): herdr's focused pane drew \(focused.hex)")
+                    XCTAssertLessThanOrEqual(distance(focused, roles.hairFocus), 3, "\(message): herdr's focused pane drew \(focused.hex)")
                     let other = try XCTUnwrap(sample(image, CGPoint(x: right.maxX - 0.75, y: right.midY)))
-                    XCTAssertLessThanOrEqual(distance(other, roles.paneBorder), 3, "\(message): the other pane drew \(other.hex)")
+                    XCTAssertLessThanOrEqual(distance(other, roles.hair), 3, "\(message): the other pane drew \(other.hex)")
                 }
             }
         }

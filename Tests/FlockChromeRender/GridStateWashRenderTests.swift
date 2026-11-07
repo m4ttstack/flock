@@ -67,8 +67,8 @@ final class GridStateWashRenderTests: XCTestCase {
 
             let selected = Self.paneFrame(3)
             XCTAssertEqual(
-                hex(image, CGPoint(x: selected.minX + 0.75, y: selected.midY)), theme.palette.accent.hex,
-                "\(scheme): the selected wash hides the selection outline"
+                hex(image, CGPoint(x: selected.minX + 0.75, y: selected.midY)), theme.palette.chromeRoles.hairFocus.hex,
+                "\(scheme): the selected wash hides the focus hairline"
             )
         }
     }
