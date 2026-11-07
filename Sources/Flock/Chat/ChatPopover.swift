@@ -408,7 +408,7 @@ struct ChatPopover: View {
                     .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
                 Text(feature.title)
                     .font(ChromeType.chatPopoverFeatureName)
-                    .foregroundStyle(isDisabled ? theme.overlay0 : theme.text)
+                    .foregroundStyle(isDisabled ? theme.overlay0 : theme.textDim)
                 Spacer(minLength: 0)
                 if let shortcut = feature.shortcut {
                     Text(shortcut)
@@ -502,7 +502,7 @@ struct ChatPopover: View {
                     .frame(width: features.iconSize.width, height: features.iconSize.height)
                 Text(title)
                     .font(ChromeType.chatPopoverFeatureName)
-                    .foregroundStyle(isEnabled ? theme.text : theme.overlay0)
+                    .foregroundStyle(isEnabled ? theme.textDim : theme.overlay0)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, features.rowHorizontalPadding)

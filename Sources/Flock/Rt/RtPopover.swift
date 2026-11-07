@@ -103,7 +103,7 @@ struct RtPopover: View {
                     .frame(width: Metrics.Row.glyphSize, height: Metrics.Row.glyphSize)
                 Text(command.name)
                     .font(ChromeType.rtPopoverRow)
-                    .foregroundStyle(theme.text)
+                    .foregroundStyle(theme.textDim)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Text(command.title)

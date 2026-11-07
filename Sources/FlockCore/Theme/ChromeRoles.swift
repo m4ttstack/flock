@@ -41,6 +41,13 @@ public struct RGB: Hashable, Sendable, CustomStringConvertible {
         return RGB(clampByte(red + delta.0), clampByte(green + delta.1), clampByte(blue + delta.2))
     }
 
+    /// Toward the grey of the same lightness by `amount` (0 keeps the hue,
+    /// 1 is grey), so a theme's tint can leave text without dimming it.
+    public func desaturated(by amount: Double) -> RGB {
+        let grey = Int((0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)).rounded())
+        return mixed(with: RGB(grey, grey, grey), amount: amount)
+    }
+
     public func mixed(with other: RGB, amount: Double) -> RGB {
         func mix(_ a: Int, _ b: Int) -> Int { Int((Double(a) + (Double(b) - Double(a)) * amount).rounded()) }
         return RGB(mix(red, other.red), mix(green, other.green), mix(blue, other.blue))
@@ -99,6 +106,9 @@ public struct ChromeRoles: Equatable, Sendable {
     public static let selectionAccentAmount = 0.27
     /// White over a dark theme, black over a light one, as the share each
     /// neutral role blends in.
+    /// How much of the theme's tint the chrome's secondary text sheds:
+    /// labels read as grey, not as a lighter shade of the panel's hue.
+    public static let textDesaturation = 0.7
     public static let liftAmount = (dark: 0.12, light: 0.08)
     public static let hairAmount = (dark: 0.09, light: 0.10)
     public static let hairFocusAmount = (dark: 0.30, light: 0.28)
@@ -130,8 +140,8 @@ public struct ChromeRoles: Equatable, Sendable {
             tabRest: ladder.tabRest,
             selection: selectionOverride ?? pane.mixed(with: accent, amount: selectionAccentAmount),
             textStrong: ladder.textStrong,
-            textDim: ladder.textDim,
-            textLabel: ladder.textLabel,
+            textDim: ladder.textDim.desaturated(by: textDesaturation),
+            textLabel: ladder.textLabel.desaturated(by: textDesaturation),
             accent: accent,
             lift: pane.mixed(with: ink, amount: light ? liftAmount.light : liftAmount.dark),
             hair: pane.mixed(with: ink, amount: light ? hairAmount.light : hairAmount.dark),
