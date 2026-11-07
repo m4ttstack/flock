@@ -470,7 +470,9 @@ struct PaneCellView: View {
             // With the drain, a light veil: the pane reads as set back, not
             // as wearing a different theme.
             case .drainColour where !isFocused:
-                theme.pane.opacity(ChromeMetrics.Pane.Focus.drainVeilOpacity).allowsHitTesting(false)
+                Color(theme.palette.terminalGround.mixed(with: theme.palette.blue, amount: ChromeMetrics.Pane.Focus.drainVeilCoolness))
+                    .opacity(ChromeMetrics.Pane.Focus.drainVeilOpacity)
+                    .allowsHitTesting(false)
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
             default:
