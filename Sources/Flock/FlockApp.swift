@@ -90,6 +90,7 @@ struct FlockApp: App {
     private let defaultSocketPath: String
 
     init() {
+        PopoverSnap.install()
         // The one setting that actually stops AppKit's legacy
         // `NSPersistentUIRestorationSupport` path (`_reopenWindowsAsNecessaryIncludingRestorableState`)
         // from running before this app's own window is ever created: a

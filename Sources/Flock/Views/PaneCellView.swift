@@ -105,6 +105,7 @@ struct PaneCellView: View {
     @State private var ghosttySurface: (any GhosttyPaneSurface)?
     @State private var isHoveringWhileRearranging = false
     @State private var isChatPopoverPresented = false
+    @State private var chatChipSize: CGSize = .zero
     @State private var isChatChipHovered = false
     /// Read once by `chatPopover`'s own `initialFeature`: nil for an
     /// ordinary click (always the status root), set only by the Chat menu's
@@ -602,7 +603,17 @@ struct PaneCellView: View {
     /// with which branch is live.
     private var chatButton: some View {
         chatButtonContent
-            .popover(isPresented: $isChatPopoverPresented, arrowEdge: .bottom) { chatPopover }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { chatChipSize = $0 }
+            // Anchored half the popover's width in from the chip's trailing
+            // edge, so the popover hangs from the chip's top-right corner
+            // rather than centring under it.
+            .popover(
+                isPresented: $isChatPopoverPresented,
+                attachmentAnchor: .rect(.rect(CGRect(
+                    x: chatChipSize.width - ChromeMetrics.ChatPopover.width / 2, y: chatChipSize.height, width: 0, height: 0
+                ))),
+                arrowEdge: .bottom
+            ) { chatPopover }
     }
 
     @ViewBuilder

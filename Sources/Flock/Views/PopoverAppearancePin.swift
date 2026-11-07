@@ -27,3 +27,31 @@ struct PopoverAppearancePin: NSViewRepresentable {
         view.window?.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
     }
 }
+
+/// Every popover opens and closes at once, without AppKit's grow-and-fade,
+/// and without its arrow. `willShow` arrives before the show animation and
+/// before the frame is drawn, the last moment either setting still applies.
+///
+/// The arrow switch is AppKit's own unpublished `shouldHideAnchor`, set only
+/// where the running system answers to it, so a later macOS without it keeps
+/// the arrow rather than crashing.
+@MainActor
+enum PopoverSnap {
+    private static var observer: NSObjectProtocol?
+    private static let hideAnchor = Selector(("setShouldHideAnchor:"))
+
+    static func install() {
+        guard observer == nil else { return }
+        observer = NotificationCenter.default.addObserver(
+            forName: NSPopover.willShowNotification, object: nil, queue: .main
+        ) { note in
+            let popover = note.object as? NSPopover
+            MainActor.assumeIsolated {
+                popover?.animates = false
+                if let popover, popover.responds(to: hideAnchor) {
+                    popover.setValue(true, forKey: "shouldHideAnchor")
+                }
+            }
+        }
+    }
+}
