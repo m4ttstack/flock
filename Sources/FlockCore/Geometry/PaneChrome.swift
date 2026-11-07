@@ -26,16 +26,20 @@ public enum PaneChrome {
     /// a box before deriving its whole-cell grid.
     public static var size: CGSize { size(flush: false) }
 
-    /// A pane running Claude Code sits flush: the agent indents its own
-    /// output, so the box's side and bottom padding would only double it.
-    /// The header keeps its room either way.
+    /// A pane running Claude Code sits nearly flush: it draws its own input
+    /// rules and indents, so only a sliver of side padding and none at the
+    /// bottom. The header keeps its room either way.
     public static func isFlush(agent: String?) -> Bool { agent == "claude" }
 
     public static func size(flush: Bool) -> CGSize {
         CGSize(width: horizontalPadding(flush: flush) * 2, height: contentTop + bottomPadding(flush: flush))
     }
 
-    public static func horizontalPadding(flush: Bool) -> CGFloat { flush ? 0 : horizontalPadding }
+    public static func horizontalPadding(flush: Bool) -> CGFloat { flush ? flushSidePadding : horizontalPadding }
+
+    /// A sliver, not zero: the agent's input rules still run nearly full
+    /// width, but its output does not touch the pane's edge.
+    public static let flushSidePadding: CGFloat = 6
 
     public static func bottomPadding(flush: Bool) -> CGFloat { flush ? 0 : verticalPadding }
 }
