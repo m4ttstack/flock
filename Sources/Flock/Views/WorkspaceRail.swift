@@ -137,6 +137,13 @@ struct WorkspaceRail: View {
             MessageDock(theme: theme, viewModel: viewModel, placement: .rail, railHeight: railHeight)
                 .frame(width: railWidth.width)
                 .padding(.trailing, ChromeMetrics.ruleWidth)
+            if BuildFlavor.isDev {
+                DevTag(theme: theme)
+                    .padding(.trailing, ChromeMetrics.Rail.devTagInset)
+                    .padding(.bottom, ChromeMetrics.Rail.devTagInset)
+                    .frame(width: railWidth.width, alignment: .trailing)
+                    .padding(.trailing, ChromeMetrics.ruleWidth)
+            }
         }
         // One rule down the whole edge, the dock's stretch included, so the
         // edge never breaks where the lists end.

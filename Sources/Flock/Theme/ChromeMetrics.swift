@@ -92,6 +92,7 @@ enum ChromeMetrics {
     }
 
     enum Rail {
+        static let devTagInset: CGFloat = 10
         /// The rail's own width is the user's, and lives in
         /// `FlockCore.RailWidth` with the bounds it is kept inside.
         ///

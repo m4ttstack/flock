@@ -459,9 +459,6 @@ struct TitleBar: View {
     private var trailingCluster: some View {
         HStack(spacing: 0) {
             HStack(spacing: ChromeMetrics.TitleBar.noticeSpacing) {
-                if isDevBuild {
-                    DevTag(theme: theme)
-                }
                 if let devBuild, devBuild.newerBuildReady {
                     RestartForNewBuildButton(theme: theme, action: devBuild.relaunch)
                 } else if let devRebuild {
@@ -512,7 +509,7 @@ struct TitleBar: View {
 
 /// Flock Dev's mark beside the title, so a glance at the window says which
 /// build it is.
-private struct DevTag: View {
+struct DevTag: View {
     let theme: Theme
 
     var body: some View {
