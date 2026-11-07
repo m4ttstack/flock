@@ -456,18 +456,46 @@ struct PaneCellView: View {
         guard !rearrangeMode.active, !isFocused else { return 1 }
         switch focusStyle {
         case .quietChrome: return ChromeMetrics.Pane.Focus.chromeFadeOpacity
-        case .dimOthers, .drainColour, .brighterBorder, .lift: return 1
+        // The header draws above the box's veil, so it fades by the veil's
+        // own amount to match.
+        case .dimOthers, .drainColour: return 1 - surfaceShade.veil
+        case .brighterBorder, .lift: return 1
         }
+    }
+
+    /// What an unfocused pane's terminal is shaded by: dim others darkens,
+    /// drain colour drains and darkens.
+    private var surfaceShade: SurfaceShade {
+        guard !rearrangeMode.active, !isFocused else { return .none }
+        switch focusStyle {
+        case .dimOthers: return SurfaceShade(drain: 0, veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
+        case .drainColour:
+            return SurfaceShade(drain: ChromeMetrics.Pane.Focus.drainAmount, veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
+        case .brighterBorder, .quietChrome, .lift: return .none
+        }
+    }
+
+    /// The same black over the rest of the box (padding, header ground),
+    /// with a hole where the surface shades itself, so nothing is darkened
+    /// twice.
+    private var chromeVeil: some View {
+        let box = CGRect(origin: .zero, size: surfaceSize)
+        return GeometryReader { proxy in
+            Path { path in
+                path.addRect(CGRect(origin: .zero, size: proxy.size))
+                path.addRect(box.offsetBy(dx: Self.contentInsets.leading, dy: Self.contentInsets.top))
+            }
+            .fill(Color.black.opacity(surfaceShade.veil), style: FillStyle(eoFill: true))
+        }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
     private var focusWash: some View {
         if !rearrangeMode.active {
             switch focusStyle {
-            case .dimOthers where !isFocused:
-                PaneShade(veil: ChromeMetrics.Pane.Focus.dimScrimOpacity)
-            case .drainColour where !isFocused:
-                PaneShade(veil: ChromeMetrics.Pane.Focus.drainVeilOpacity)
+            case .dimOthers where !isFocused, .drainColour where !isFocused:
+                chromeVeil
             case .lift where isFocused:
                 theme.textStrong.opacity(ChromeMetrics.Pane.Focus.liftWashOpacity).allowsHitTesting(false)
             default:
@@ -910,7 +938,7 @@ struct PaneCellView: View {
             ZStack(alignment: .top) {
                 GhosttyPaneTerminalView(
                     surface: ghosttySurface, grid: grid, theme: theme, isFocused: isFocused,
-                    drained: !rearrangeMode.active && focusStyle == .drainColour && !isFocused,
+                    shade: surfaceShade,
                     fontSizePoints: fontSizePoints, optionAsAlt: optionAsAltStore.active,
                     rearrangeActive: rearrangeMode.active,
                     rightClickMode: viewModel.rightClicks.mode(for: pane.terminalID),

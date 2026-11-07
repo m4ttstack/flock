@@ -7,6 +7,15 @@ import FlockCore
 /// The `NSView` libghostty draws a surface into, and the AppKit end of its
 /// input: keys (including input methods), mouse, scroll and the context menu.
 @MainActor
+/// How far a terminal is set back: the share of its colour drained and of
+/// black laid over it, each 0 to 1.
+struct SurfaceShade: Equatable {
+    var drain: Double
+    var veil: Double
+
+    static let none = SurfaceShade(drain: 0, veil: 0)
+}
+
 final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @preconcurrency NSMenuItemValidation {
     enum MouseButton: Equatable {
         case left
@@ -48,31 +57,41 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
-    /// Drains most of the colour from whatever the surface draws, through a
-    /// layer on top that blends by saturation; it has to sit in this view's
-    /// own layer tree to see the terminal beneath it.
-    var isDrained = false {
+    /// Sets the terminal back while its pane has no focus: a saturation
+    /// blend drains its colour and a black veil darkens it, text included.
+    /// Both sit in this view's own layer tree: a blend sees only what lies
+    /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
+    /// scrim could darken only the ground libghostty leaves clear.
+    var shade = SurfaceShade.none {
         didSet {
-            guard oldValue != isDrained, let layer else { return }
-            if isDrained {
-                layerUsesCoreImageFilters = true
-                let drain = CALayer()
-                drain.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
-                drain.compositingFilter = CIFilter(name: "CISaturationBlendMode")
-                drain.opacity = Float(ChromeMetrics.Pane.Focus.drainAmount)
-                drain.frame = layer.bounds
-                drain.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-                drain.zPosition = .greatestFiniteMagnitude
-                layer.addSublayer(drain)
-                drainLayer = drain
-            } else {
-                drainLayer?.removeFromSuperlayer()
-                drainLayer = nil
+            guard oldValue != shade, let layer else { return }
+            if shade == .none {
+                drainLayer.removeFromSuperlayer()
+                veilLayer.removeFromSuperlayer()
+                return
             }
+            layerUsesCoreImageFilters = true
+            if drainLayer.superlayer == nil {
+                drainLayer.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
+                drainLayer.compositingFilter = CIFilter(name: "CISaturationBlendMode")
+                veilLayer.backgroundColor = NSColor.black.cgColor
+                for sublayer in [drainLayer, veilLayer] {
+                    sublayer.frame = layer.bounds
+                    sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+                    sublayer.zPosition = .greatestFiniteMagnitude
+                    layer.addSublayer(sublayer)
+                }
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            drainLayer.opacity = Float(shade.drain)
+            veilLayer.opacity = Float(shade.veil)
+            CATransaction.commit()
         }
     }
 
-    private var drainLayer: CALayer?
+    private let drainLayer = CALayer()
+    private let veilLayer = CALayer()
 
     /// Whether this view should grab real AppKit key focus as soon as it has
     /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
