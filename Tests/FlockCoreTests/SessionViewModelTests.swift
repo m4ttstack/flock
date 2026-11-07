@@ -407,8 +407,8 @@ private func makeModelWithNestedSplit() -> SessionModel {
 /// Two tabs of `w1`: `w1:t1` holds `w1:p1` and `w1:p2`, `w1:t2` holds
 /// `w1:p3`. What a target naming a pane has to be weighed against to say
 /// whether the drop crosses a tab boundary.
-private func makeModelWithAPaneInASecondTab() -> SessionModel {
-    var model = makeModel()
+private func makeModelWithAPaneInASecondTab(focusedPaneID: String = "w1:p1") -> SessionModel {
+    var model = makeModel(focusedPaneID: focusedPaneID)
     model.tabs[WorkspaceID(rawValue: "w1")]?.append(TabRecord(
         tabID: TabID(rawValue: "w1:t2"), workspaceID: WorkspaceID(rawValue: "w1"),
         label: "second", number: 2, paneCount: 1, agentStatus: .unknown
@@ -879,7 +879,7 @@ final class SessionViewModelTests: XCTestCase {
         let client = RecordingCommandClient()
         await client.hold()
         let viewModel = SessionViewModel(client: client)
-        viewModel.update(model: makeModel(), connection: .live)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
 
         let task = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
@@ -897,20 +897,68 @@ final class SessionViewModelTests: XCTestCase {
     @MainActor
     func testModelEchoClearsOptimisticFocus() {
         let viewModel = SessionViewModel(client: RecordingCommandClient())
-        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p1"), connection: .live)
 
         Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
 
         // Echo: the model catches up to the optimistic prediction.
-        viewModel.update(model: makeModel(focusedPaneID: "w1:p2"), connection: .live)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p2"), connection: .live)
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
 
         // Prove the optimistic value was actually cleared, not just
         // coincidentally equal to the model: a later, unrelated model change
         // moving focus elsewhere must now be reflected immediately, which
         // only happens if nothing is still overriding the model's field.
-        viewModel.update(model: makeModel(focusedPaneID: "w1:p3"), connection: .live)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p3"), connection: .live)
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+    }
+
+    /// A click on a pane that a tab close then removes must not hold focus
+    /// on nothing: the model's own focus takes over.
+    @MainActor
+    func testOptimisticFocusOnARemovedPaneFallsBackToTheModels() async {
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        let task = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
+
+        var removed = makeModelWithAPaneInASecondTab()
+        removed.panes[PaneID(rawValue: "w1:p2")] = nil
+        viewModel.update(model: removed, connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        await client.releaseNext()
+        await task.value
+    }
+
+    /// With neither the click nor herdr's focus on a live pane, the shown
+    /// tab's remembered pane holds focus, as herdr's own does.
+    @MainActor
+    func testModelFocusOnARemovedPaneFallsBackToTheShownTabsPane() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        var model = makeModel(focusedPaneID: "w1:p9")
+        model.layouts[TabID(rawValue: "w1:t1")] = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t1"), zoomed: false,
+            area: CellRect(x: 0, y: 0, width: 80, height: 24), focusedPaneID: PaneID(rawValue: "w1:p1"),
+            panes: [PaneRect(paneID: PaneID(rawValue: "w1:p1"), focused: true, rect: CellRect(x: 0, y: 0, width: 80, height: 24))],
+            splits: []
+        )
+        viewModel.update(model: model, connection: .live)
+
+        XCTAssertEqual(viewModel.selectedTabID, TabID(rawValue: "w1:t1"))
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+    }
+
+    @MainActor
+    func testNoLiveCandidateResolvesToNoFocus() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: makeModel(focusedPaneID: "w1:p9"), connection: .live)
+
+        XCTAssertNil(viewModel.resolvedFocusedPaneID)
     }
 
     @MainActor
@@ -928,7 +976,7 @@ final class SessionViewModelTests: XCTestCase {
         let client = RecordingCommandClient()
         await client.hold()
         let viewModel = SessionViewModel(client: client)
-        viewModel.update(model: makeModel(focusedPaneID: "w1:p1"), connection: .live)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p1"), connection: .live)
 
         let firstTask = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
         try? await Task.sleep(nanoseconds: 20_000_000)
