@@ -53,9 +53,10 @@ public struct ChatSidebarSelection: Equatable, Sendable {
     }
 
     /// A chat belongs to its pane, so it shows only on that pane's tab. A
-    /// background agent started outside Flock has no pane on any tab.
+    /// background agent started outside Flock has no pane on any tab, so its
+    /// chat shows on none.
     public func isLinked(toTab panes: Set<String>) -> Bool {
-        guard let pane = chat.homePane, !pane.hasPrefix("bg:") else { return true }
+        guard let pane = chat.homePane, !pane.hasPrefix("bg:") else { return false }
         return panes.contains(pane)
     }
 
