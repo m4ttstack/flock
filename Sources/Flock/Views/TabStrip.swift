@@ -314,7 +314,7 @@ private struct TabBlock: View {
         }
     }
 
-    private var labelColor: Color { isSelected || isLifted ? theme.textStrong : theme.textLabel }
+    private var labelColor: Color { isSelected || isLifted ? theme.textStrong : theme.textDim }
 
     /// A complete tab keeps a ground of its own, so the stacked cards still
     /// hide the ones tucked under them.
