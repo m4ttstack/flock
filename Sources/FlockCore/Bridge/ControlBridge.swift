@@ -1091,6 +1091,11 @@ final class BridgeIO: @unchecked Sendable {
     /// The output generation whose child accepts host themes; 0 for none.
     /// Under `hostThemeLock`.
     private var hostThemeGeneration = 0
+    /// The lowest output generation that can belong to the child whose stdin
+    /// is installed. A take swaps the input before it installs the output, and
+    /// in between the previous child's generation is still current, so its
+    /// acceptance must not carry over to the new input. Under `hostThemeLock`.
+    private var hostThemeFirstGeneration = 1
     private var stdinSource: DispatchSourceRead?
     private var controlSource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
@@ -1180,6 +1185,11 @@ final class BridgeIO: @unchecked Sendable {
     /// the next child's `pipe()` has already reclaimed that number by then.
     /// `closeFile()` marks the handle closed, so the deinit does not repeat it.
     func swapHerdrInput(to handle: FileHandle?) {
+        // Taken before `writeLock`, the order `sendHostTheme` takes them in.
+        hostThemeLock.lock()
+        defer { hostThemeLock.unlock() }
+        hostThemeGeneration = 0
+        hostThemeFirstGeneration = currentHerdrOutputGeneration + 1
         writeLock.lock()
         defer { writeLock.unlock() }
         // Whatever the previous child never read goes with it. The release
@@ -1315,7 +1325,7 @@ final class BridgeIO: @unchecked Sendable {
     private func hostThemeAccepted(generation: Int) {
         hostThemeLock.lock()
         defer { hostThemeLock.unlock() }
-        guard generation == currentHerdrOutputGeneration else { return }
+        guard generation >= hostThemeFirstGeneration, generation == currentHerdrOutputGeneration else { return }
         hostThemeGeneration = generation
         if let hostTheme { send(hostTheme) }
     }

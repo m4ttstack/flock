@@ -592,6 +592,39 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(Self.appearances(in: replayed), ["dark"])
     }
 
+    /// A take swaps in the new child's stdin before its output, and the
+    /// previous child's output is still current in between: neither a theme
+    /// sent then nor a late announcement from that child may reach the new
+    /// one before it offers host themes itself.
+    func testAThemeBetweenTheInputSwapAndTheNewOutputWaitsForTheNewChild() async throws {
+        let control = Pipe()
+        let first = Pipe()
+        let second = Pipe()
+        let firstOut = Pipe()
+        let secondOut = Pipe()
+        let io = BridgeIO(
+            herdrInFD: first.fileHandleForWriting.fileDescriptor,
+            stdoutFD: Pipe().fileHandleForWriting.fileDescriptor, onPeerGone: { _ in }
+        )
+        defer { io.close() }
+        io.startHerdrOutput(firstOut.fileHandleForReading)
+        io.startControlPipe(fd: control.fileHandleForReading.fileDescriptor, closeOnCancel: false)
+        firstOut.fileHandleForWriting.write(Self.capabilities)
+        control.fileHandleForWriting.write(Self.hostThemeLine("light"))
+        _ = try await waitForNonEmptyRead(first.fileHandleForReading.fileDescriptor)
+
+        io.swapHerdrInput(to: second.fileHandleForWriting)
+        control.fileHandleForWriting.write(Self.hostThemeLine("dark"))
+        firstOut.fileHandleForWriting.write(Self.capabilities)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(readAllAvailableForTest(second.fileHandleForReading.fileDescriptor).count, 0)
+
+        io.startHerdrOutput(secondOut.fileHandleForReading)
+        secondOut.fileHandleForWriting.write(Self.capabilities)
+        let replayed = try await waitForNonEmptyRead(second.fileHandleForReading.fileDescriptor)
+        XCTAssertEqual(Self.appearances(in: replayed), ["dark"])
+    }
+
     func testStdinEncodesToTerminalInputThenReleaseOnEOF() async throws {
         let stdinStandIn = Pipe()
         let herdrIn = Pipe()
