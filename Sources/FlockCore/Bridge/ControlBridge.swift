@@ -309,6 +309,22 @@ public enum ControlBridge {
         return command
     }
 
+    /// The host theme command (`HostTerminalTheme`). The bridge holds the
+    /// newest one and forwards it only to a child that has announced it
+    /// accepts one (`acceptsHostTheme`): a stock herdr refuses it on stderr,
+    /// which lands on the pane while nothing has painted it yet.
+    public static let hostThemeCommandType = "terminal.host_theme"
+
+    /// Whether a herdr output line is the patched control client's
+    /// `terminal.capabilities` record offering `host_theme`.
+    static func acceptsHostTheme(_ line: Data) -> Bool {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            object["type"] as? String == "terminal.capabilities"
+        else { return false }
+        return object["host_theme"] as? Bool ?? false
+    }
+
     /// The app's "this pane's surface just took a new grid" nudge, acted on by
     /// the bridge itself (`BridgeIO.syncPTYSize`) rather than forwarded, which
     /// is why it is `flock.`-namespaced like the hold commands.
@@ -1066,6 +1082,20 @@ final class BridgeIO: @unchecked Sendable {
     /// full frame and on a status pipe existing at all. Guarded by
     /// `stdoutLock`.
     private var paintedAnyFrame = false
+    /// Serializes host theme decisions with the send each one makes, so an
+    /// older theme can never reach herdr after a newer one.
+    private let hostThemeLock = NSLock()
+    /// The newest host theme the app sent, replayed to every child that
+    /// accepts one: a restarted herdr server has none. Under `hostThemeLock`.
+    private var hostTheme: [String: Any]?
+    /// The output generation whose child accepts host themes; 0 for none.
+    /// Under `hostThemeLock`.
+    private var hostThemeGeneration = 0
+    /// The lowest output generation that can belong to the child whose stdin
+    /// is installed. A take swaps the input before it installs the output, and
+    /// in between the previous child's generation is still current, so its
+    /// acceptance must not carry over to the new input. Under `hostThemeLock`.
+    private var hostThemeFirstGeneration = 1
     private var stdinSource: DispatchSourceRead?
     private var controlSource: DispatchSourceRead?
     private var winchSource: DispatchSourceSignal?
@@ -1155,6 +1185,11 @@ final class BridgeIO: @unchecked Sendable {
     /// the next child's `pipe()` has already reclaimed that number by then.
     /// `closeFile()` marks the handle closed, so the deinit does not repeat it.
     func swapHerdrInput(to handle: FileHandle?) {
+        // Taken before `writeLock`, the order `sendHostTheme` takes them in.
+        hostThemeLock.lock()
+        defer { hostThemeLock.unlock() }
+        hostThemeGeneration = 0
+        hostThemeFirstGeneration = currentHerdrOutputGeneration + 1
         writeLock.lock()
         defer { writeLock.unlock() }
         // Whatever the previous child never read goes with it. The release
@@ -1279,6 +1314,28 @@ final class BridgeIO: @unchecked Sendable {
         return channel.write(payload, onDelivered: onDelivered)
     }
 
+    func sendHostTheme(_ command: [String: Any]) {
+        hostThemeLock.lock()
+        defer { hostThemeLock.unlock() }
+        hostTheme = command
+        guard hostThemeGeneration != 0, hostThemeGeneration == currentHerdrOutputGeneration else { return }
+        send(command)
+    }
+
+    private func hostThemeAccepted(generation: Int) {
+        hostThemeLock.lock()
+        defer { hostThemeLock.unlock() }
+        guard generation >= hostThemeFirstGeneration, generation == currentHerdrOutputGeneration else { return }
+        hostThemeGeneration = generation
+        if let hostTheme { send(hostTheme) }
+    }
+
+    private var currentHerdrOutputGeneration: Int {
+        stdoutLock.lock()
+        defer { stdoutLock.unlock() }
+        return herdrOutputGeneration
+    }
+
     func startStdin() {
         let fd = stdinFD
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInteractive))
@@ -1336,6 +1393,10 @@ final class BridgeIO: @unchecked Sendable {
                     continue
                 }
                 guard let command = ControlBridge.parseForwardableControlCommand(line) else { continue }
+                if command["type"] as? String == ControlBridge.hostThemeCommandType {
+                    sendHostTheme(command)
+                    continue
+                }
                 send(command)
             }
         }
@@ -1396,6 +1457,10 @@ final class BridgeIO: @unchecked Sendable {
                     if let firstFrameLine {
                         statusChannel?.write(firstFrameLine)
                     }
+                    continue
+                }
+                if ControlBridge.acceptsHostTheme(line) {
+                    hostThemeAccepted(generation: generation)
                     continue
                 }
                 // The pane app toggled mouse reporting: relay it to the app on

@@ -23,47 +23,77 @@ public enum HerdrPatchArch: String, CaseIterable, Sendable {
     }
 }
 
-/// One installable patch: a herdr version built for one architecture.
+/// One installable patch: a herdr version built for one architecture, at one
+/// revision of flock's patch for that version.
 public struct HerdrMousePatchEntry: Equatable, Sendable {
     public let version: String
     public let sha256: String
     public let arch: HerdrPatchArch
+    public let revision: Int
+    /// The SHA-256 of every earlier revision published for this version and
+    /// architecture: a herdr carrying one of them has an outdated patch.
+    public let superseded: Set<String>
 
-    public init(version: String, sha256: String, arch: HerdrPatchArch = .current) {
+    public init(
+        version: String, sha256: String, arch: HerdrPatchArch = .current, revision: Int = 1, superseded: Set<String> = []
+    ) {
         self.version = version
         self.sha256 = sha256
         self.arch = arch
+        self.revision = revision
+        self.superseded = superseded
     }
 
-    public var fileName: String { "herdr-mouse-patch-\(version)-\(arch.rawValue)" }
+    /// Revision 1 carries no suffix: its releases were published before
+    /// revisions existed, under the bare version.
+    public var releaseName: String { revision == 1 ? version : "\(version)-r\(revision)" }
+
+    public var fileName: String { "herdr-mouse-patch-\(releaseName)-\(arch.rawValue)" }
 
     public var url: URL {
-        URL(string: "https://github.com/m4ttstack/flock/releases/download/herdr-patch-\(version)/\(fileName)")!
+        URL(string: "https://github.com/m4ttstack/flock/releases/download/herdr-patch-\(releaseName)/\(fileName)")!
+    }
+
+    /// Whether `installed` is the SHA-256 of an earlier revision of this patch.
+    public func supersedes(sha256 installed: String?) -> Bool {
+        installed.map(superseded.contains) ?? false
     }
 }
 
-/// A herdr-patch-X release and the SHA-256 of each architecture it carries.
+/// A herdr-patch release and the SHA-256 of each architecture it carries. A
+/// nil SHA-256 is a build not published, or not pinned yet, for that
+/// architecture, and the catalog skips it.
 public struct HerdrMousePatchRelease: Equatable, Sendable {
     public let version: String
+    public let revision: Int
     public let sha256: [HerdrPatchArch: String]
 
-    public init(version: String, arm64: String, x86_64: String? = nil) {
+    public init(version: String, revision: Int = 1, arm64: String?, x86_64: String? = nil) {
         self.version = version
-        var sha256 = [HerdrPatchArch.arm64: arm64]
+        self.revision = revision
+        var sha256: [HerdrPatchArch: String] = [:]
+        sha256[.arm64] = arm64
         sha256[.x86_64] = x86_64
         self.sha256 = sha256
     }
 
-    public func entry(for arch: HerdrPatchArch) -> HerdrMousePatchEntry? {
-        sha256[arch].map { HerdrMousePatchEntry(version: version, sha256: $0, arch: arch) }
+    public func entry(for arch: HerdrPatchArch, superseded: Set<String> = []) -> HerdrMousePatchEntry? {
+        sha256[arch].map {
+            HerdrMousePatchEntry(version: version, sha256: $0, arch: arch, revision: revision, superseded: superseded)
+        }
     }
 }
 
 /// The herdr patches this flock trusts. A version is patchable on this Mac
-/// only if its release carries this architecture, and only a download
-/// matching that SHA-256 is ever installed. Adding a herdr version is a flock
-/// release: build, publish, add one line.
+/// only if one of its releases carries this architecture, and only a download
+/// matching that SHA-256 is ever installed. Adding a herdr version, or a new
+/// revision of a version's patch, is a flock release: build, publish, add one
+/// line. A version's newest pinned revision is the one offered.
 public enum HerdrMousePatchCatalog {
+    /// The pin for a build that is not published yet. Until the published
+    /// SHA-256 replaces it, the previous revision stays the one offered.
+    public static let awaitingPublication: String? = nil
+
     public static let releases: [HerdrMousePatchRelease] = [
         HerdrMousePatchRelease(version: "0.9.1", arm64: "535cc07b2f8f617439acac9720104fa791ee62926e6669df75b89f37e6e4cfec"),
         HerdrMousePatchRelease(version: "0.9.2", arm64: "4d24edb6e6ad17b257a1ff22e72c51997c47934da24f2645ea9ede89b2bd1c31"),
@@ -73,20 +103,34 @@ public enum HerdrMousePatchCatalog {
             version: "0.9.5", arm64: "630d0d0f462b0094bb1383273220288584fca71e7127d70e6308e799160b33eb",
             x86_64: "80c2c47fe595bcdee342abb063e6e969ddbcf0c1008eef1c3e168e1701041b72"
         ),
+        HerdrMousePatchRelease(version: "0.9.5", revision: 2, arm64: awaitingPublication, x86_64: awaitingPublication),
     ]
 
     /// The patches that can run on this Mac.
     public static var entries: [HerdrMousePatchEntry] { entries(for: .current) }
 
-    public static func entries(for arch: HerdrPatchArch) -> [HerdrMousePatchEntry] {
-        releases.compactMap { $0.entry(for: arch) }
+    /// One entry per version: its newest revision built for `arch`.
+    public static func entries(
+        for arch: HerdrPatchArch, in releases: [HerdrMousePatchRelease] = releases
+    ) -> [HerdrMousePatchEntry] {
+        var versions: [String] = []
+        for release in releases where !versions.contains(release.version) {
+            versions.append(release.version)
+        }
+        return versions.compactMap { entry(for: $0, arch: arch, in: releases) }
     }
 
     public static func entry(for version: String) -> HerdrMousePatchEntry? {
         entry(for: version, arch: .current)
     }
 
-    public static func entry(for version: String, arch: HerdrPatchArch) -> HerdrMousePatchEntry? {
-        releases.first { $0.version == version }?.entry(for: arch)
+    public static func entry(
+        for version: String, arch: HerdrPatchArch, in releases: [HerdrMousePatchRelease] = releases
+    ) -> HerdrMousePatchEntry? {
+        let pinned = releases
+            .filter { $0.version == version && $0.sha256[arch] != nil }
+            .sorted { $0.revision < $1.revision }
+        guard let newest = pinned.last else { return nil }
+        return newest.entry(for: arch, superseded: Set(pinned.dropLast().compactMap { $0.sha256[arch] }))
     }
 }

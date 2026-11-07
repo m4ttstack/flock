@@ -23,6 +23,10 @@ public enum HerdrMousePatchCopy {
         case .installed(let backupPath):
             return "On. flock installed a build of your herdr version that passes clicks and scrolling through "
                 + "to your panes. Your original herdr is saved at \(displayPath(backupPath))."
+        case .outdated(_, let version, _, let backupPath):
+            return "On, with an older build. flock has a newer build of herdr \(version) that also lets programs "
+                + "in your panes follow your light or dark theme. Your original herdr is saved at "
+                + "\(displayPath(backupPath))."
         case .patchable(_, let version):
             return "Off. herdr \(version) doesn't pass clicks and scrolling through to panes. flock can "
                 + "install a build of the same version that does, and keep your original to restore later."
@@ -40,7 +44,7 @@ public enum HerdrMousePatchCopy {
     /// starts a new server while every bridge still talks to the old one, so
     /// it is raised the moment the handoff lands, before any reinstall.
     public enum RestartReason: Equatable, Sendable {
-        case installed, restored
+        case installed, updated, restored
         case herdrUpdated(PatchAfterUpdate)
     }
 
@@ -53,6 +57,7 @@ public enum HerdrMousePatchCopy {
     public static func restartHeadline(for reason: RestartReason) -> String {
         switch reason {
         case .installed: "Mouse support is installed"
+        case .updated: "Mouse support is updated"
         case .restored: "The original herdr is restored"
         case .herdrUpdated(.reinstalled): "herdr is updated and mouse support reinstalled"
         case .herdrUpdated: "herdr is updated"
@@ -61,7 +66,7 @@ public enum HerdrMousePatchCopy {
 
     public static func restartDetail(for reason: RestartReason) -> String {
         switch reason {
-        case .installed, .restored: "Restart Flock so your panes pick it up."
+        case .installed, .updated, .restored: "Restart Flock so your panes pick it up."
         case .herdrUpdated(.reinstalling): "Reinstalling mouse support, then restart Flock so your panes reconnect."
         case .herdrUpdated(.reinstallFailed): "Mouse support couldn't be reinstalled; see Settings."
         case .herdrUpdated: "Restart Flock so your panes reconnect."
@@ -79,9 +84,17 @@ public enum HerdrMousePatchCopy {
     public static func actionTitle(for state: HerdrMousePatchRowState) -> String? {
         switch state {
         case .patchable: return "Install"
+        case .outdated: return "Update"
         case .installed: return "Restore Original"
         case .supportedByHerdr, .notWritable, .unsupportedVersion: return nil
         }
+    }
+
+    /// An outdated patch keeps Restore beside Update, so the original stays
+    /// one click away while the newer build is on offer.
+    public static func secondaryActionTitle(for state: HerdrMousePatchRowState) -> String? {
+        if case .outdated = state { return "Restore Original" }
+        return nil
     }
 
     /// The single confirmation install always asks, naming the exact path
@@ -100,6 +113,16 @@ public enum HerdrMousePatchCopy {
                 + "\(version) that passes clicks and scrolling through to panes. Your "
                 + "original is saved beside it and can be restored here.",
             confirmButtonTitle: "Install"
+        )
+    }
+
+    public static func updateConfirmation(installPath: String, version: String) -> Confirmation {
+        Confirmation(
+            title: "Update mouse support?",
+            message: "flock will replace \(displayPath(installPath)) with a newer build of herdr \(version) that "
+                + "also lets programs in your panes follow your light or dark theme. Your original stays saved "
+                + "beside it and can be restored here.",
+            confirmButtonTitle: "Update"
         )
     }
 

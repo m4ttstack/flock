@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -9,9 +10,14 @@ public enum HerdrMousePatchInstaller {
     public enum InstallError: Error, Equatable {
         case sourceUnreadable
         case backupAlreadyExists
+        case backupMissing
         case destinationNotWritable
         case renameFailed(errno: Int32)
+        /// The new binary did not verify and what was there before is back.
         case verificationFailed
+        /// The new binary did not verify and moving the previous one back
+        /// failed too: the unverified binary is still in place.
+        case rollbackFailed(errno: Int32)
     }
 
     public enum RevertError: Error, Equatable {
@@ -27,6 +33,9 @@ public enum HerdrMousePatchInstaller {
         public let isWritable: Bool
         /// The patchable herdr version this binary reports, nil for any other.
         public let version: String?
+        /// The binary's SHA-256, read only when it carries the verbs: it is
+        /// what tells an outdated revision of flock's patch from the current one.
+        public let sha256: String?
     }
 
     /// Matches the name the owner's own hand-verified install already uses
@@ -41,6 +50,10 @@ public enum HerdrMousePatchInstaller {
         sibling(of: binaryPath, suffix: ".flock-mouse-staging")
     }
 
+    static func previousRevisionPath(for binaryPath: String) -> String {
+        sibling(of: binaryPath, suffix: ".flock-previous-revision")
+    }
+
     /// The three filesystem questions decision-making needs, read fresh every
     /// time rather than cached: a herdr upgrade replacing the binary out from
     /// under a stale answer is the ordinary case this exists to notice.
@@ -52,12 +65,59 @@ public enum HerdrMousePatchInstaller {
         readVersionOutput: (String) -> String?
     ) -> Probe {
         let data = fileManager.contents(atPath: binaryPath) ?? Data()
+        let hasVerbs = HerdrMouseVerbs.present(in: data)
         return Probe(
-            hasVerbs: HerdrMouseVerbs.present(in: data),
+            hasVerbs: hasVerbs,
             hasBackup: fileManager.fileExists(atPath: backupPath(for: binaryPath)),
             isWritable: fileManager.isWritableFile(atPath: directory(of: binaryPath)),
-            version: HerdrMousePatchVersion.supportedVersion(fromVersionOutput: readVersionOutput(binaryPath))
+            version: HerdrMousePatchVersion.supportedVersion(fromVersionOutput: readVersionOutput(binaryPath)),
+            sha256: hasVerbs ? SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() : nil
         )
+    }
+
+    /// Replaces an outdated revision of flock's patch with a newer one. The
+    /// backup beside it is the original herdr and stays untouched: the
+    /// outdated revision is kept under a second name, hard-linked so herdr's
+    /// own path never goes missing, and a newer patch that fails verification
+    /// puts that revision back rather than the original.
+    public static func update(artifactPath: String, binaryPath: String, fileManager: FileManager = .default) throws {
+        guard fileManager.isReadableFile(atPath: artifactPath) else { throw InstallError.sourceUnreadable }
+        guard fileManager.fileExists(atPath: backupPath(for: binaryPath)) else { throw InstallError.backupMissing }
+        guard fileManager.isWritableFile(atPath: directory(of: binaryPath)) else {
+            throw InstallError.destinationNotWritable
+        }
+
+        let staging = stagingPath(for: binaryPath)
+        if fileManager.fileExists(atPath: staging) {
+            try fileManager.removeItem(atPath: staging)
+        }
+        try fileManager.copyItem(atPath: artifactPath, toPath: staging)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging)
+
+        let previous = previousRevisionPath(for: binaryPath)
+        if fileManager.fileExists(atPath: previous) {
+            try fileManager.removeItem(atPath: previous)
+        }
+        do {
+            try fileManager.linkItem(atPath: binaryPath, toPath: previous)
+        } catch {
+            try? fileManager.removeItem(atPath: staging)
+            throw error
+        }
+
+        do {
+            try atomicRename(from: staging, to: binaryPath)
+        } catch let failure as RenameFailure {
+            try? fileManager.removeItem(atPath: staging)
+            try? fileManager.removeItem(atPath: previous)
+            throw InstallError.renameFailed(errno: failure.errno)
+        }
+
+        guard HerdrMouseVerbs.present(in: fileManager.contents(atPath: binaryPath) ?? Data()) else {
+            try rollBack(from: previous, to: binaryPath)
+            throw InstallError.verificationFailed
+        }
+        try? fileManager.removeItem(atPath: previous)
     }
 
     /// 1. Copy the current binary to a backup beside it -- kept even if a
@@ -119,7 +179,7 @@ public enum HerdrMousePatchInstaller {
             // The backup is still an intact copy (step 1 copied rather than
             // moved it), so renaming it back over the failed install
             // restores exactly what was there before this call.
-            try? atomicRename(from: backup, to: binaryPath)
+            try rollBack(from: backup, to: binaryPath)
             throw InstallError.verificationFailed
         }
     }
@@ -142,6 +202,14 @@ public enum HerdrMousePatchInstaller {
 
         guard !HerdrMouseVerbs.present(in: fileManager.contents(atPath: binaryPath) ?? Data()) else {
             throw RevertError.verificationFailed
+        }
+    }
+
+    private static func rollBack(from saved: String, to binaryPath: String) throws {
+        do {
+            try atomicRename(from: saved, to: binaryPath)
+        } catch let failure as RenameFailure {
+            throw InstallError.rollbackFailed(errno: failure.errno)
         }
     }
 

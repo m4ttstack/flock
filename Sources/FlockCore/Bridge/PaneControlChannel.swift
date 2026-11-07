@@ -187,6 +187,10 @@ public final class PaneControlChannel {
         send(["type": ControlBridge.sizeSyncCommandType])
     }
 
+    public func hostTheme(_ theme: HostTerminalTheme) {
+        send(theme.command)
+    }
+
     public func close() {
         guard fd >= 0 else { return }
         Foundation.close(fd)

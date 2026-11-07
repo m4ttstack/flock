@@ -47,7 +47,7 @@ final class HerdrUpdateStore {
 
     var notice: HerdrUpdateNotice? {
         if let updatedTo, updatedTo == latest { return nil }
-        let patchInstalled: Bool = if case .installed = patchStore.state { true } else { false }
+        let patchInstalled = patchStore.state?.hasFlockPatch == true
         return HerdrUpdateNotice.decide(
             installed: installedVersion(), latest: latest, patchInstalled: patchInstalled,
             catalogHasLatest: latest.flatMap(HerdrMousePatchCatalog.entry(for:)) != nil, homebrew: isHomebrew
@@ -97,7 +97,7 @@ final class HerdrUpdateStore {
         patchStore.reprobe()
         guard updatePhase == .idle, canRunUpdate, !isBlockedByPatchInstall,
               let binaryPath = patchStore.binaryPath, let target = latest else { return }
-        let patchWasInstalled: Bool = if case .installed = patchStore.state { true } else { false }
+        let patchWasInstalled = patchStore.state?.hasFlockPatch == true
         let before = patchStore.binaryIdentity()
         updateError = nil
         updatingNotice = notice

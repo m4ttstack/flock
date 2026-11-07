@@ -64,4 +64,25 @@ final class HerdrMousePatchOfferTests: XCTestCase {
             HerdrMousePatchOffer.shouldOffer(state: .unsupportedVersion, dismissedForVersion: version)
         )
     }
+
+    private let outdated = HerdrMousePatchRowState.outdated(
+        installPath: "/usr/local/bin/herdr", version: "0.9.2", release: "0.9.2-r2",
+        backupPath: "/usr/local/bin/herdr.pre-mouse-backup"
+    )
+
+    /// An earlier revision of flock's patch is offered the newer one.
+    func testAnOutdatedPatchIsOfferedTheUpdate() {
+        XCTAssertTrue(HerdrMousePatchOffer.shouldOffer(state: outdated, dismissedForVersion: nil))
+        XCTAssertTrue(HerdrMousePatchOffer.hasAction(for: outdated))
+        XCTAssertEqual(HerdrMousePatchOffer.bannerActionTitle(for: outdated), "Update")
+        XCTAssertEqual(HerdrMousePatchOffer.bannerHeadline(for: outdated), "flock has a newer herdr patch")
+    }
+
+    /// Declining the install for a version says nothing about a later
+    /// revision of the patch; declining that revision silences only it.
+    func testAnUpdateDismissalIsKeyedOnTheNewerRelease() {
+        XCTAssertTrue(HerdrMousePatchOffer.shouldOffer(state: outdated, dismissedForVersion: version))
+        XCTAssertFalse(HerdrMousePatchOffer.shouldOffer(state: outdated, dismissedForVersion: "0.9.2-r2"))
+        XCTAssertEqual(HerdrMousePatchOffer.dismissalToken(for: outdated), "0.9.2-r2")
+    }
 }

@@ -113,6 +113,103 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
         }
     }
 
+    // MARK: - update
+
+    private func installOlderRevision() throws {
+        try HerdrMousePatchInstaller.install(artifactPath: artifactPath, binaryPath: binaryPath)
+        try Data("newer revision carrying terminal.mouse_capture and host_theme".utf8)
+            .write(to: URL(fileURLWithPath: artifactPath))
+    }
+
+    /// The backup is the original herdr, not the older patch: an update
+    /// swaps only the binary and Restore still puts the original back.
+    func testUpdateSwapsInTheNewerRevisionAndKeepsTheOriginalBackup() throws {
+        try installOlderRevision()
+
+        try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)
+
+        XCTAssertEqual(
+            try String(contentsOfFile: binaryPath, encoding: .utf8),
+            "newer revision carrying terminal.mouse_capture and host_theme"
+        )
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.stagingPath(for: binaryPath)))
+    }
+
+    func testUpdateRefusesWithoutTheOriginalBackup() throws {
+        try Data("herdr carrying terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: binaryPath))
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .backupMissing)
+        }
+        XCTAssertEqual(try String(contentsOfFile: binaryPath, encoding: .utf8), "herdr carrying terminal.mouse_capture")
+    }
+
+    /// A newer revision that does not verify puts the outdated revision
+    /// back, not the original: the patch stays installed and Restore still
+    /// has the original to restore.
+    func testAnUpdateThatFailsVerificationPutsThePreviousRevisionBack() throws {
+        try installOlderRevision()
+        try Data("not actually patched".utf8).write(to: URL(fileURLWithPath: artifactPath))
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .verificationFailed)
+        }
+        XCTAssertEqual(
+            try String(contentsOfFile: binaryPath, encoding: .utf8), "patched herdr build carrying terminal.mouse_capture")
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.previousRevisionPath(for: binaryPath)))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.stagingPath(for: binaryPath)))
+    }
+
+    func testASuccessfulUpdateLeavesNoPreviousRevisionBehind() throws {
+        try installOlderRevision()
+
+        try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: HerdrMousePatchInstaller.previousRevisionPath(for: binaryPath)))
+    }
+
+    /// The previous revision is linked, not moved, so herdr's path is never
+    /// empty and a running herdr keeps reading the image it opened.
+    func testARunningReaderOfTheOutdatedRevisionIsUndisturbedByUpdate() throws {
+        try installOlderRevision()
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: binaryPath))
+        defer { try? handle.close() }
+
+        try HerdrMousePatchInstaller.update(artifactPath: artifactPath, binaryPath: binaryPath)
+
+        let stillOpenContent = try handle.readToEnd().map { String(decoding: $0, as: UTF8.self) }
+        XCTAssertEqual(stillOpenContent, "patched herdr build carrying terminal.mouse_capture")
+    }
+
+    /// A rollback that cannot move the saved binary back says so instead of
+    /// reporting the previous herdr restored.
+    func testAnUpdateWhoseRollbackFailsReportsIt() throws {
+        try installOlderRevision()
+        try Data("not actually patched".utf8).write(to: URL(fileURLWithPath: artifactPath))
+        let fileManager = RemovesOnBinaryRead(
+            binaryPath: binaryPath, removing: HerdrMousePatchInstaller.previousRevisionPath(for: binaryPath))
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.update(
+            artifactPath: artifactPath, binaryPath: binaryPath, fileManager: fileManager
+        )) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .rollbackFailed(errno: ENOENT))
+        }
+        XCTAssertEqual(try String(contentsOfFile: backupPath, encoding: .utf8), "unpatched herdr build, no verbs here")
+    }
+
+    func testAnInstallWhoseRollbackFailsReportsIt() throws {
+        try Data("not actually patched".utf8).write(to: URL(fileURLWithPath: artifactPath))
+        let fileManager = RemovesOnBinaryRead(binaryPath: binaryPath, removing: backupPath)
+
+        XCTAssertThrowsError(try HerdrMousePatchInstaller.install(
+            artifactPath: artifactPath, binaryPath: binaryPath, fileManager: fileManager
+        )) { error in
+            XCTAssertEqual(error as? HerdrMousePatchInstaller.InstallError, .rollbackFailed(errno: ENOENT))
+        }
+    }
+
     // MARK: - revert
 
     func testRevertRestoresTheBackupAndRemovesIt() throws {
@@ -175,6 +272,13 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
         XCTAssertTrue(probe.hasVerbs)
         XCTAssertTrue(probe.hasBackup)
+        XCTAssertEqual(probe.sha256, try HerdrMousePatchDownloader.sha256(ofFileAt: URL(fileURLWithPath: binaryPath)))
+    }
+
+    /// Only a binary with the verbs can be an outdated patch, so a stock
+    /// herdr is never hashed.
+    func testProbeHashesOnlyABinaryThatCarriesTheVerbs() {
+        XCTAssertNil(probe().sha256)
     }
 
     func testProbeReportsTheVersionHerdrPrints() {
@@ -203,5 +307,23 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
         XCTAssertNil(probe(versionOutput: nil).version)
         XCTAssertNil(probe(versionOutput: "zsh: exec format error").version)
+    }
+}
+
+/// Deletes one file the moment the binary is read back for verification, so
+/// the rename that would roll it back has nothing to move.
+private final class RemovesOnBinaryRead: FileManager, @unchecked Sendable {
+    private let binaryPath: String
+    private let removing: String
+
+    init(binaryPath: String, removing: String) {
+        self.binaryPath = binaryPath
+        self.removing = removing
+        super.init()
+    }
+
+    override func contents(atPath path: String) -> Data? {
+        if path == binaryPath { try? removeItem(atPath: removing) }
+        return super.contents(atPath: path)
     }
 }

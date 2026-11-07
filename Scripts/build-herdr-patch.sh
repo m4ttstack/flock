@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds herdr X from its upstream tag with patches/herdr/X.patch applied, for
-# publishing as a herdr-patch-X release (Scripts/publish-herdr-patch.sh).
+# publishing as a herdr-patch-X release, or herdr-patch-X-rN for a later
+# revision of the same version's patch (Scripts/publish-herdr-patch.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -8,15 +9,18 @@ ZIG_VERSION="0.16.0"
 ARCH="$(uname -m)"
 UPSTREAM="https://github.com/herdrdev/herdr.git"
 HERDR_VERSION=""
+REVISION=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) HERDR_VERSION="${2:-}"; shift 2 ;;
     --arch) ARCH="${2:-}"; shift 2 ;;
+    --revision) REVISION="${2:-}"; shift 2 ;;
     -h|--help)
-      echo "usage: Scripts/build-herdr-patch.sh --version X [--arch arm64|x86_64]"
+      echo "usage: Scripts/build-herdr-patch.sh --version X [--arch arm64|x86_64] [--revision N]"
       echo "  builds herdr vX with patches/herdr/X.patch into build/herdr-patches/"
-      echo "  --arch  the CPU to build for; defaults to this Mac's ($(uname -m))"
+      echo "  --arch      the CPU to build for; defaults to this Mac's ($(uname -m))"
+      echo "  --revision  the patch revision for version X; 1 (the default) has no suffix"
       exit 0 ;;
     *) echo "build-herdr-patch: unknown option $1" >&2; exit 2 ;;
   esac
@@ -28,6 +32,14 @@ case "$ARCH" in
   x86_64) RUST_TARGET="x86_64-apple-darwin" ;;
   *) echo "build-herdr-patch: --arch must be arm64 or x86_64, not $ARCH" >&2; exit 2 ;;
 esac
+case "$REVISION" in
+  ''|*[!0-9]*) echo "build-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
+esac
+# Base 10, so 02 names r2 and 08 is not read as octal.
+REVISION=$((10#$REVISION))
+[ "$REVISION" -ge 1 ] || { echo "build-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2; }
+RELEASE="$HERDR_VERSION"
+[ "$REVISION" = 1 ] || RELEASE="$HERDR_VERSION-r$REVISION"
 PATCH="patches/herdr/$HERDR_VERSION.patch"
 [ -f "$PATCH" ] || { echo "build-herdr-patch: no $PATCH" >&2; exit 2; }
 
@@ -43,8 +55,11 @@ command -v zig >/dev/null 2>&1 || {
 [ "$(zig version)" = "$ZIG_VERSION" ] || {
   echo "build-herdr-patch: zig is $(zig version), herdr's build.rs requires $ZIG_VERSION" >&2; exit 1; }
 
+FLOCK_COMMIT="$(git rev-parse HEAD)"
+git diff --quiet HEAD -- "$PATCH" || echo "build-herdr-patch: $PATCH differs from HEAD; publish-herdr-patch.sh refuses a build whose patch is not committed" >&2
+
 OUT="build/herdr-patches"
-NAME="herdr-mouse-patch-$HERDR_VERSION-$ARCH"
+NAME="herdr-mouse-patch-$RELEASE-$ARCH"
 WORK="$(mktemp -d -t flock-herdr-patch)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -73,6 +88,13 @@ if [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "$VERB_MARK")" -eq 0 ]; then
   echo "build-herdr-patch: built binary carries no terminal.mouse_capture verb" >&2
   exit 1
 fi
+# The verb itself is split into immediates on x86_64; the prefix of its
+# parse error stays a whole string on both architectures.
+if [ "$(grep -cF -- "terminal.host_theme" "$PATCH")" -gt 0 ] \
+  && [ "$(strings -a -n 8 "$BUILT" | grep -cF -- "invalid terminal.host_theme")" -eq 0 ]; then
+  echo "build-herdr-patch: $PATCH adds terminal.host_theme but the built binary carries none" >&2
+  exit 1
+fi
 [ "$(lipo -archs "$BUILT")" = "$ARCH" ] || {
   echo "build-herdr-patch: built binary is $(lipo -archs "$BUILT"), expected $ARCH" >&2; exit 1; }
 # An Intel binary runs here only under Rosetta.
@@ -86,9 +108,11 @@ chmod 755 "$OUT/$NAME"
 cp "$WORK/herdr/LICENSE" "$OUT/$NAME.LICENSE"
 cat > "$OUT/$NAME.provenance.txt" <<EOF
 # An Apache-2.0 build of herdr $HERDR_VERSION with patches/herdr/$HERDR_VERSION.patch
-# from github.com/m4ttstack/flock applied: mouse events and capture state on
+# from github.com/m4ttstack/flock applied: mouse events, capture state and host theme on
 # terminal session control. Not made or endorsed by herdr's maintainers.
 herdr_version=$HERDR_VERSION
+patch_release=$RELEASE
+flock_commit=$FLOCK_COMMIT
 herdr_tag_commit=$TAG_COMMIT
 patch_sha256=$(shasum -a 256 "$PATCH" | cut -d' ' -f1)
 zig_version=$ZIG_VERSION

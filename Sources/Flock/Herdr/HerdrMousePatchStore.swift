@@ -110,8 +110,8 @@ final class HerdrMousePatchStore {
     /// offer, it does not withdraw the feature.
     func dismissBannerOffer() {
         bannerErrorMessage = nil
-        guard case .patchable(_, let version) = state else { return }
-        defaults.set(version, forKey: Self.dismissedVersionKey)
+        guard let state, let token = HerdrMousePatchOffer.dismissalToken(for: state) else { return }
+        defaults.set(token, forKey: Self.dismissedVersionKey)
     }
 
     /// Re-probes the binary when its fingerprint moved since the last probe.
@@ -140,13 +140,15 @@ final class HerdrMousePatchStore {
         if !force, fingerprint == lastProbed { return }
         let probe = probe(resolved, fileManager)
         lastProbed = fingerprint
+        let entry = probe.version.flatMap(catalog)
         let decided = HerdrMousePatchDecision.decide(
             hasVerbs: probe.hasVerbs,
             hasBackup: probe.hasBackup,
-            version: probe.version.flatMap { catalog($0) == nil ? nil : $0 },
+            version: entry == nil ? nil : probe.version,
             isWritable: probe.isWritable,
             installPath: resolved,
-            backupPath: HerdrMousePatchInstaller.backupPath(for: resolved)
+            backupPath: HerdrMousePatchInstaller.backupPath(for: resolved),
+            newerRelease: entry.flatMap { $0.supersedes(sha256: probe.sha256) ? $0.releaseName : nil }
         )
         if state != decided { state = decided }
     }
@@ -177,17 +179,24 @@ final class HerdrMousePatchStore {
         )
     }
 
+    /// Asks to install the patch on a patchable herdr, or to put the newer
+    /// revision in place of an outdated one.
     func requestInstall(source: PendingConfirmation.Source) {
-        guard phase == .idle, !herdrUpdateInProgress, case .patchable(let installPath, let version) = state else { return }
-        pendingConfirmation = PendingConfirmation(
-            action: .install,
-            confirmation: HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version),
-            source: source
-        )
+        guard phase == .idle, !herdrUpdateInProgress else { return }
+        let confirmation: HerdrMousePatchCopy.Confirmation
+        switch state {
+        case .patchable(let installPath, let version):
+            confirmation = HerdrMousePatchCopy.installConfirmation(installPath: installPath, version: version)
+        case .outdated(let installPath, let version, _, _):
+            confirmation = HerdrMousePatchCopy.updateConfirmation(installPath: installPath, version: version)
+        default:
+            return
+        }
+        pendingConfirmation = PendingConfirmation(action: .install, confirmation: confirmation, source: source)
     }
 
     func requestRevert(source: PendingConfirmation.Source) {
-        guard !herdrUpdateInProgress, case .installed = state, let binaryPath = resolveBinaryPath() else { return }
+        guard !herdrUpdateInProgress, state?.hasFlockPatch == true, let binaryPath = resolveBinaryPath() else { return }
         pendingConfirmation = PendingConfirmation(
             action: .revert, confirmation: HerdrMousePatchCopy.revertConfirmation(installPath: binaryPath), source: source
         )
@@ -201,8 +210,7 @@ final class HerdrMousePatchStore {
         lastErrorMessage = nil
         performInstall(startedFromBanner: false)
         await installTask?.value
-        if case .installed = state { return true }
-        return false
+        return state?.hasFlockPatch == true
     }
 
     func noteHerdrUpdated(_ patch: HerdrMousePatchCopy.PatchAfterUpdate) {
@@ -235,8 +243,16 @@ final class HerdrMousePatchStore {
     }
 
     private func performInstall(startedFromBanner: Bool) {
-        guard case .patchable(_, let version) = state, let binaryPath = resolveBinaryPath(),
-              let entry = catalog(version) else {
+        let version: String
+        let isUpdate: Bool
+        switch state {
+        case .patchable(_, let patchable): (version, isUpdate) = (patchable, false)
+        case .outdated(_, let outdated, _, _): (version, isUpdate) = (outdated, true)
+        default:
+            reprobe()
+            return
+        }
+        guard let binaryPath = resolveBinaryPath(), let entry = catalog(version) else {
             reprobe()
             return
         }
@@ -253,10 +269,18 @@ final class HerdrMousePatchStore {
                 // runs; the patch fetched for the old version must not land
                 // over the new one.
                 let current = probe(binaryPath, fileManager)
-                guard current.version == version, !current.hasVerbs else { throw HerdrChanged() }
+                let unchanged = isUpdate
+                    ? current.hasBackup && entry.supersedes(sha256: current.sha256)
+                    : !current.hasVerbs
+                guard current.version == version, unchanged else { throw HerdrChanged() }
                 phase = .installing
-                try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
-                restartReason = .installed
+                if isUpdate {
+                    try HerdrMousePatchInstaller.update(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
+                    restartReason = .updated
+                } else {
+                    try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
+                    restartReason = .installed
+                }
             } catch {
                 let message = Self.message(for: error)
                 lastErrorMessage = message
@@ -291,9 +315,13 @@ final class HerdrMousePatchStore {
             HerdrMousePatchInstaller.RevertError.renameFailed:
             return "The file move failed partway through."
         case HerdrMousePatchInstaller.InstallError.verificationFailed:
-            return "The installed binary did not verify; the original was restored."
+            return "The installed binary did not verify; the herdr that was there before is back."
+        case HerdrMousePatchInstaller.InstallError.rollbackFailed:
+            return "The installed binary did not verify, and putting the previous herdr back failed. Reinstall herdr before using it."
         case HerdrMousePatchInstaller.RevertError.verificationFailed:
             return "The reverted binary still carries the mouse verbs."
+        case HerdrMousePatchInstaller.InstallError.backupMissing:
+            return "flock's saved copy of the original herdr is missing, so it left this one alone."
         case HerdrMousePatchInstaller.RevertError.backupMissing:
             return "No backup is available to revert to."
         case HerdrMousePatchDownloader.Failure.transport:

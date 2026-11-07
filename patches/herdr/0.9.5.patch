@@ -1,8 +1,81 @@
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index f55db195..760e2d8f 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -140,7 +140,7 @@ use notifications::{handle_notify, handle_shell_notification_effects};
+ #[cfg(test)]
+ use notifications::{handle_notify_with_notifiers, sound_from_notify_message};
+ #[cfg(test)]
+-use terminal_sessions::terminal_control_command_from_json;
++use terminal_sessions::{terminal_control_command_from_json, terminal_control_messages_from_json};
+ 
+ #[cfg(unix)]
+ use std::collections::HashMap;
 diff --git a/src/client/terminal_sessions.rs b/src/client/terminal_sessions.rs
-index aeecbf47..50a6ffbc 100644
+index 2cc7784b..0479eb51 100644
 --- a/src/client/terminal_sessions.rs
 +++ b/src/client/terminal_sessions.rs
-@@ -149,6 +149,15 @@ fn write_terminal_session_output(mut stream: LocalStream) -> io::Result<()> {
+@@ -7,7 +7,8 @@ use tracing::info;
+ 
+ use crate::ipc::LocalStream;
+ use crate::protocol::{
+-    self, AttachScrollDirection, AttachScrollSource, ClientMessage, ClientMouseButton,
++    self, AttachScrollDirection, AttachScrollSource, ClientHostAppearance, ClientHostColor,
++    ClientHostDefaultColorKind, ClientHostThemeUpdate, ClientMessage, ClientMouseButton,
+     ClientMouseKind, ClientMousePosition, RenderEncoding, ServerMessage, MAX_GRAPHICS_FRAME_SIZE,
+ };
+ use crate::server::socket_paths::client_socket_path;
+@@ -50,14 +51,16 @@ pub fn run_terminal_session_control(
+             if line.trim().is_empty() {
+                 continue;
+             }
+-            match terminal_control_command_from_json(&line) {
+-                Ok(message) => {
+-                    let release = matches!(message, ClientMessage::Detach);
+-                    if write_to_server(&mut write_stream, &message).is_err() {
+-                        return;
+-                    }
+-                    if release {
+-                        return;
++            match terminal_control_messages_from_json(&line) {
++                Ok(messages) => {
++                    for message in messages {
++                        let release = matches!(message, ClientMessage::Detach);
++                        if write_to_server(&mut write_stream, &message).is_err() {
++                            return;
++                        }
++                        if release {
++                            return;
++                        }
+                     }
+                 }
+                 Err(err) => eprintln!("herdr: terminal session control input ignored: {err}"),
+@@ -66,9 +69,24 @@ pub fn run_terminal_session_control(
+         let _ = write_to_server(&mut write_stream, &ClientMessage::Detach);
+     });
+ 
++    {
++        let mut stdout = io::stdout().lock();
++        serde_json::to_writer(&mut stdout, &terminal_session_capabilities_line())?;
++        stdout.write_all(b"\n")?;
++        stdout.flush()?;
++    }
+     write_terminal_session_output(stream)
+ }
+ 
++/// The first record a control client prints: the optional commands this build
++/// accepts, so a controller never sends one that would only be refused.
++pub(super) fn terminal_session_capabilities_line() -> serde_json::Value {
++    serde_json::json!({
++        "type": "terminal.capabilities",
++        "host_theme": true,
++    })
++}
++
+ fn connect_terminal_session_stream(
+     target: String,
+     cols: u16,
+@@ -152,6 +170,15 @@ fn write_terminal_session_output(mut stream: LocalStream) -> io::Result<()> {
                  stdout.flush()?;
                  return Ok(());
              }
@@ -18,7 +91,7 @@ index aeecbf47..50a6ffbc 100644
              Ok(ServerMessage::Graphics { .. }) => {}
              Ok(_) => {}
              Err(protocol::FramingError::UnexpectedEof) => return Ok(()),
-@@ -189,6 +198,7 @@ enum TerminalControlCommand {
+@@ -192,6 +219,7 @@ enum TerminalControlCommand {
      },
      #[serde(rename = "terminal.mouse")]
      Mouse {
@@ -26,7 +99,7 @@ index aeecbf47..50a6ffbc 100644
          action: TerminalControlMouseAction,
          #[serde(default)]
          button: TerminalControlMouseButton,
-@@ -196,6 +206,8 @@ enum TerminalControlCommand {
+@@ -199,6 +227,8 @@ enum TerminalControlCommand {
          row: u16,
          #[serde(default)]
          modifiers: u8,
@@ -35,7 +108,7 @@ index aeecbf47..50a6ffbc 100644
      },
      #[serde(rename = "terminal.release")]
      Release {},
-@@ -207,7 +219,29 @@ enum TerminalControlMouseAction {
+@@ -210,7 +240,29 @@ enum TerminalControlMouseAction {
      Down,
      Up,
      Drag,
@@ -65,7 +138,109 @@ index aeecbf47..50a6ffbc 100644
  }
  
  #[derive(Clone, Copy, Default, serde::Deserialize)]
-@@ -307,7 +341,11 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+@@ -237,6 +289,101 @@ enum TerminalControlScrollSource {
+     PageKey,
+ }
+ 
++#[derive(serde::Deserialize)]
++struct TerminalControlType {
++    #[serde(rename = "type")]
++    kind: String,
++}
++
++#[derive(serde::Deserialize)]
++struct TerminalControlHostTheme {
++    #[serde(rename = "type")]
++    _kind: String,
++    #[serde(default)]
++    fg: Option<String>,
++    #[serde(default)]
++    bg: Option<String>,
++    #[serde(default)]
++    appearance: Option<TerminalControlAppearance>,
++    #[serde(default)]
++    palette: Option<Vec<String>>,
++}
++
++#[derive(Clone, Copy, serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++enum TerminalControlAppearance {
++    Light,
++    Dark,
++}
++
++fn parse_host_theme_color(field: &str, raw: &str) -> Result<ClientHostColor, String> {
++    let hex = raw.strip_prefix('#').unwrap_or(raw);
++    if hex.len() != 6 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
++        return Err(format!(
++            "terminal.host_theme {field} must be #rrggbb, not {raw:?}"
++        ));
++    }
++    let channel = |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).unwrap_or(0);
++    Ok(ClientHostColor {
++        r: channel(0),
++        g: channel(2),
++        b: channel(4),
++    })
++}
++
++/// Parses one control line into the messages it stands for. `terminal.host_theme`
++/// becomes one host theme update per field, the appearance first so the server
++/// never infers it from the background in between.
++pub(super) fn terminal_control_messages_from_json(raw: &str) -> Result<Vec<ClientMessage>, String> {
++    let kind = serde_json::from_str::<TerminalControlType>(raw)
++        .map_err(|err| format!("invalid json command: {err}"))?
++        .kind;
++    if kind != "terminal.host_theme" {
++        return terminal_control_command_from_json(raw).map(|message| vec![message]);
++    }
++    let theme = serde_json::from_str::<TerminalControlHostTheme>(raw)
++        .map_err(|err| format!("invalid terminal.host_theme: {err}"))?;
++    let mut updates = Vec::new();
++    if let Some(appearance) = theme.appearance {
++        updates.push(ClientHostThemeUpdate::Appearance(match appearance {
++            TerminalControlAppearance::Light => ClientHostAppearance::Light,
++            TerminalControlAppearance::Dark => ClientHostAppearance::Dark,
++        }));
++    }
++    if let Some(bg) = theme.bg.as_deref() {
++        updates.push(ClientHostThemeUpdate::DefaultColor {
++            kind: ClientHostDefaultColorKind::Background,
++            color: parse_host_theme_color("bg", bg)?,
++        });
++    }
++    if let Some(fg) = theme.fg.as_deref() {
++        updates.push(ClientHostThemeUpdate::DefaultColor {
++            kind: ClientHostDefaultColorKind::Foreground,
++            color: parse_host_theme_color("fg", fg)?,
++        });
++    }
++    if let Some(palette) = theme.palette {
++        if palette.len() > 256 {
++            return Err("terminal.host_theme palette holds at most 256 colors".into());
++        }
++        let colors = palette
++            .iter()
++            .enumerate()
++            .map(|(index, color)| Ok((index as u8, parse_host_theme_color("palette", color)?)))
++            .collect::<Result<Vec<_>, String>>()?;
++        if !colors.is_empty() {
++            updates.push(ClientHostThemeUpdate::PaletteColors(colors));
++        }
++    }
++    if updates.is_empty() {
++        return Err("terminal.host_theme needs fg, bg, appearance or palette".into());
++    }
++    Ok(updates
++        .into_iter()
++        .map(|update| ClientMessage::ClientShellHostTheme { update })
++        .collect())
++}
++
+ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMessage, String> {
+     let command = serde_json::from_str::<TerminalControlCommand>(raw)
+         .map_err(|err| format!("invalid json command: {err}"))?;
+@@ -310,7 +457,11 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
              column,
              row,
              modifiers,
@@ -77,7 +252,7 @@ index aeecbf47..50a6ffbc 100644
              let button = match button {
                  TerminalControlMouseButton::Left => ClientMouseButton::Left,
                  TerminalControlMouseButton::Right => ClientMouseButton::Right,
-@@ -318,6 +356,10 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+@@ -321,6 +472,10 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
                  TerminalControlMouseAction::Up => ClientMouseKind::Up(button),
                  TerminalControlMouseAction::Drag => ClientMouseKind::Drag(button),
                  TerminalControlMouseAction::Move => ClientMouseKind::Moved,
@@ -88,7 +263,7 @@ index aeecbf47..50a6ffbc 100644
              };
              // The server encodes the event for the pane's mouse mode and drops it
              // when the application has not enabled mouse reporting.
-@@ -326,7 +368,7 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
+@@ -329,7 +484,7 @@ pub(super) fn terminal_control_command_from_json(raw: &str) -> Result<ClientMess
                  position: ClientMousePosition::Cell { column, row },
                  geometry: None,
                  modifiers,
@@ -97,3 +272,337 @@ index aeecbf47..50a6ffbc 100644
              })
          }
          TerminalControlCommand::Release {} => Ok(ClientMessage::Detach),
+diff --git a/src/client/tests/mod.rs b/src/client/tests/mod.rs
+index 323af2f8..0433ca48 100644
+--- a/src/client/tests/mod.rs
++++ b/src/client/tests/mod.rs
+@@ -961,3 +961,57 @@ fn terminal_control_scroll_command_maps_to_attach_scroll() {
+     assert_eq!(direction, AttachScrollDirection::Up);
+     assert_eq!(lines, 3);
+ }
++
++#[test]
++fn terminal_control_host_theme_maps_to_appearance_then_default_colors() {
++    let messages = terminal_control_messages_from_json(
++        r##"{"type":"terminal.host_theme","fg":"#1e1e2e","bg":"#EFF1F5","appearance":"light"}"##,
++    )
++    .unwrap();
++    let updates: Vec<_> = messages
++        .into_iter()
++        .map(|message| match message {
++            ClientMessage::ClientShellHostTheme { update } => update,
++            _ => panic!("expected host theme update"),
++        })
++        .collect();
++    assert_eq!(
++        updates,
++        vec![
++            crate::protocol::ClientHostThemeUpdate::Appearance(
++                crate::protocol::ClientHostAppearance::Light
++            ),
++            crate::protocol::ClientHostThemeUpdate::DefaultColor {
++                kind: crate::protocol::ClientHostDefaultColorKind::Background,
++                color: crate::protocol::ClientHostColor {
++                    r: 0xef,
++                    g: 0xf1,
++                    b: 0xf5
++                },
++            },
++            crate::protocol::ClientHostThemeUpdate::DefaultColor {
++                kind: crate::protocol::ClientHostDefaultColorKind::Foreground,
++                color: crate::protocol::ClientHostColor {
++                    r: 0x1e,
++                    g: 0x1e,
++                    b: 0x2e
++                },
++            },
++        ]
++    );
++}
++
++#[test]
++fn terminal_control_host_theme_rejects_bad_colors_and_empty_updates() {
++    assert!(terminal_control_messages_from_json(
++        r##"{"type":"terminal.host_theme","bg":"#12345"}"##
++    )
++    .is_err());
++    assert!(terminal_control_messages_from_json(r#"{"type":"terminal.host_theme"}"#).is_err());
++    assert!(matches!(
++        terminal_control_messages_from_json(r#"{"type":"terminal.release"}"#)
++            .unwrap()
++            .as_slice(),
++        [ClientMessage::Detach]
++    ));
++}
+diff --git a/src/server/headless.rs b/src/server/headless.rs
+index cb2c6196..c7f6a20b 100644
+--- a/src/server/headless.rs
++++ b/src/server/headless.rs
+@@ -188,6 +188,13 @@ enum AltScreenReadConflict {
+     Defer,
+ }
+ 
++#[derive(Clone, Copy)]
++struct TerminalAttachHostTheme {
++    theme: crate::terminal_theme::TerminalTheme,
++    appearance: Option<crate::terminal_theme::HostAppearance>,
++    appearance_explicit: bool,
++}
++
+ /// The headless server — runs the herdr event loop without a real terminal.
+ pub struct HeadlessServer {
+     app: app::App,
+@@ -208,6 +215,9 @@ pub struct HeadlessServer {
+     next_client_id: u64,
+     /// The client currently driving session-wide host presentation and side effects.
+     foreground_client_id: Option<u64>,
++    /// The host theme a terminal controller last set, put back whenever no
++    /// foreground client is left to own the session's theme.
++    terminal_attach_host_theme: Option<TerminalAttachHostTheme>,
+     /// Ephemeral shell connection controlling PTY geometry for each stable tab id.
+     tab_geometry_controllers: HashMap<String, u64>,
+     /// Stable tab id whose viewers may see and interact with the one terminal popup.
+@@ -364,6 +374,7 @@ impl HeadlessServer {
+             #[cfg(unix)]
+             next_client_id: 1,
+             foreground_client_id: None,
++            terminal_attach_host_theme: None,
+             tab_geometry_controllers: HashMap::new(),
+             popup_owner_tab_id: None,
+             client_shell_boot_id: format!(
+@@ -809,6 +820,7 @@ impl HeadlessServer {
+             let server_keybindings = self.server_keybindings.clone();
+             apply_keybindings(&mut self.app, &server_keybindings);
+             self.sync_visible_server_config_diagnostic(false);
++            self.restore_terminal_attach_host_theme();
+             return;
+         };
+         let Some(client) = self.clients.get(&client_id) else {
+@@ -820,6 +832,7 @@ impl HeadlessServer {
+             let server_keybindings = self.server_keybindings.clone();
+             apply_keybindings(&mut self.app, &server_keybindings);
+             self.sync_visible_server_config_diagnostic(false);
++            self.restore_terminal_attach_host_theme();
+             return;
+         };
+ 
+@@ -852,6 +865,22 @@ impl HeadlessServer {
+         self.app.set_host_terminal_theme(host_terminal_theme);
+     }
+ 
++    /// A foreground client's theme is the session's only while it is
++    /// foreground; once none is left, the terminal controller's comes back.
++    fn restore_terminal_attach_host_theme(&mut self) {
++        if let Some(applied) = self.terminal_attach_host_theme {
++            self.apply_terminal_attach_host_theme(applied);
++        }
++    }
++
++    fn apply_terminal_attach_host_theme(&mut self, applied: TerminalAttachHostTheme) -> bool {
++        let mut changed = self
++            .app
++            .set_host_terminal_appearance_state(applied.appearance, applied.appearance_explicit);
++        changed |= self.app.set_host_terminal_theme(applied.theme);
++        changed
++    }
++
+     fn sync_visible_server_config_diagnostic(&mut self, uses_local_keybindings: bool) {
+         let visible = if uses_local_keybindings {
+             &self.server_config_diagnostic_without_keybindings
+@@ -2261,6 +2290,26 @@ impl HeadlessServer {
+                 let Some(client) = self.clients.get_mut(&client_id) else {
+                     return false;
+                 };
++                // A terminal controller has no shell surface to be foreground in;
++                // its theme applies to every pane as soon as it arrives.
++                // A theme line arrives as several updates, so each one merges onto
++                // the session's current theme rather than the client's own, which
++                // starts empty and would clear every pane's colors until the rest
++                // arrived.
++                if matches!(client.mode, ClientConnectionMode::TerminalAttach { .. }) {
++                    client.host_terminal_theme = self.app.state.host_terminal_theme;
++                    client.host_terminal_appearance = self.app.state.host_terminal_appearance;
++                    client.host_terminal_appearance_explicit =
++                        self.app.state.host_terminal_appearance_explicit;
++                    client.update_host_theme(&update);
++                    let applied = TerminalAttachHostTheme {
++                        theme: client.host_terminal_theme,
++                        appearance: client.host_terminal_appearance,
++                        appearance_explicit: client.host_terminal_appearance_explicit,
++                    };
++                    self.terminal_attach_host_theme = Some(applied);
++                    return self.apply_terminal_attach_host_theme(applied);
++                }
+                 if !matches!(client.mode, ClientConnectionMode::ClientShell) {
+                     return false;
+                 }
+diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
+index 3ab7ec0f..62477125 100644
+--- a/src/server/headless/tests/mod.rs
++++ b/src/server/headless/tests/mod.rs
+@@ -114,6 +114,7 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
+         #[cfg(unix)]
+         next_client_id: 1,
+         foreground_client_id: None,
++        terminal_attach_host_theme: None,
+         tab_geometry_controllers: HashMap::new(),
+         popup_owner_tab_id: None,
+         client_shell_boot_id: "test-boot".into(),
+@@ -8333,3 +8334,157 @@ fn no_handle_internal_event_bypass_in_module() {
+         bypass_lines.join("\n  ")
+     );
+ }
++
++#[test]
++fn terminal_attach_host_theme_applies_without_a_foreground_shell() {
++    let mut server = test_headless_server();
++    let mut client = ClientConnection::new(
++        (80, 24),
++        crate::kitty_graphics::HostCellSize::default(),
++        1,
++        RenderEncoding::SemanticFrame,
++        None,
++    );
++    client.mode = ClientConnectionMode::TerminalAttach {
++        terminal_id: "1".to_owned(),
++    };
++    server.clients.insert(1, client);
++    server.foreground_client_id = None;
++
++    let light = protocol::ClientHostColor {
++        r: 240,
++        g: 230,
++        b: 220,
++    };
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
++    });
++    assert!(
++        server.handle_server_event(ServerEvent::ClientShellHostTheme {
++            client_id: 1,
++            update: protocol::ClientHostThemeUpdate::DefaultColor {
++                kind: protocol::ClientHostDefaultColorKind::Background,
++                color: light,
++            },
++        })
++    );
++    assert_eq!(
++        server.app.state.host_terminal_theme.background,
++        Some(light.into())
++    );
++    assert_eq!(
++        server.app.state.host_terminal_appearance,
++        Some(crate::terminal_theme::HostAppearance::Light)
++    );
++    assert!(server.app.state.host_terminal_appearance_explicit);
++}
++
++fn terminal_attach_test_client() -> ClientConnection {
++    let mut client = ClientConnection::new(
++        (80, 24),
++        crate::kitty_graphics::HostCellSize::default(),
++        1,
++        RenderEncoding::SemanticFrame,
++        None,
++    );
++    client.mode = ClientConnectionMode::TerminalAttach {
++        terminal_id: "1".to_owned(),
++    };
++    client
++}
++
++#[test]
++fn terminal_attach_host_theme_merges_onto_the_current_theme() {
++    let mut server = test_headless_server();
++    let mut current = crate::terminal_theme::TerminalTheme::default();
++    current.foreground = Some(
++        protocol::ClientHostColor {
++            r: 205,
++            g: 214,
++            b: 244,
++        }
++        .into(),
++    );
++    current.background = Some(
++        protocol::ClientHostColor {
++            r: 30,
++            g: 30,
++            b: 46,
++        }
++        .into(),
++    );
++    current.palette[1] = current.foreground;
++    server.app.set_host_terminal_theme(current);
++    server.clients.insert(1, terminal_attach_test_client());
++    server.foreground_client_id = None;
++
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
++    });
++
++    assert_eq!(server.app.state.host_terminal_theme, current);
++    assert_eq!(
++        server.app.state.host_terminal_appearance,
++        Some(crate::terminal_theme::HostAppearance::Light)
++    );
++}
++
++#[test]
++fn terminal_attach_host_theme_returns_when_the_foreground_client_leaves() {
++    let mut server = test_headless_server();
++    server.clients.insert(1, terminal_attach_test_client());
++    server.foreground_client_id = None;
++    let light = protocol::ClientHostColor {
++        r: 239,
++        g: 241,
++        b: 245,
++    };
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::Appearance(protocol::ClientHostAppearance::Light),
++    });
++    server.handle_server_event(ServerEvent::ClientShellHostTheme {
++        client_id: 1,
++        update: protocol::ClientHostThemeUpdate::DefaultColor {
++            kind: protocol::ClientHostDefaultColorKind::Background,
++            color: light,
++        },
++    });
++    let controller_theme = server.app.state.host_terminal_theme;
++
++    let mut shell = ClientConnection::new(
++        (80, 24),
++        crate::kitty_graphics::HostCellSize::default(),
++        2,
++        RenderEncoding::SemanticFrame,
++        None,
++    );
++    shell.mode = ClientConnectionMode::ClientShell;
++    shell.host_terminal_theme.background = Some(
++        protocol::ClientHostColor {
++            r: 30,
++            g: 30,
++            b: 46,
++        }
++        .into(),
++    );
++    shell.host_terminal_appearance = Some(crate::terminal_theme::HostAppearance::Dark);
++    let shell_theme = shell.host_terminal_theme;
++    server.clients.insert(2, shell);
++    server.foreground_client_id = Some(2);
++    server.sync_foreground_client_state();
++    assert_eq!(server.app.state.host_terminal_theme, shell_theme);
++
++    server.clients.remove(&2);
++    server.foreground_client_id = None;
++    server.sync_foreground_client_state();
++
++    assert_eq!(server.app.state.host_terminal_theme, controller_theme);
++    assert_eq!(
++        server.app.state.host_terminal_appearance,
++        Some(crate::terminal_theme::HostAppearance::Light)
++    );
++    assert!(server.app.state.host_terminal_appearance_explicit);
++}

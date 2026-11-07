@@ -1,6 +1,7 @@
 #!/bin/bash
-# Signs a built herdr patch and publishes it to the herdr-patch-X pre-release
-# that HerdrMousePatchCatalog points at, one architecture per run: the first
+# Signs a built herdr patch and publishes it to the herdr-patch-X (or, for a
+# later revision, herdr-patch-X-rN) pre-release that HerdrMousePatchCatalog
+# points at, one architecture per run: the first
 # creates the release, a later one adds its own assets to it. Always a
 # pre-release: Sparkle reads
 # releases/latest/download/appcast.xml, and a full release here could become
@@ -8,20 +9,54 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${1:-}"
-ARCH="${2:-$(uname -m)}"
-[ -n "$VERSION" ] || { echo "usage: Scripts/publish-herdr-patch.sh X [arm64|x86_64]" >&2; exit 2; }
+VERSION=""
+ARCH="$(uname -m)"
+REVISION=1
+USAGE="usage: Scripts/publish-herdr-patch.sh X [arm64|x86_64] [--revision N]"
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --revision) REVISION="${2:-}"; shift 2 ;;
+    -h|--help) echo "$USAGE"; exit 0 ;;
+    -*) echo "publish-herdr-patch: unknown option $1" >&2; exit 2 ;;
+    *) POSITIONAL+=("$1"); shift ;;
+  esac
+done
+VERSION="${POSITIONAL[0]:-}"
+[ "${#POSITIONAL[@]}" -lt 2 ] || ARCH="${POSITIONAL[1]}"
+[ -n "$VERSION" ] || { echo "$USAGE" >&2; exit 2; }
 case "$ARCH" in
   arm64|x86_64) ;;
   *) echo "publish-herdr-patch: the architecture must be arm64 or x86_64, not $ARCH" >&2; exit 2 ;;
 esac
+case "$REVISION" in
+  ''|*[!0-9]*) echo "publish-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2 ;;
+esac
+# Base 10, so 02 names r2 and 08 is not read as octal.
+REVISION=$((10#$REVISION))
+[ "$REVISION" -ge 1 ] || { echo "publish-herdr-patch: --revision must be a whole number from 1, not $REVISION" >&2; exit 2; }
+RELEASE="$VERSION"
+[ "$REVISION" = 1 ] || RELEASE="$VERSION-r$REVISION"
 REPO="m4ttstack/flock"
-TAG="herdr-patch-$VERSION"
-NAME="herdr-mouse-patch-$VERSION-$ARCH"
+TAG="herdr-patch-$RELEASE"
+NAME="herdr-mouse-patch-$RELEASE-$ARCH"
 DIR="build/herdr-patches"
 for f in "$NAME" "$NAME.provenance.txt" "$NAME.LICENSE"; do
-  [ -f "$DIR/$f" ] || { echo "publish-herdr-patch: no $DIR/$f; run Scripts/build-herdr-patch.sh --version $VERSION --arch $ARCH" >&2; exit 1; }
+  [ -f "$DIR/$f" ] || { echo "publish-herdr-patch: no $DIR/$f; run Scripts/build-herdr-patch.sh --version $VERSION --arch $ARCH --revision $REVISION" >&2; exit 1; }
 done
+PROVENANCE="$DIR/$NAME.provenance.txt"
+PATCH="patches/herdr/$VERSION.patch"
+FLOCK_COMMIT="$(sed -n 's/^flock_commit=//p' "$PROVENANCE")"
+PATCH_SHA="$(sed -n 's/^patch_sha256=//p' "$PROVENANCE")"
+[ -n "$FLOCK_COMMIT" ] || { echo "publish-herdr-patch: $PROVENANCE names no flock_commit; rebuild it" >&2; exit 1; }
+# The release notes link the patch at this commit, so it must be the patch
+# that was built, and it must be on GitHub.
+COMMITTED_SHA="$(git show "$FLOCK_COMMIT:$PATCH" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+[ "$COMMITTED_SHA" = "$PATCH_SHA" ] || {
+  echo "publish-herdr-patch: $PATCH at $FLOCK_COMMIT is not the patch this build applied; commit it and rebuild" >&2; exit 1; }
+gh api "repos/$REPO/commits/$FLOCK_COMMIT" --silent 2>/dev/null || {
+  echo "publish-herdr-patch: $FLOCK_COMMIT is not on GitHub; push it first" >&2; exit 1; }
+
 EXISTING=0
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
   EXISTING=1
@@ -44,8 +79,8 @@ ASSETS=("$DIR/$NAME" "$DIR/$NAME.sha256" "$DIR/$NAME.provenance.txt" "$DIR/$NAME
 if [ "$EXISTING" = 1 ]; then
   gh release upload "$TAG" -R "$REPO" "${ASSETS[@]}"
 else
-  NOTES="An Apache-2.0 build of herdr $VERSION with [patches/herdr/$VERSION.patch](https://github.com/$REPO/blob/main/patches/herdr/$VERSION.patch) applied, so herdr's terminal session control reports mouse capture to Flock. Flock downloads and verifies this file itself from Settings; it is not made or endorsed by herdr's maintainers. Each architecture's SHA-256 is in its \`.sha256\` asset."
-  gh release create "$TAG" -R "$REPO" --prerelease --title "herdr $VERSION mouse patch" --notes "$NOTES" "${ASSETS[@]}"
+  NOTES="An Apache-2.0 build of herdr $VERSION with [patches/herdr/$VERSION.patch](https://github.com/$REPO/blob/$FLOCK_COMMIT/$PATCH) applied, so herdr's terminal session control reports mouse capture to Flock and takes Flock's light or dark theme. Flock downloads and verifies this file itself from Settings; it is not made or endorsed by herdr's maintainers. Each architecture's SHA-256 is in its \`.sha256\` asset."
+  gh release create "$TAG" -R "$REPO" --prerelease --title "herdr $RELEASE mouse patch" --notes "$NOTES" "${ASSETS[@]}"
 fi
 
-echo "$ARCH SHA-256 for HerdrMousePatchRelease(version: \"$VERSION\", ...): $SHA"
+echo "$ARCH SHA-256 for HerdrMousePatchRelease(version: \"$VERSION\", revision: $REVISION, ...): $SHA"
