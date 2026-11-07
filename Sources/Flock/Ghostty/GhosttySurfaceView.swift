@@ -65,15 +65,29 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                 drain.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
                 drain.zPosition = .greatestFiniteMagnitude
                 layer.addSublayer(drain)
+                // Above the drain and inside this view: a SwiftUI overlay
+                // draws under the surface's own layer, so it could only
+                // darken the ground libghostty leaves clear, never the text.
+                let veil = CALayer()
+                veil.backgroundColor = NSColor.black.cgColor
+                veil.opacity = Float(ChromeMetrics.Pane.Focus.drainVeilOpacity)
+                veil.frame = layer.bounds
+                veil.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+                veil.zPosition = .greatestFiniteMagnitude
+                layer.addSublayer(veil)
                 drainLayer = drain
+                veilLayer = veil
             } else {
                 drainLayer?.removeFromSuperlayer()
                 drainLayer = nil
+                veilLayer?.removeFromSuperlayer()
+                veilLayer = nil
             }
         }
     }
 
     private var drainLayer: CALayer?
+    private var veilLayer: CALayer?
 
     /// Whether this view should grab real AppKit key focus as soon as it has
     /// a window. Set by `GhosttySurfaceRepresentable` from the pane's
