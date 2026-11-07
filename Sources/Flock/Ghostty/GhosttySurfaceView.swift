@@ -58,9 +58,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var lastLibghosttyCursor: NSCursor?
     nonisolated(unsafe) private var windowObservers: [NSObjectProtocol] = []
     nonisolated(unsafe) private var globalObservers: [NSObjectProtocol] = []
-    /// Sets the terminal back while its pane has no focus: a saturation
-    /// blend drains its colour and a veil in the terminal's own ground pulls
-    /// everything toward that ground, lowering contrast without darkening.
+    /// Sets the terminal back while its pane has no focus: a colour blend
+    /// drains its colour toward its ground's own tint, and a veil in that
+    /// ground pulls everything toward it, lowering contrast without
+    /// darkening.
     /// Both sit in this view's own layer tree: a blend sees only what lies
     /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
     /// scrim could darken only the ground libghostty leaves clear.
@@ -82,8 +83,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if drainLayer.superlayer !== layer {
-            drainLayer.backgroundColor = NSColor(white: 0.5, alpha: 1).cgColor
-            drainLayer.compositingFilter = CIFilter(name: "CISaturationBlendMode")
+            // A colour blend takes hue and saturation from this layer and
+            // brightness from what lies beneath. Filled with the terminal's
+            // own ground, it leaves that ground exactly as it was and turns
+            // text and cell colours toward it: drained, but in the theme's
+            // tint rather than a neutral grey that reads as another theme.
+            drainLayer.compositingFilter = CIFilter(name: "CIColorBlendMode")
             for sublayer in [drainLayer, veilLayer] {
                 sublayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
                 sublayer.zPosition = .greatestFiniteMagnitude
@@ -92,6 +97,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         drainLayer.frame = layer.bounds
         veilLayer.frame = layer.bounds
+        drainLayer.backgroundColor = shade.ground
         drainLayer.opacity = Float(shade.drain)
         veilLayer.backgroundColor = shade.ground
         veilLayer.opacity = Float(shade.veil)
