@@ -289,7 +289,8 @@ enum ChromeMetrics {
             static let height: CGFloat = 1
             static let cometHeight: CGFloat = 1.5
             static let frameInterval: Double = 1.0 / 30
-            static let glintPeriod: Double = 2.6
+            /// One full sweep, right and back.
+            static let glintPeriod: Double = 4.4
             static let glintHalfWidth: CGFloat = 0.18
             static let glintRest: Double = 0.12
             static let glintPeak: Double = 0.85

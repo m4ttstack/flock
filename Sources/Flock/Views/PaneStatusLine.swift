@@ -240,7 +240,8 @@ struct PaneStatusLine: View {
     private func glint(_ motion: Motion, t: Double, width: CGFloat) -> some View {
         let half = M.glintHalfWidth
         let color = Color(motion.color)
-        let position = fraction(t / (M.glintPeriod * motion.slowdown)) * (1 + 2 * half) - half
+        // Right and back again on a cosine, so it eases into each turn.
+        let position = 0.5 - 0.5 * cos(2 * .pi * t / (M.glintPeriod * motion.slowdown))
         return ZStack(alignment: .leading) {
             color.opacity(M.glintRest * motion.intensity)
             LinearGradient(
