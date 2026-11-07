@@ -44,7 +44,7 @@ enum ChromeType {
     static let railSectionChevron = Font.system(size: 8, weight: .bold)
 
     static let tabLabelSize: CGFloat = 14
-    static func tabLabelWeight(selected: Bool) -> Weight { selected ? .medium : .regular }
+    static func tabLabelWeight(selected: Bool) -> Weight { selected ? .semibold : .regular }
     static func tabLabel(selected: Bool) -> Font { inter(tabLabelSize, tabLabelWeight(selected: selected)) }
     /// Leads a tab title borrowed from its one pane; the pane's own symbol
     /// wherever flock draws one, as on a pane's drag ghost.

@@ -150,7 +150,7 @@ enum ChromeMetrics {
         static let height: CGFloat = headerBandHeight
         static let horizontalPadding: CGFloat = 10
         static let tabGap: CGFloat = 3
-        /// Above a tab, which stands on the strip's rule.
+        /// Kept for the render tests until they follow the pill strip.
         static let tabTopClearance: CGFloat = 8
         /// The design sets the protocol readout 1.5pt above the strip's
         /// center; the inset is twice that because the frame centers the
@@ -169,12 +169,12 @@ enum ChromeMetrics {
     /// with the bounds it is kept inside; `TabSizing` takes the measurement
     /// that rule is given.
     enum Tab {
-        static let height: CGFloat = Strip.height - Strip.tabTopClearance
+        static let height: CGFloat = 28
+        static let cornerRadius: CGFloat = 6
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6
-        static let underlineHeight: CGFloat = 3
-        /// The glyph leading a title borrowed from the tab's one pane.
+        /// Kept for the render tests until they follow the pill strip.
         static let paneGlyphWidth: CGFloat = 12
         static let paneGlyphGap: CGFloat = 5
         /// The checkmark leading a tab marked complete.

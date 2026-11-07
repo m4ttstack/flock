@@ -12,9 +12,8 @@ enum TabSizing {
     /// A complete tab is compact until it is selected.
     static func width(of title: TabTitle, isComplete: Bool = false, isSelected: Bool = false) -> CGFloat {
         let check = isComplete ? ChromeMetrics.Tab.completeGlyphWidth + ChromeMetrics.Tab.completeGlyphGap : 0
-        let glyph = title.isFromPane ? ChromeMetrics.Tab.paneGlyphWidth + ChromeMetrics.Tab.paneGlyphGap : 0
         return TabWidth.fitting(
-            titleWidth: check + glyph + titleWidth(title.text),
+            titleWidth: check + titleWidth(title.text),
             horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
             trailingSlot: ChromeMetrics.Tab.trailingSlot,
@@ -23,7 +22,7 @@ enum TabSizing {
     }
 
     /// Measured in the face a SELECTED tab is set in, whatever state the tab
-    /// is in: the label is Inter Medium while selected and Regular while not,
+    /// is in: the label is Inter SemiBold while selected and Regular while not,
     /// so a tab measured in its own state would widen as the selection reached
     /// it and carry every tab after it along the strip.
     private static func titleWidth(_ title: String) -> CGFloat {
