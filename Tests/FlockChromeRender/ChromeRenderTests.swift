@@ -57,7 +57,9 @@ final class ChromeRenderTests: XCTestCase {
     /// every card fixture below is written around the four a 1200pt window
     /// gives. The chrome renders keep `windowSize`, which is what makes them
     /// comparable across rounds.
-    private static let gridWindowSize = CGSize(width: 1200, height: 560)
+    /// Tall enough that the herdr island's tiles (`GridFixture.srcPane`) sit
+    /// well inside the scroll view, which a tile must be to read its tail.
+    private static let gridWindowSize = CGSize(width: 1200, height: 640)
     private static let tallWindowSize = CGSize(width: 900, height: 1000)
     private static let themeIDs = [
         "tokyo-night", "dracula",
