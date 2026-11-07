@@ -465,20 +465,13 @@ enum ChromeMetrics {
         /// THIS PANE's own bottom padding), 16 clear below it to the
         /// popover's own bottom edge.
         enum SignButtons {
-            static let bandHeight: CGFloat = 49
-            static let topPadding: CGFloat = 0
-            static let trailingPadding: CGFloat = 14
-            static let bottomPadding: CGFloat = 16
-            static let leadingPadding: CGFloat = 14
-            static let buttonSize = CGSize(width: 332, height: 33)
+            /// Under the features, now that the sign button rides the status line.
+            static let bottomPadding: CGFloat = 8
             static let cornerRadius: CGFloat = ChromeRadius.control
-            static let buttonVerticalPadding: CGFloat = 9
-            static let buttonHorizontalPadding: CGFloat = 10
-            static let contentGap: CGFloat = 7
-            static let iconSize = CGSize(width: 13, height: 13)
-            /// The line under a disabled Sign out, which the band grows by.
-            static let hintGap: CGFloat = 7
-            static let hintHeight: CGFloat = 12
+            static let buttonVerticalPadding: CGFloat = 3
+            static let buttonHorizontalPadding: CGFloat = 6
+            static let contentGap: CGFloat = 5
+            static let iconSize = CGSize(width: 11, height: 11)
         }
     }
 

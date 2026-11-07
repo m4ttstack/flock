@@ -169,9 +169,8 @@ struct ChatPopover: View {
             statusBlock
             sectionLabel("FEATURES")
             featuresBlock
-            sectionLabel("THIS PANE")
-            signButtonsBlock
         }
+        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
         .frame(width: ChromeMetrics.ChatPopover.width)
     }
 
@@ -243,6 +242,7 @@ struct ChatPopover: View {
                     .font(ChromeType.chatPopoverStateWord)
                     .foregroundStyle(theme.textLabel)
                 Spacer(minLength: 0)
+                signButton(for: ChatPresence.signAction(for: status))
             }
             if hasRooms {
                 HStack(spacing: ChromeMetrics.ChatPopover.Status.roomChipGap) {
@@ -452,27 +452,8 @@ struct ChatPopover: View {
 
     private var signOutIsBlocked: Bool { slackRow?.blocksSignOut ?? false }
 
-    var signButtonsBlock: some View {
-        VStack(spacing: ChromeMetrics.ChatPopover.SignButtons.hintGap) {
-            signButton(for: ChatPresence.signAction(for: status))
-            if signOutIsBlocked {
-                Text("End the Slack chat first")
-                    .font(ChromeType.chatComposeFooterHint)
-                    .foregroundStyle(theme.textLabel)
-                    .frame(height: ChromeMetrics.ChatPopover.SignButtons.hintHeight)
-            }
-        }
-        .padding(.top, ChromeMetrics.ChatPopover.SignButtons.topPadding)
-        .padding(.horizontal, ChromeMetrics.ChatPopover.Features.horizontalInset)
-        .padding(.bottom, ChromeMetrics.ChatPopover.SignButtons.bottomPadding)
-        .frame(width: ChromeMetrics.ChatPopover.width, height: signButtonsHeight, alignment: .top)
-    }
-
-    private var signButtonsHeight: CGFloat {
-        let band = ChromeMetrics.ChatPopover.SignButtons.self
-        return signOutIsBlocked ? band.bandHeight + band.hintGap + band.hintHeight : band.bandHeight
-    }
-
+    /// A small text button at the end of the status line: signing in or out
+    /// is this pane's one action, and it should not outweigh the features.
     private func signButton(for signAction: ChatSignAction) -> some View {
         let title: String
         let symbolName: String
@@ -490,26 +471,21 @@ struct ChatPopover: View {
             isEnabled = !signOutIsBlocked
             action = onSignOut
         }
-        // A row like the features above it rather than a filled button: the
-        // popover's one action should not outweigh everything it offers.
-        let features = ChromeMetrics.ChatPopover.Features.self
+        let metrics = ChromeMetrics.ChatPopover.SignButtons.self
         return Button(action: action) {
-            HStack(spacing: features.rowGap) {
+            HStack(spacing: metrics.contentGap) {
                 Image(systemName: symbolName)
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(isEnabled ? (isSignHovered ? theme.textStrong : theme.textLabel) : theme.overlay0)
-                    .frame(width: features.iconSize.width, height: features.iconSize.height)
+                    .frame(width: metrics.iconSize.width, height: metrics.iconSize.height)
                 Text(title)
-                    .font(ChromeType.chatPopoverFeatureName)
-                    .foregroundStyle(isEnabled ? theme.textDim : theme.overlay0)
-                Spacer(minLength: 0)
+                    .font(ChromeType.chatPopoverStateWord)
             }
-            .padding(.horizontal, features.rowHorizontalPadding)
-            .frame(height: features.rowSize.height)
-            .frame(maxWidth: .infinity)
+            .foregroundStyle(isEnabled ? (isSignHovered ? theme.textStrong : theme.textLabel) : theme.overlay0)
+            .padding(.horizontal, metrics.buttonHorizontalPadding)
+            .padding(.vertical, metrics.buttonVerticalPadding)
             .background(
-                RoundedRectangle(cornerRadius: features.rowCornerRadius)
+                RoundedRectangle(cornerRadius: metrics.cornerRadius)
                     .fill(isSignHovered && isEnabled ? theme.lift : .clear)
             )
             .contentShape(Rectangle())
@@ -517,6 +493,7 @@ struct ChatPopover: View {
         .buttonStyle(.plain)
         .onHover { isSignHovered = $0 }
         .disabled(!isEnabled)
+        .help(signOutIsBlocked ? "End the Slack chat first" : title)
     }
 
     // MARK: - Feature route
