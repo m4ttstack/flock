@@ -31,7 +31,7 @@ struct PaneStatusLine: View {
     private enum Paint {
         case still(Color, Double)
         case glint(Motion), comet(Motion), aurora(Motion)
-        case breathe(Color, period: Double, low: Double, high: Double)
+        case breathe(Color, period: Double, low: Double, high: Double, expands: Bool)
 
         var animates: Bool {
             if case .still = self { return false }
@@ -47,7 +47,7 @@ struct PaneStatusLine: View {
         case .aurora: .aurora(motion)
         case .breathe: .breathe(
             Color(motion.color), period: M.workingBreathePeriod * motion.slowdown,
-            low: M.workingLow * motion.intensity, high: M.workingHigh * motion.intensity
+            low: M.workingLow * motion.intensity, high: M.workingHigh * motion.intensity, expands: true
         )
         }
     }
@@ -62,7 +62,7 @@ struct PaneStatusLine: View {
             ))
         case .working:
             return styled(Motion(color: theme.palette.yellow, partner: theme.palette.mauve, intensity: 1, slowdown: 1))
-        case .blocked: return .breathe(theme.red, period: M.blockedPeriod, low: M.blockedLow, high: M.blockedHigh)
+        case .blocked: return .breathe(theme.red, period: M.blockedPeriod, low: M.blockedLow, high: M.blockedHigh, expands: false)
         case .done: return .still(theme.teal, M.doneOpacity)
         case .idle: return .still(theme.green, M.idleOpacity)
         case .unknown: return nil
@@ -236,8 +236,8 @@ struct PaneStatusLine: View {
         case .glint(let motion): glint(motion, t: t, width: width)
         case .comet(let motion): comet(motion, t: t, width: width)
         case .aurora(let motion): aurora(motion, t: t)
-        case .breathe(let color, let period, let low, let high):
-            breathe(color, t: t, width: width, period: period, low: low, high: high)
+        case .breathe(let color, let period, let low, let high, let expands):
+            breathe(color, t: t, width: width, period: period, low: low, high: high, expands: expands)
         }
     }
 
@@ -299,13 +299,24 @@ struct PaneStatusLine: View {
         return LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
     }
 
-    /// Brightens and widens together from the centre, its ends feathered so
-    /// the line's reach is never a hard edge.
-    private func breathe(_ color: Color, t: Double, width: CGFloat, period: Double, low: Double, high: Double) -> some View {
+    /// Brightens in place, or, when it `expands`, widens with it from the
+    /// centre, its ends feathered so the line's reach is never a hard edge.
+    @ViewBuilder
+    private func breathe(
+        _ color: Color, t: Double, width: CGFloat, period: Double, low: Double, high: Double, expands: Bool
+    ) -> some View {
         let wave = 0.5 + 0.5 * sin(t * 2 * .pi / period)
-        let span = M.breatheNarrowest + (1 - M.breatheNarrowest) * wave
         let shown = color.opacity(low + (high - low) * wave * wave)
-        return LinearGradient(
+        if expands {
+            feathered(shown, width: width * (M.breatheNarrowest + (1 - M.breatheNarrowest) * wave))
+                .frame(width: width)
+        } else {
+            shown
+        }
+    }
+
+    private func feathered(_ shown: Color, width: CGFloat) -> some View {
+        LinearGradient(
             stops: [
                 .init(color: shown.opacity(0), location: 0),
                 .init(color: shown, location: M.breatheFeather),
@@ -314,7 +325,6 @@ struct PaneStatusLine: View {
             ],
             startPoint: .leading, endPoint: .trailing
         )
-        .frame(width: width * span)
         .frame(width: width)
     }
 
