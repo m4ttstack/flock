@@ -315,7 +315,9 @@ final class HerdrMousePatchStore {
             HerdrMousePatchInstaller.RevertError.renameFailed:
             return "The file move failed partway through."
         case HerdrMousePatchInstaller.InstallError.verificationFailed:
-            return "The installed binary did not verify; the original was restored."
+            return "The installed binary did not verify; the herdr that was there before is back."
+        case HerdrMousePatchInstaller.InstallError.rollbackFailed:
+            return "The installed binary did not verify, and putting the previous herdr back failed. Reinstall herdr before using it."
         case HerdrMousePatchInstaller.RevertError.verificationFailed:
             return "The reverted binary still carries the mouse verbs."
         case HerdrMousePatchInstaller.InstallError.backupMissing:
