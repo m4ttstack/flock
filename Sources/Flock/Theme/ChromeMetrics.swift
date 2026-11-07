@@ -54,7 +54,7 @@ enum ChromeMetrics {
         static let tabsLeadingInset: CGFloat = 86
         static let tabHorizontalPadding: CGFloat = 10
         static let tabHeight: CGFloat = 26
-        static let tabRadius: CGFloat = 6
+        static let tabRadius = ChromeRadius.control
         static let tabGap: CGFloat = 2
         static let badgeHeight: CGFloat = 16
         static let badgeHorizontalPadding: CGFloat = 5
@@ -178,7 +178,7 @@ enum ChromeMetrics {
     /// that rule is given.
     enum Tab {
         static let height: CGFloat = 28
-        static let cornerRadius: CGFloat = 6
+        static let cornerRadius = ChromeRadius.control
         static let horizontalPadding: CGFloat = 12
         static let labelDotGap: CGFloat = 6
         static let statusDot: CGFloat = 6

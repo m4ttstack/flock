@@ -375,6 +375,12 @@ public final class SessionViewModel {
         if optimisticFocusedPaneID != nil, model?.focusedPaneID == optimisticFocusedPaneID {
             optimisticFocusedPaneID = nil
         }
+        // A predicted pane that the model had and has now dropped (a tab
+        // close removed it) predicts nothing. One the model has not seen yet
+        // is a creation still waiting for its echo, and keeps its claim.
+        if let predicted = optimisticFocusedPaneID, previousModel?.panes[predicted] != nil, model?.panes[predicted] == nil {
+            optimisticFocusedPaneID = nil
+        }
         if externalFocusWatch.observed(focus: model?.focusedPaneID, ownTarget: paneShownInOverview, at: now()) {
             externalFocusMoves += 1
         }
@@ -876,13 +882,12 @@ public final class SessionViewModel {
     /// field decides which pane's surface accepts input, mouse and wheel
     /// (`InputSinkDisposition`, `MouseForwarding`).
     ///
-    /// Each candidate counts only while its pane still exists: a click on a
-    /// pane that a tab close then removed would otherwise hold focus on
-    /// nothing. With neither left, the shown tab's own remembered pane takes
-    /// it, which is the pane herdr itself focuses there.
+    /// The model's focus counts only while its pane still exists; with none
+    /// left, the shown tab's own remembered pane takes it, which is the pane
+    /// herdr itself focuses there.
     public var resolvedFocusedPaneID: PaneID? {
         let live: (PaneID?) -> PaneID? = { id in id.flatMap { self.model?.panes[$0] != nil ? $0 : nil } }
-        return live(optimisticFocusedPaneID) ?? live(model?.focusedPaneID) ?? live(selectedLayout?.focusedPane)
+        return optimisticFocusedPaneID ?? live(model?.focusedPaneID) ?? live(selectedLayout?.focusedPane)
     }
 
     /// The pane the main canvas draws as focused and lets take the keyboard.
