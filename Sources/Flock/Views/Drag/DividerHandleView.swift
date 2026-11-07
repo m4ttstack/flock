@@ -4,10 +4,11 @@ import SwiftUI
 
 /// One divider's hit zone and paint. Placed by the caller via `.offset` at
 /// `band`'s origin, the same convention `PaneCanvas` already uses for
-/// `PaneCellView` -- this view sizes itself to `band`, which is wider than
-/// the gutter (`DividerBand.thickness` vs. `DividerBand.gutter`), so the hit
-/// zone reaches into both neighbors' chrome insets without ever meeting
-/// their terminal surfaces. The visible part is only the centered handle.
+/// `PaneCellView` -- this view sizes itself to `band`, which is larger than
+/// the gutter, so the hit zone reaches into the neighbors' chrome without
+/// meeting their terminal surfaces. A horizontal band is not centered on its
+/// gutter (`DividerHandle.hitBand`), so the handle is placed on the gutter,
+/// not on the band.
 ///
 /// A divider drag is NOT routed through `DragCoordinator`/`DragController`:
 /// it resolves no drop target, has no ghost, and never spring-loads, so
@@ -21,9 +22,8 @@ import SwiftUI
 struct DividerHandleView: View {
     let theme: Theme
     let divider: DividerHandle
-    /// `divider.hitBand(thickness: DividerBand.thickness)` -- the caller's
-    /// own, so its placement offset and this view's local space agree on
-    /// the same rect.
+    /// `divider.hitBand(thickness:)` -- the caller's own, so its placement
+    /// offset and this view's local space agree on the same rect.
     let band: CGRect
 
     @Environment(DividerDragCoordinator.self) private var dividerDrag
@@ -51,6 +51,8 @@ struct DividerHandleView: View {
                 handle(color: isHovering ? theme.textLabel : theme.hairFocus)
             }
         }
+        .frame(width: divider.frame.width, height: divider.frame.height)
+        .offset(x: divider.frame.midX - band.midX, y: divider.frame.midY - band.midY)
         .frame(width: band.width, height: band.height)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }

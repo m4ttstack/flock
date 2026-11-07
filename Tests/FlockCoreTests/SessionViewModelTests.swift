@@ -935,6 +935,23 @@ final class SessionViewModelTests: XCTestCase {
         await task.value
     }
 
+    /// Only a creation's prediction counts before its pane exists: a click's
+    /// on a pane the model never holds (one in a hidden workspace) does not.
+    @MainActor
+    func testAClickOnAPaneTheModelNeverHoldsFallsBackToTheModelsFocus() async {
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: makeModelWithAPaneInASecondTab(), connection: .live)
+
+        let task = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p9")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
+
+        await client.releaseNext()
+        await task.value
+    }
+
     /// With neither the click nor herdr's focus on a live pane, the shown
     /// tab's remembered pane holds focus, as herdr's own does.
     @MainActor

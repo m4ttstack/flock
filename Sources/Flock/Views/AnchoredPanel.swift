@@ -83,12 +83,7 @@ final class AnchoredPanelAnchor: NSView {
 
     private func open(_ content: AnyView) {
         guard let parent = window else { return }
-        // A panel still fading out goes at once, or the new one would open
-        // beside it and stay unfitted until the fade ends.
-        if let closing = panel {
-            stopWatching()
-            tearDown(closing)
-        }
+        dismiss(animated: false)
         let host = NSHostingView(rootView: content)
         let size = host.fittingSize
         let panel = AnchoredPanelWindow(
@@ -134,12 +129,16 @@ final class AnchoredPanelAnchor: NSView {
     }
 
     func dismiss(animated: Bool = true) {
-        guard let panel, !isClosing else { return }
-        stopWatching()
+        guard let panel else { return }
+        // Not animated (the anchor leaving) also ends a fade in progress,
+        // whose completion would find no anchor to tear down from.
         guard animated else {
+            stopWatching()
             tearDown(panel)
             return
         }
+        guard !isClosing else { return }
+        stopWatching()
         isClosing = true
         NSAnimationContext.runAnimationGroup { context in
             context.duration = M.closeDuration
@@ -153,10 +152,11 @@ final class AnchoredPanelAnchor: NSView {
     private func tearDown(_ panel: NSPanel) {
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
-        if self.panel === panel {
-            self.panel = nil
-            host = nil
-        }
+        // A fade that outlives its panel's replacement must not touch the
+        // replacement's state.
+        guard self.panel === panel else { return }
+        self.panel = nil
+        host = nil
         isClosing = false
     }
 
