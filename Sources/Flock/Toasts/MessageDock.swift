@@ -47,7 +47,7 @@ struct MessageDock: View {
 
     private var cardLimit: Int {
         guard let railHeight else { return AttentionToastStack.minimumVisible }
-        let fixed = ChromeMetrics.ruleWidth + ChromeMetrics.Dock.ruleToFirstItem + ChromeMetrics.Dock.bottomInset
+        let fixed = ChromeMetrics.Dock.ruleToFirstItem + ChromeMetrics.Dock.bottomInset
             + (notice == nil ? 0 : noticeHeight + ChromeMetrics.Dock.itemSpacing)
         return DockCapacity.cardLimit(
             cards: viewModel.attentionToasts.toasts.count, railHeight: railHeight, fixedHeight: fixed,
@@ -62,11 +62,6 @@ struct MessageDock: View {
     var body: some View {
         if notice != nil || showsCards {
             VStack(spacing: 0) {
-                if placement == .rail {
-                    Rectangle()
-                        .fill(theme.hair)
-                        .frame(height: ChromeMetrics.ruleWidth)
-                }
                 VStack(alignment: .leading, spacing: ChromeMetrics.Dock.itemSpacing) {
                     if let notice {
                         NoticeCard(theme: theme, toast: notice, isFloating: isFloating)
