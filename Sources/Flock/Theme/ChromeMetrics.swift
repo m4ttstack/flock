@@ -305,7 +305,10 @@ enum ChromeMetrics {
             static let blockedHigh: Double = 0.75
             static let doneOpacity: Double = 0.35
             static let idleOpacity: Double = 0.22
-            static let backgroundWorkOpacity: Double = 0.4
+            /// Background work runs the working style in mauve at this share
+            /// of working's strength, this many times slower.
+            static let backgroundWorkIntensity: Double = 0.5
+            static let backgroundWorkSlowdown: Double = 1.6
             /// The wash rises from the line to the box's top edge.
             static let washHeight: CGFloat = top
             /// The wash's strength at the line, as a share of the line's own.

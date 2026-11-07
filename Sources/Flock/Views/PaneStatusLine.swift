@@ -19,9 +19,18 @@ struct PaneStatusLine: View {
 
     private typealias M = ChromeMetrics.Pane.StatusLine
 
+    /// Working's motion in its own colours, or background work's: the same
+    /// motion in mauve, weaker and slower, so it reads as alive but secondary.
+    private struct Motion {
+        let color: RGB
+        let partner: RGB
+        let intensity: Double
+        let slowdown: Double
+    }
+
     private enum Paint {
         case still(Color, Double)
-        case glint, comet, aurora
+        case glint(Motion), comet(Motion), aurora(Motion)
         case breathe(Color, period: Double, low: Double, high: Double)
 
         var animates: Bool {
@@ -30,19 +39,29 @@ struct PaneStatusLine: View {
         }
     }
 
+    private func styled(_ motion: Motion) -> Paint? {
+        switch style {
+        case .off: nil
+        case .glint: .glint(motion)
+        case .comet: .comet(motion)
+        case .aurora: .aurora(motion)
+        case .breathe: .breathe(
+            Color(motion.color), period: M.workingBreathePeriod * motion.slowdown,
+            low: M.workingLow * motion.intensity, high: M.workingHigh * motion.intensity
+        )
+        }
+    }
+
     private var paint: Paint? {
         guard style != .off else { return nil }
         switch status {
         case .idle where backgroundWork != nil, .unknown where backgroundWork != nil:
-            return .still(theme.backgroundWorkColor, M.backgroundWorkOpacity)
+            return styled(Motion(
+                color: theme.palette.mauve, partner: theme.palette.blue,
+                intensity: M.backgroundWorkIntensity, slowdown: M.backgroundWorkSlowdown
+            ))
         case .working:
-            switch style {
-            case .off: return nil
-            case .glint: return .glint
-            case .comet: return .comet
-            case .aurora: return .aurora
-            case .breathe: return .breathe(theme.yellow, period: M.workingBreathePeriod, low: M.workingLow, high: M.workingHigh)
-            }
+            return styled(Motion(color: theme.palette.yellow, partner: theme.palette.mauve, intensity: 1, slowdown: 1))
         case .blocked: return .breathe(theme.red, period: M.blockedPeriod, low: M.blockedLow, high: M.blockedHigh)
         case .done: return .still(theme.teal, M.doneOpacity)
         case .idle: return .still(theme.green, M.idleOpacity)
@@ -99,23 +118,24 @@ struct PaneStatusLine: View {
     private func fill(_ paint: Paint, t: Double, width: CGFloat) -> some View {
         switch paint {
         case .still(let color, let opacity): color.opacity(opacity)
-        case .glint: glint(t: t, width: width)
-        case .comet: comet(t: t, width: width)
-        case .aurora: aurora(t: t)
+        case .glint(let motion): glint(motion, t: t, width: width)
+        case .comet(let motion): comet(motion, t: t, width: width)
+        case .aurora(let motion): aurora(motion, t: t)
         case .breathe(let color, let period, let low, let high): breathe(color, t: t, period: period, low: low, high: high)
         }
     }
 
-    private func glint(t: Double, width: CGFloat) -> some View {
+    private func glint(_ motion: Motion, t: Double, width: CGFloat) -> some View {
         let half = M.glintHalfWidth
-        let position = fraction(t / M.glintPeriod) * (1 + 2 * half) - half
+        let color = Color(motion.color)
+        let position = fraction(t / (M.glintPeriod * motion.slowdown)) * (1 + 2 * half) - half
         return ZStack(alignment: .leading) {
-            theme.yellow.opacity(M.glintRest)
+            color.opacity(M.glintRest * motion.intensity)
             LinearGradient(
                 stops: [
-                    .init(color: theme.yellow.opacity(0), location: 0),
-                    .init(color: theme.yellow.opacity(M.glintPeak), location: 0.5),
-                    .init(color: theme.yellow.opacity(0), location: 1),
+                    .init(color: color.opacity(0), location: 0),
+                    .init(color: color.opacity(M.glintPeak * motion.intensity), location: 0.5),
+                    .init(color: color.opacity(0), location: 1),
                 ],
                 startPoint: .leading, endPoint: .trailing
             )
@@ -125,15 +145,16 @@ struct PaneStatusLine: View {
         .frame(width: width, alignment: .leading)
     }
 
-    private func comet(t: Double, width: CGFloat) -> some View {
+    private func comet(_ motion: Motion, t: Double, width: CGFloat) -> some View {
         let tail = M.cometTail
-        let head = fraction(t / M.cometPeriod) * (1 + tail)
+        let color = Color(motion.color)
+        let head = fraction(t / (M.cometPeriod * motion.slowdown)) * (1 + tail)
         return LinearGradient(
             stops: [
-                .init(color: theme.yellow.opacity(0), location: 0),
-                .init(color: theme.yellow.opacity(0.12), location: 0.5),
-                .init(color: theme.yellow.opacity(0.5), location: 0.8),
-                .init(color: theme.yellow, location: 1),
+                .init(color: color.opacity(0), location: 0),
+                .init(color: color.opacity(0.12 * motion.intensity), location: 0.5),
+                .init(color: color.opacity(0.5 * motion.intensity), location: 0.8),
+                .init(color: color.opacity(motion.intensity), location: 1),
             ],
             startPoint: .leading, endPoint: .trailing
         )
@@ -142,15 +163,15 @@ struct PaneStatusLine: View {
         .frame(width: width, alignment: .leading)
     }
 
-    private func aurora(t: Double) -> some View {
-        let from = theme.palette.yellow
-        let to = theme.palette.mauve
+    private func aurora(_ motion: Motion, t: Double) -> some View {
+        let clock = t / motion.slowdown
         let stops = (0...M.auroraStops).map { index -> Gradient.Stop in
             let x = Double(index) / Double(M.auroraStops)
-            let hue = 0.5 + 0.5 * sin((x * 2 - t * 0.25) * 2 * .pi)
-            let glow = 0.5 + 0.5 * sin((x * 3.3 + t * 0.17) * 2 * .pi)
+            let hue = 0.5 + 0.5 * sin((x * 2 - clock * 0.25) * 2 * .pi)
+            let glow = 0.5 + 0.5 * sin((x * 3.3 + clock * 0.17) * 2 * .pi)
             return .init(
-                color: Color(from.mixed(with: to, amount: hue)).opacity(M.auroraOpacity * (0.35 + 0.65 * glow)),
+                color: Color(motion.color.mixed(with: motion.partner, amount: hue))
+                    .opacity(M.auroraOpacity * motion.intensity * (0.35 + 0.65 * glow)),
                 location: x
             )
         }
