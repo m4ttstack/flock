@@ -19,6 +19,7 @@ struct ChatSlackAgentChat: Equatable, Codable {
     var name: String?
     var startedAt: ContinuousClock.Instant = .now
     var timedOut = false
+    var missedTicks = 0
 
     private enum CodingKeys: String, CodingKey { case pane, repoName, name }
 }
@@ -374,9 +375,16 @@ final class ChatStore {
             } else if !agent.timedOut, now() - agent.startedAt > ChatSlackAgent.openDeadline {
                 slackAgents[owner]?.timedOut = true
                 toasts.show("Slack chat didn't open", kind: .info)
-            } else if agent.timedOut, await agentIsGone(agent.pane) {
+            } else if agent.timedOut {
+                let gone = await agentIsGone(agent.pane)
                 guard slackAgents[owner] == agent else { continue }
-                retire(owner, agent, exit: false)
+                if !gone {
+                    if agent.missedTicks != 0 { slackAgents[owner]?.missedTicks = 0 }
+                } else if agent.missedTicks + 1 >= Self.missedTicksToRetire {
+                    retire(owner, agent, exit: false)
+                } else {
+                    slackAgents[owner]?.missedTicks = agent.missedTicks + 1
+                }
             }
         }
     }
@@ -391,6 +399,8 @@ final class ChatStore {
     private static let faceRechecks: [Duration] = [.seconds(10), .seconds(30), .seconds(120), .seconds(300)]
     /// Just under the last recheck, so whichever follow wakes first asks again.
     private static let faceVerbRecheck: Duration = .seconds(290)
+    /// The daemon's pane list silently omits background panes when their server is down.
+    private static let missedTicksToRetire = 2
     private static let slackAgentsKey = "chat.slackAgents"
 
     private static func savedSlackAgents(in defaults: UserDefaults) -> [PaneID: ChatSlackAgentChat] {

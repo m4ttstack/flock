@@ -77,6 +77,14 @@ final class ChatSidebarTests: XCTestCase {
         XCTAssertNil(ChatSlackAgent.pane(stdout: Data("{}".utf8), exitCode: 0))
     }
 
+    func testAPaneListSaysWhetherTheAgentPaneIsGone() {
+        let list = Data(#"{"ok":true,"panes":[{"paneId":"bg:w9:p1"}]}"#.utf8)
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p1", stdout: list, exitCode: 0))
+        XCTAssertTrue(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 0))
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: list, exitCode: 1))
+        XCTAssertFalse(ChatSlackAgent.paneIsGone("bg:w9:p2", stdout: Data("{}".utf8), exitCode: 0))
+    }
+
     func testTheAgentStartsInTheBackgroundInTheRepo() {
         XCTAssertEqual(
             ChatSlackAgent.startArguments(repo: "/src/acme"),
