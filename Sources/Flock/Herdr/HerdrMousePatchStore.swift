@@ -226,8 +226,11 @@ final class HerdrMousePatchStore {
         let probeServer = probeServer
         serverCheckTask = Task {
             let found = await Task.detached { probeServer(socket, binaryPath) }.value
-            guard !Task.isCancelled, found != serverBinary else { return }
-            serverBinary = found
+            guard !Task.isCancelled else { return }
+            // Only a server seen on the binary on disk settles a failed
+            // restart: an unreadable one says nothing about it.
+            if found == .onDisk, serverRestartError != nil { serverRestartError = nil }
+            if found != serverBinary { serverBinary = found }
         }
     }
 
@@ -387,9 +390,11 @@ final class HerdrMousePatchStore {
                 phase = .installing
                 if isUpdate {
                     try HerdrMousePatchInstaller.update(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
+                    serverRestartError = nil
                     restartReason = .updated
                 } else {
                     try HerdrMousePatchInstaller.install(artifactPath: artifact, binaryPath: binaryPath, fileManager: fileManager)
+                    serverRestartError = nil
                     restartReason = .installed
                 }
             } catch {
@@ -406,6 +411,7 @@ final class HerdrMousePatchStore {
         guard let binaryPath = resolveBinaryPath() else { return }
         do {
             try HerdrMousePatchInstaller.revert(binaryPath: binaryPath, fileManager: fileManager)
+            serverRestartError = nil
             restartReason = .restored
         } catch {
             lastErrorMessage = Self.message(for: error)

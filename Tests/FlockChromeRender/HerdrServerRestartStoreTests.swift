@@ -256,6 +256,57 @@ final class HerdrServerRestartStoreTests: XCTestCase {
         XCTAssertEqual(store.bannerRestartPrompt, .updated)
     }
 
+    private func failRestart(_ store: HerdrMousePatchStore) async {
+        store.requestServerRestart(source: .settings)
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+        await settle(store)
+    }
+
+    private var refusingRunner: StubRunner {
+        StubRunner(status: 1, output: #"{"error":{"code":"handoff_failed","message":"refused"}}"#)
+    }
+
+    /// Finished by hand: the next probe finds the server on the binary on
+    /// disk, which settles the failure. An unreadable server does not.
+    func testAFailedRestartClearsOnceTheServerIsSeenOnTheBinaryOnDisk() async throws {
+        try installCurrentRevision()
+        let server = ServerStub(.other)
+        let store = makeStore(server: server, runner: refusingRunner)
+        await settle(store)
+        await failRestart(store)
+        XCTAssertNotNil(store.serverRestartError)
+
+        server.set(.unknown)
+        store.checkServer()
+        await settle(store)
+        XCTAssertNotNil(store.serverRestartError, "an unreadable server says nothing about the failure")
+
+        server.set(.onDisk)
+        store.checkServer()
+        await settle(store)
+        XCTAssertNil(store.serverRestartError)
+        XCTAssertNil(store.restartPrompt)
+    }
+
+    /// Restore Original makes the restart moot, so the banner shows the
+    /// restore rather than the old failure.
+    func testRestoringTheOriginalClearsAFailedRestart() async throws {
+        try installCurrentRevision()
+        let store = makeStore(server: ServerStub(.other), runner: refusingRunner)
+        await settle(store)
+        await failRestart(store)
+        XCTAssertNotNil(store.serverRestartError)
+
+        store.requestRevert(source: .settings)
+        store.confirmPendingAction()
+        await settle(store)
+
+        XCTAssertNil(store.serverRestartError)
+        XCTAssertEqual(store.bannerRestartPrompt, .restored)
+        XCTAssertFalse(store.needsServerRestart)
+    }
+
     func testNoRestartIsOfferedWhileNoneIsNeeded() async throws {
         try installCurrentRevision()
         let store = makeStore(server: ServerStub(.onDisk))
