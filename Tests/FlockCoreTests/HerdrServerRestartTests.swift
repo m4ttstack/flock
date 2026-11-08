@@ -29,11 +29,10 @@ final class HerdrServerRestartTests: XCTestCase {
     /// unoffered until both pins are filled.
     func testOnlyTheHostThemeRevisionsChangeTheServer() throws {
         let current = try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.5", arch: .arm64))
-        XCTAssertEqual(current.revision, 2)
+        XCTAssertEqual(current.revision, 3)
         XCTAssertTrue(current.changesServer)
-        let third = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 3 })
-        XCTAssertTrue(third.changesServer)
-        XCTAssertTrue(third.sha256.isEmpty, "revision 3 is not published yet")
+        let second = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 2 })
+        XCTAssertTrue(second.changesServer)
         XCTAssertFalse(try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.4", arch: .arm64)).changesServer)
         let first = HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 1 }
         XCTAssertEqual(first?.changesServer, false)
