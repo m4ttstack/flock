@@ -7,6 +7,7 @@ import WebKit
 struct ChatSidebar: View {
     let theme: Theme
     let store: ChatSidebarStore
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
 
     var body: some View {
         if let selection = store.selection, selection.isLinked(toTab: store.tabPanes) {
@@ -70,7 +71,7 @@ struct ChatSidebar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Show the Slack chat with \(selection.chat.shownName)")
+        .help("Show the \((chatStore?.slackPersona ?? .unnamed).chatNoun) with \(selection.chat.shownName)")
         .accessibilityIdentifier("flock.chatSidebar.expand")
     }
 }

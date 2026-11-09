@@ -15,12 +15,12 @@ enum ChatPopoverFeature: CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    var title: String {
+    func title(persona: ChatSlackPersona) -> String {
         switch self {
         case .broadcast: "Broadcast to panes"
         case .peek: "Chat peek"
         case .quickSend: "Quick send"
-        case .slackSupport: "Slack support"
+        case .slackSupport: persona.featureTitle
         case .openViewer: "Open viewer"
         }
     }
@@ -78,6 +78,7 @@ struct ChatPopover: View {
     /// herdr-chat has no Slack support.
     let slackRow: ChatSlackRow?
     let slackRepos: [ChatSlackRepo]
+    let slackPersona: ChatSlackPersona
     let onStartSlackChat: (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool
     let onEndSlackChat: () -> Void
 
@@ -112,7 +113,7 @@ struct ChatPopover: View {
         onSignIn: @escaping () -> Void, onSignOut: @escaping () -> Void, onOpenViewer: @escaping () -> Void,
         viewerDisabledReason: String? = nil, onRetry: @escaping () -> Void = {}, initialFeature: ChatPopoverFeature? = nil,
         onJump: ((PaneID) -> Void)? = { _ in }, previewHoveredFeature: ChatPopoverFeature? = nil,
-        slackRow: ChatSlackRow? = nil, slackRepos: [ChatSlackRepo] = [],
+        slackRow: ChatSlackRow? = nil, slackRepos: [ChatSlackRepo] = [], slackPersona: ChatSlackPersona = .unnamed,
         onStartSlackChat: @escaping (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool = { _, _, _ in false },
         onEndSlackChat: @escaping () -> Void = {}
     ) {
@@ -128,6 +129,7 @@ struct ChatPopover: View {
         self.onJump = onJump
         self.slackRow = slackRow
         self.slackRepos = slackRepos
+        self.slackPersona = slackPersona
         self.onStartSlackChat = onStartSlackChat
         self.onEndSlackChat = onEndSlackChat
         self._route = State(initialValue: initialFeature.map(Route.feature) ?? .status)
@@ -318,7 +320,7 @@ struct ChatPopover: View {
             case let .closing(person):
                 Text("Closing chat with \(name(person))").foregroundStyle(theme.textLabel)
             case .opening, .available:
-                Text("Opening Slack chat…").foregroundStyle(theme.textLabel)
+                Text("Opening \(slackPersona.chatNoun)…").foregroundStyle(theme.textLabel)
             }
         }
         .font(ChromeType.chatPopoverFeatureName)
@@ -337,7 +339,7 @@ struct ChatPopover: View {
                 )
         }
         .buttonStyle(.plain)
-        .help("End this Slack chat")
+        .help("End this \(slackPersona.chatNoun)")
     }
 
     /// The header and the status band are the only bands the popover rules
@@ -390,7 +392,7 @@ struct ChatPopover: View {
     private func disabledReason(_ feature: ChatPopoverFeature) -> String? {
         switch feature {
         case .openViewer: viewerDisabledReason
-        case .slackSupport: slackRow == .available ? nil : "One Slack chat per pane"
+        case .slackSupport: slackRow == .available ? nil : "One \(slackPersona.chatNoun) per pane"
         case .broadcast, .peek, .quickSend: nil
         }
     }
@@ -406,7 +408,7 @@ struct ChatPopover: View {
                     .scaledToFit()
                     .foregroundStyle(isDisabled ? theme.overlay0 : (isHighlighted ? theme.textStrong : theme.textLabel))
                     .frame(width: ChromeMetrics.ChatPopover.Features.iconSize.width, height: ChromeMetrics.ChatPopover.Features.iconSize.height)
-                Text(feature.title)
+                Text(feature.title(persona: slackPersona))
                     .font(ChromeType.chatPopoverFeatureName)
                     .foregroundStyle(isDisabled ? theme.overlay0 : theme.textDim)
                 Spacer(minLength: 0)
@@ -452,23 +454,37 @@ struct ChatPopover: View {
 
     private var signOutIsBlocked: Bool { slackRow?.blocksSignOut ?? false }
 
-    /// A small text button at the end of the status line: signing in or out
-    /// is this pane's one action, and it should not outweigh the features.
+    /// Signing in is the way out of the popover's only dead end, so it is a
+    /// filled accent button; Sign out stays a quiet text button.
+    private func signFill(isProminent: Bool, isEnabled: Bool) -> Color {
+        if isProminent { return isEnabled ? theme.accent.opacity(isSignHovered ? 0.85 : 1) : theme.lift }
+        return isSignHovered && isEnabled ? theme.lift : .clear
+    }
+
+    private func signForeground(isProminent: Bool, isEnabled: Bool) -> Color {
+        guard isEnabled else { return theme.overlay0 }
+        if isProminent { return theme.pane }
+        return isSignHovered ? theme.textStrong : theme.textLabel
+    }
+
     private func signButton(for signAction: ChatSignAction) -> some View {
         let title: String
         let symbolName: String
         let isEnabled: Bool
+        let isProminent: Bool
         let action: () -> Void
         switch signAction {
         case let .signIn(enabled):
             title = "Sign in"
             symbolName = "rectangle.portrait.and.arrow.forward"
             isEnabled = enabled
+            isProminent = true
             action = onSignIn
         case .signOut:
             title = "Sign out"
             symbolName = "rectangle.portrait.and.arrow.right"
             isEnabled = !signOutIsBlocked
+            isProminent = false
             action = onSignOut
         }
         let metrics = ChromeMetrics.ChatPopover.SignButtons.self
@@ -481,19 +497,19 @@ struct ChatPopover: View {
                 Text(title)
                     .font(ChromeType.chatPopoverStateWord)
             }
-            .foregroundStyle(isEnabled ? (isSignHovered ? theme.textStrong : theme.textLabel) : theme.overlay0)
+            .foregroundStyle(signForeground(isProminent: isProminent, isEnabled: isEnabled))
             .padding(.horizontal, metrics.buttonHorizontalPadding)
             .padding(.vertical, metrics.buttonVerticalPadding)
             .background(
                 RoundedRectangle(cornerRadius: metrics.cornerRadius)
-                    .fill(isSignHovered && isEnabled ? theme.lift : .clear)
+                    .fill(signFill(isProminent: isProminent, isEnabled: isEnabled))
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isSignHovered = $0 }
         .disabled(!isEnabled)
-        .help(signOutIsBlocked ? "End the Slack chat first" : title)
+        .help(signOutIsBlocked ? "End the \(slackPersona.chatNoun) first" : title)
     }
 
     // MARK: - Feature route
@@ -513,7 +529,7 @@ struct ChatPopover: View {
             case .quickSend:
                 ChatQuickSendView(theme: theme, status: status, onBack: onBack, onClose: onClose)
             case .slackSupport:
-                ChatSlackSupportView(theme: theme, repos: slackRepos, onBack: onBack, onClose: onClose, onStart: onStartSlackChat)
+                ChatSlackSupportView(theme: theme, title: slackPersona.featureTitle, repos: slackRepos, onBack: onBack, onClose: onClose, onStart: onStartSlackChat)
             case .openViewer:
                 EmptyView()
             }

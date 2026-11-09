@@ -53,6 +53,12 @@ enum ChatToolLocator {
         return ChatAutoSignIn.isOn(stdout: stdout, exitCode: exitCode)
     }
 
+    @Sendable
+    static func slackPersona() async -> ChatSlackPersona {
+        guard let (stdout, exitCode) = await runTool("rt", arguments: ChatSlackPersona.settingArguments) else { return .unnamed }
+        return ChatSlackPersona.decode(stdout: stdout, exitCode: exitCode)
+    }
+
     /// Asks rt rather than herdr-chat, whose status carries no room id.
     @Sendable
     static func slackChats() async -> ChatSidebarChats? {

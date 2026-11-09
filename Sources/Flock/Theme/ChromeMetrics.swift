@@ -476,8 +476,8 @@ enum ChromeMetrics {
             /// Under the features: the popover's own bottom padding.
             static let bottomPadding: CGFloat = 8
             static let cornerRadius: CGFloat = ChromeRadius.control
-            static let buttonVerticalPadding: CGFloat = 3
-            static let buttonHorizontalPadding: CGFloat = 6
+            static let buttonVerticalPadding: CGFloat = 4
+            static let buttonHorizontalPadding: CGFloat = 9
             static let contentGap: CGFloat = 5
             static let iconSize = CGSize(width: 11, height: 11)
         }

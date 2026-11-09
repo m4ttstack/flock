@@ -8,6 +8,7 @@ import SwiftUI
 /// how often it can be read. With no list the box takes a typed name.
 struct ChatSlackSupportView: View {
     let theme: Theme
+    let title: String
     let repos: [ChatSlackRepo]
     let onBack: () -> Void
     let onClose: () -> Void
@@ -32,12 +33,13 @@ struct ChatSlackSupportView: View {
     /// The `preview` values exist only so a render test can draw each state
     /// without a live store; `.task` leaves a seeded list alone.
     init(
-        theme: Theme, repos: [ChatSlackRepo], onBack: @escaping () -> Void, onClose: @escaping () -> Void,
+        theme: Theme, title: String = ChatSlackPersona.unnamed.featureTitle, repos: [ChatSlackRepo], onBack: @escaping () -> Void, onClose: @escaping () -> Void,
         onStart: @escaping (_ person: String, _ problem: String, _ repo: ChatSlackRepo) async -> Bool,
         previewPeople: [ChatSlackPerson]? = nil, previewUnavailable: Bool = false,
         previewQuery: String = "", previewPicked: ChatSlackPerson? = nil, previewProblem: String = ""
     ) {
         self.theme = theme
+        self.title = title
         self.repos = repos
         self._repo = State(initialValue: repos.first)
         self.onBack = onBack
@@ -66,7 +68,7 @@ struct ChatSlackSupportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ChatSubviewHeader(theme: theme, title: "Slack support", width: ChromeMetrics.ChatSlack.width, onBack: onBack, onClose: onClose)
+            ChatSubviewHeader(theme: theme, title: title, width: ChromeMetrics.ChatSlack.width, onBack: onBack, onClose: onClose)
             personBand
                 .zIndex(1)
             problemBand

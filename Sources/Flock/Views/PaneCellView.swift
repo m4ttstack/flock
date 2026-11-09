@@ -734,6 +734,7 @@ struct PaneCellView: View {
                 current: pane.foregroundCwd ?? pane.cwd,
                 others: viewModel.model?.panes.values.map { $0.foregroundCwd ?? $0.cwd } ?? []
             ),
+            slackPersona: chatStore.slackPersona,
             onStartSlackChat: { person, problem, repo in
                 await chatStore.startSlackChat(pane.paneID, person: person, problem: problem, repo: repo)
             },

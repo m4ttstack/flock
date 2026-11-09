@@ -92,6 +92,8 @@ final class ChatStore {
     @ObservationIgnored private var slackWatches: [PaneID: Task<Void, Never>] = [:]
     @ObservationIgnored private var requestGenerations: [PaneID: Int] = [:]
     @ObservationIgnored private let autoSignInIsOn: (String) async -> Bool
+    @ObservationIgnored private let loadPersona: @Sendable () async -> ChatSlackPersona
+    private(set) var slackPersona = ChatSlackPersona.unnamed
     @ObservationIgnored private let pause: (Duration) async throws -> Void
     @ObservationIgnored private let typeIntoPane: @Sendable (_ pane: String, _ line: String) async -> String?
     @ObservationIgnored private let startSlack: @Sendable (
@@ -134,6 +136,7 @@ final class ChatStore {
         deckProbe: @escaping () async -> Bool = ChatToolLocator.probeDeckBinaryFound,
         makeRunner: @escaping (String) -> ChatRunning = { ChatRunner(binaryPath: $0) },
         autoSignInIsOn: @escaping (String) async -> Bool = ChatToolLocator.autoSignInIsOn(folder:),
+        loadPersona: @escaping @Sendable () async -> ChatSlackPersona = ChatToolLocator.slackPersona,
         pause: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         typeIntoPane: @escaping @Sendable (_ pane: String, _ line: String) async -> String? = ChatToolLocator.typeIntoPane,
         startSlack: @escaping @Sendable (
@@ -147,6 +150,7 @@ final class ChatStore {
     ) {
         self.toasts = toasts
         self.autoSignInIsOn = autoSignInIsOn
+        self.loadPersona = loadPersona
         self.pause = pause
         self.typeIntoPane = typeIntoPane
         self.startSlack = startSlack
@@ -178,6 +182,9 @@ final class ChatStore {
             guard ChatDegradation.isAvailable(chatBinaryFound: true, rtBinaryFound: rtIsFound) else { return }
             self.runner = makeRunner(path)
             self.isAvailable = true
+            let persona = await self.loadPersona()
+            guard !Task.isCancelled else { return }
+            self.slackPersona = persona
             // The only launch-time entry for unread: after this, it only
             // ever changes from an explicit peek (Chat Peek, Broadcast), per
             // the spec's no-polling rule -- so a badge can go stale between
@@ -306,7 +313,7 @@ final class ChatStore {
     func signOut(_ pane: PaneID) async {
         await applyStatus(from: .status(pane: pane.rawValue), pane: pane, quietly: true)
         guard !signOutIsBlocked(for: pane) else {
-            toasts.show("End the Slack chat first", kind: .info)
+            toasts.show("End the \(slackPersona.chatNoun) first", kind: .info)
             return
         }
         await applyStatus(from: .signOut(pane: pane.rawValue), pane: pane)
@@ -373,7 +380,7 @@ final class ChatStore {
             return true
         case let .failed(reason):
             pendingSlackStarts[pane] = nil
-            toasts.show("Slack chat not started: \(reason)", kind: .info)
+            toasts.show("\(slackPersona.chatNoun) not started: \(reason)", kind: .info)
             return false
         }
     }
@@ -386,7 +393,7 @@ final class ChatStore {
         case .done:
             return true
         case let .failed(reason):
-            toasts.show("Slack chat not resumed: \(reason)", kind: .info)
+            toasts.show("\(slackPersona.chatNoun) not resumed: \(reason)", kind: .info)
             return false
         }
     }
@@ -400,7 +407,7 @@ final class ChatStore {
                 pendingSlackStarts[pane] = nil
             } else if let acceptedAt = pending.acceptedAt, now() - acceptedAt > ChatSlackAgent.openDeadline {
                 pendingSlackStarts[pane] = nil
-                toasts.show("Slack chat didn't open", kind: .info)
+                toasts.show("\(slackPersona.chatNoun) didn't open", kind: .info)
             }
         }
         for pane in closingSlackChats where requestedSlackChat(for: pane) == nil {
@@ -495,7 +502,7 @@ final class ChatStore {
             else { return }
             self.slackTransitions[owner] = nil
             self.closingSlackChats.remove(owner)
-            self.toasts.show("Slack chat still open. Check the pane", kind: .info)
+            self.toasts.show("\(self.slackPersona.chatNoun) still open. Check the pane", kind: .info)
         }
     }
 
@@ -519,7 +526,7 @@ final class ChatStore {
         }
         slackTransitions[pane] = nil
         toasts.show(
-            transition == .opening ? "No Slack chat yet. Check the pane" : "Slack chat still open. Check the pane", kind: .info
+            transition == .opening ? "No \(slackPersona.chatNoun) yet. Check the pane" : "\(slackPersona.chatNoun) still open. Check the pane", kind: .info
         )
     }
 
