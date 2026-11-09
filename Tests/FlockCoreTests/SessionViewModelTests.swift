@@ -909,8 +909,8 @@ final class SessionViewModelTests: XCTestCase {
         // coincidentally equal to the model: a later, unrelated model change
         // moving focus elsewhere must now be reflected immediately, which
         // only happens if nothing is still overriding the model's field.
-        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p3"), connection: .live)
-        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+        viewModel.update(model: makeModelWithAPaneInASecondTab(focusedPaneID: "w1:p1"), connection: .live)
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p1"))
     }
 
     /// A click on a pane that a tab close then removes must not hold focus
@@ -950,6 +950,47 @@ final class SessionViewModelTests: XCTestCase {
 
         await client.releaseNext()
         await task.value
+    }
+
+    private func secondTabWithItsLayout(focusedPaneID: String = "w1:p1") -> SessionModel {
+        var model = makeModelWithAPaneInASecondTab(focusedPaneID: focusedPaneID)
+        let pane = PaneID(rawValue: "w1:p3")
+        let area = CellRect(x: 0, y: 0, width: 80, height: 24)
+        model.layouts[TabID(rawValue: "w1:t2")] = LayoutSnapshot(
+            workspaceID: WorkspaceID(rawValue: "w1"), tabID: TabID(rawValue: "w1:t2"), zoomed: false,
+            area: area, focusedPaneID: pane, panes: [PaneRect(paneID: pane, focused: true, rect: area)], splits: []
+        )
+        return model
+    }
+
+    /// The tab draws the moment it is selected, tens of milliseconds before
+    /// herdr's echo, and a workspace switch may never move herdr's focused
+    /// pane in the model at all.
+    @MainActor
+    func testASwitchedToTabHasItsOwnPaneFocusedBeforeHerdrAnswers() {
+        let viewModel = SessionViewModel(client: RecordingCommandClient())
+        viewModel.update(model: secondTabWithItsLayout(), connection: .live)
+
+        viewModel.select(tab: TabID(rawValue: "w1:t2"))
+
+        XCTAssertEqual(viewModel.model?.focusedPaneID, PaneID(rawValue: "w1:p1"))
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+    }
+
+    @MainActor
+    func testAPendingClickInTheTabJustLeftDoesNotHoldFocusOnIt() async {
+        let client = RecordingCommandClient()
+        await client.hold()
+        let viewModel = SessionViewModel(client: client)
+        viewModel.update(model: secondTabWithItsLayout(), connection: .live)
+        let click = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p2")) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        viewModel.select(tab: TabID(rawValue: "w1:t2"))
+
+        XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))
+        await client.releaseNext()
+        await click.value
     }
 
     /// With neither the click nor herdr's focus on a live pane, the shown
@@ -999,6 +1040,7 @@ final class SessionViewModelTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p2"))
 
+        viewModel.select(tab: TabID(rawValue: "w1:t2"))
         let secondTask = Task { await viewModel.jumpToHerdr(pane: PaneID(rawValue: "w1:p3")) }
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(viewModel.resolvedFocusedPaneID, PaneID(rawValue: "w1:p3"))

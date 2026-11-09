@@ -66,13 +66,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// beneath it there, and SwiftUI draws beneath this view, so a SwiftUI
     /// scrim could darken only the ground libghostty leaves clear.
     var shade = SurfaceShade.none {
-        didSet { applyShade() }
+        didSet { applyShade(animated: window != nil) }
     }
 
     /// Run on every change and again whenever the view lands in a window or
     /// lays out: the first shade can arrive before this view has a layer, and
     /// a later identical value must still reach the layer it has by then.
-    private func applyShade() {
+    ///
+    /// Only a change on screen fades. A parked view coming back takes its
+    /// shade before it has a window, and a fade started there plays over the
+    /// tab that has just been shown.
+    private func applyShade(animated: Bool = false) {
         guard let layer else { return }
         let changed = shade != appliedShade
         // Nothing to lay down until a pane first loses focus; after that the
@@ -108,6 +112,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         guard changed else { return }
         appliedShade = shade
         CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
         CATransaction.setAnimationDuration(ChromeMetrics.Pane.Focus.transitionDuration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         drainLayer.opacity = Float(shade.drain)

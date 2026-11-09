@@ -900,10 +900,18 @@ public final class SessionViewModel {
     /// creation still waiting for its echo; with none left, the shown tab's
     /// own remembered pane takes it, which is the pane herdr itself focuses
     /// there.
+    ///
+    /// A pane in another tab does not count while a tab is shown: a switch
+    /// draws before herdr's echo, and a workspace switch's echo need not name
+    /// a pane, so the shown tab would sit dimmed behind a pane nobody can see.
     public var resolvedFocusedPaneID: PaneID? {
         let live: (PaneID?) -> PaneID? = { id in id.flatMap { self.model?.panes[$0] != nil ? $0 : nil } }
+        let shown: (PaneID?) -> PaneID? = { id in
+            live(id).flatMap { self.selectedTabID == nil || self.model?.panes[$0]?.tabID == self.selectedTabID ? $0 : nil }
+        }
         let awaited = optimisticFocusedPaneID.flatMap { $0 == awaitingCreatedPane ? $0 : nil }
-        return live(optimisticFocusedPaneID) ?? awaited ?? live(model?.focusedPaneID) ?? live(selectedLayout?.focusedPane)
+        return shown(optimisticFocusedPaneID) ?? awaited ?? shown(model?.focusedPaneID)
+            ?? live(selectedLayout?.focusedPane) ?? live(model?.focusedPaneID)
     }
 
     /// The pane the main canvas draws as focused and lets take the keyboard.
