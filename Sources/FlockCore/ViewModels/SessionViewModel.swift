@@ -1629,7 +1629,9 @@ public final class SessionViewModel {
         var accounts: [CswapAccount]?
         if account != nil {
             accounts = await cswapAccounts()
-            guard await isAtPrompt(pane) else {
+            // `pin` means a pane that just opened, whose startup programs
+            // take the foreground in turn: one busy answer proves nothing.
+            guard await (pin == nil ? isAtPrompt(pane) : awaitPrompt(pane)) else {
                 // Takes back the keystroke recorded above, which was never typed.
                 recordLauncherClearKey(pane)
                 return false

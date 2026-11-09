@@ -167,15 +167,18 @@ enum LauncherSlots {
     /// Every launch asks herdr whether the shell holds the pane's foreground
     /// as it fires: the overlay was shown on an answer that may be stale by
     /// the time of the click, and a command typed into anything but a shell
-    /// at its prompt reaches that program as input.
+    /// at its prompt reaches that program as input. A `freshPane` is still
+    /// running its startup programs, which take the foreground in turn, so it
+    /// is waited on rather than judged by one answer.
     @MainActor
     static func launch(
-        _ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel, pin: PinID? = nil
+        _ entry: HarnessEntry, in pane: PaneID, via path: LaunchPath, on viewModel: SessionViewModel, pin: PinID? = nil,
+        freshPane: Bool = false
     ) async {
         if viewModel.isLauncherShowing(pane) {
             flash(entry, via: path, on: .pane(pane), viewModel: viewModel)
         }
-        let atPrompt = await viewModel.isAtPrompt(pane)
+        let atPrompt = await (freshPane ? viewModel.awaitPrompt(pane) : viewModel.isAtPrompt(pane))
         log.notice(
             "launch \(entry.id, privacy: .public) via \(path.rawValue, privacy: .public) in \(pane.rawValue, privacy: .public): at prompt \(atPrompt)"
         )

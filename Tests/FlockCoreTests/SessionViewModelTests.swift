@@ -1225,6 +1225,26 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(launch.typed)
     }
 
+    /// A shell on its way up runs its startup programs one after another, so
+    /// the pane reads idle, busy, idle. One busy answer is not the person
+    /// having left the prompt.
+    @MainActor
+    func testAPinsFreshPaneCaughtMidStartupAfterTheCswapReadStillLaunches() async throws {
+        let client = StubForegroundClient([.busy, .idle])
+        let viewModel = SessionViewModel(
+            client: client, freshPanePromptPoll: .milliseconds(1), cswapAccounts: { [Self.acmeAccount] }
+        )
+        viewModel.update(model: makeModel(), connection: .live)
+        let pin = viewModel.pins.add(workspace: WorkspaceID(rawValue: "w1"), name: "seed", folder: "/acme", at: nil)!
+        viewModel.pins.setClaudeAccount(pin.id, to: Self.acme)
+
+        let launched = await viewModel.launchHarness("claude", in: PaneID(rawValue: "w9:p1"), pin: pin.id)
+
+        XCTAssertTrue(launched)
+        let sent = await client.calls.contains { $0.method == "pane.send_input" }
+        XCTAssertTrue(sent)
+    }
+
     /// The launch recorded a keystroke it never typed; left in place, a bare
     /// prompt would show no launcher until the person types.
     @MainActor

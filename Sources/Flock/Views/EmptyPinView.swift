@@ -27,8 +27,7 @@ enum EmptyPinLaunch {
         guard let pane = await viewModel.start(emptyPin: pin) else { return }
         viewModel.recordLauncherKeystroke(pane)
         guard entry.id != ShellEntry.entry.id else { return }
-        _ = await viewModel.awaitPrompt(pane)
-        await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel, pin: pin)
+        await LauncherSlots.launch(entry, in: pane, via: .click, on: viewModel, pin: pin, freshPane: true)
     }
 }
 
