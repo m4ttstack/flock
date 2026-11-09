@@ -294,6 +294,7 @@ struct PaneCellView: View {
         PaneGrip(theme: theme, dragInFlight: drag.isPaneDragInFlight)
             .padding(.top, PaneChrome.titleRowTop(compact: isCompact))
             .gesture(paneDrag, including: isRenaming ? .subviews : .all)
+            .onTapGesture { focusFromChrome() }
             .accessibilityIdentifier("flock.pane.grip.\(pane.paneID.rawValue)")
     }
 
@@ -366,22 +367,19 @@ struct PaneCellView: View {
             // surface, so no dead strip collects at the bottom.
             .modifier(RowRemainderSplit(surfaceHeight: surfaceSize.height))
             .padding(contentInsets)
-            // While the launcher shows, the surface claims no point at all
+            // The header band has no AppKit view to take a click. Nor has the
+            // surface while the launcher shows: it claims no point at all
             // (`GhosttySurfaceView.hitTest`), which also removes ITS own
-            // click-to-focus -- this is that route's SwiftUI equivalent,
-            // launcher-only so an ordinary live pane keeps going through the
-            // AppKit path exactly as before. On the box, not the surface, so
+            // click-to-focus. Everywhere else an ordinary live pane keeps
+            // going through the AppKit path. On the box, not the surface, so
             // it answers across the strip, which runs past the surface's
             // edges. Checked fresh per tap, not cached: the launcher can hide
             // (a keystroke, real output) between this view updating and the
-            // next click landing. Guarded the same way `title`'s own tap is,
-            // so a right-click still opens the pane menu rather than also
-            // firing a focus jump.
+            // next click landing.
             .contentShape(Rectangle())
-            .onTapGesture {
-                guard !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
-                guard !isFocused, viewModel.isLauncherShowing(pane.paneID) else { return }
-                focusInHerdr()
+            .onTapGesture { location in
+                guard location.y < contentInsets.top || viewModel.isLauncherShowing(pane.paneID) else { return }
+                focusFromChrome()
             }
             .background(theme.pane)
             .overlay(alignment: .top) {
@@ -628,6 +626,12 @@ struct PaneCellView: View {
         case .ignore:
             break
         }
+    }
+
+    /// A right-click reaches a tap gesture too, and must only open a menu.
+    private func focusFromChrome() {
+        guard !isFocused, !NSEvent.isSecondaryButtonEvent(NSApp.currentEvent) else { return }
+        focusInHerdr()
     }
 
     /// A solo cell already holds the keyboard, and its view must leave
