@@ -455,16 +455,16 @@ struct ChatPopover: View {
     private var signOutIsBlocked: Bool { slackRow?.blocksSignOut ?? false }
 
     /// Signing in is the way out of the popover's only dead end, so it is a
-    /// filled accent button; Sign out stays a quiet text button.
+    /// filled accent button; Sign out is the filled neutral one.
     private func signFill(isProminent: Bool, isEnabled: Bool) -> Color {
         if isProminent { return isEnabled ? theme.accent.opacity(isSignHovered ? 0.85 : 1) : theme.lift }
-        return isSignHovered && isEnabled ? theme.lift : .clear
+        return theme.lift.opacity(isEnabled && isSignHovered ? 1 : 0.7)
     }
 
     private func signForeground(isProminent: Bool, isEnabled: Bool) -> Color {
         guard isEnabled else { return theme.overlay0 }
         if isProminent { return theme.pane }
-        return isSignHovered ? theme.textStrong : theme.textLabel
+        return isSignHovered ? theme.textStrong : theme.textDim
     }
 
     private func signButton(for signAction: ChatSignAction) -> some View {
