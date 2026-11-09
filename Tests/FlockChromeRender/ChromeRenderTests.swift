@@ -540,9 +540,9 @@ final class ChromeRenderTests: XCTestCase {
         )
     }
 
-    /// Signing in or out is a small text button at the trailing end of the
-    /// status row, not a band of its own: its label ends one button padding
-    /// inside the band's trailing inset.
+    /// Signing in or out is a small filled button at the trailing end of the
+    /// status row, not a band of its own: its fill ends at the band's
+    /// trailing inset.
     func testSignButtonSitsAtTheTrailingEndOfTheStatusRow() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
@@ -559,27 +559,27 @@ final class ChromeRenderTests: XCTestCase {
         let ground = hex(image, CGPoint(x: 200, y: 20))
         let bandTop = metrics.Header.height
         let bandBottom = bandTop + metrics.Status.heightSignedOut - 1
-        let expectedRight = metrics.width - metrics.Status.trailingPadding - metrics.SignButtons.buttonHorizontalPadding
-        var labelRight: CGFloat?
+        let expectedRight = metrics.width - metrics.Status.trailingPadding
+        var buttonRight: CGFloat?
         var y = bandTop + 2
         while y < bandBottom - 1 {
             if let x = lastX(image, y: y, from: metrics.width / 2, to: metrics.width - 3, notMatching: ground) {
-                labelRight = max(labelRight ?? 0, x)
+                buttonRight = max(buttonRight ?? 0, x)
             }
             y += 0.5
         }
-        let right = try XCTUnwrap(labelRight, "no sign button content in the status row")
-        XCTAssertEqual(right, expectedRight, accuracy: 2, "the sign button's label ends at the status row's trailing inset")
+        let right = try XCTUnwrap(buttonRight, "no sign button content in the status row")
+        XCTAssertEqual(right, expectedRight, accuracy: 2, "the sign button's fill ends at the status row's trailing inset")
         window.close()
     }
 
     /// Every distinct surface the popover paints, both states: its lifted
     /// panel ground, the `hair` outline and band rules, a `lift` room chip
     /// (signed in only), the hovered feature row with its `textStrong` icon,
-    /// and the small sign button's `textLabel` label at the status row's
-    /// trailing end. No accent anywhere: the quiet chrome selects by lift and
-    /// weight. `previewHoveredFeature` seeds Chat peek as hovered without a
-    /// real pointer.
+    /// and the sign button at the status row's trailing end. Sign in is the
+    /// only accent the popover paints: the way out of its one dead end. Sign
+    /// out is a neutral fill. `previewHoveredFeature` seeds Chat peek as
+    /// hovered without a real pointer.
     func testChatPopoverPaintsExactHexSignedOutAndSignedIn() async throws {
         ChromeType.install()
         let theme = Theme.tokyoNight
@@ -607,7 +607,12 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertEqual(hex(image, CGPoint(x: 0.5, y: 150)), roles.hair.hex, "\(name) outer stroke")
             XCTAssertEqual(hex(image, CGPoint(x: 200, y: 40.5)), roles.hair.hex, "\(name) header rule")
             XCTAssertEqual(hex(image, CGPoint(x: 200, y: bandRuleY)), roles.hair.hex, "\(name) status band rule")
-            XCTAssertEqual(hex(image, CGPoint(x: 343, y: 63)), ground.hex, "\(name) status band, past the sign button")
+            XCTAssertEqual(hex(image, CGPoint(x: 350, y: 63)), ground.hex, "\(name) status band, past the sign button")
+            if status.signedIn {
+                XCTAssertNotEqual(hex(image, CGPoint(x: 343, y: 63)), ground.hex, "signed-in: Sign out has a fill")
+            } else {
+                XCTAssertEqual(hex(image, CGPoint(x: 343, y: 63)), roles.accent.hex, "signed-out: Sign in is filled with the accent")
+            }
             if status.signedIn {
                 XCTAssertEqual(hex(image, CGPoint(x: 17, y: 87)), roles.lift.hex, "\(name) room chip fill")
             }
@@ -622,15 +627,17 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertLessThanOrEqual(bestIconDistance, 20, "\(name) hovered feature icon (closest off by \(bestIconDistance))")
             var bestSignDistance = Int.max
             for y in stride(from: statusRow, through: statusRow + 18, by: 0.5) {
-                bestSignDistance = min(bestSignDistance, minChannelDistance(image, y: y, from: 270, to: 342, target: roles.textLabel.hex))
+                let label = status.signedIn ? roles.textDim : roles.pane
+                bestSignDistance = min(bestSignDistance, minChannelDistance(image, y: y, from: 312, to: 335, target: label.hex))
             }
             XCTAssertLessThanOrEqual(bestSignDistance, 20, "\(name) sign button label (closest off by \(bestSignDistance))")
             let accent = stride(from: CGFloat(0), to: ChromeMetrics.ChatPopover.width, by: 0.5).contains { x in
                 stride(from: CGFloat(0), to: ChromeMetrics.ChatPopover.signedOutHeight, by: 1).contains { y in
-                    hex(image, CGPoint(x: x, y: y)) == roles.accent.hex
+                    let inSignIn = !status.signedIn && x >= 270 && x <= 346 && y > 41 && y < bandRuleY
+                    return !inSignIn && hex(image, CGPoint(x: x, y: y)) == roles.accent.hex
                 }
             }
-            XCTAssertFalse(accent, "\(name): the popover paints the accent")
+            XCTAssertFalse(accent, "\(name): the popover paints the accent outside Sign in")
             window.close()
         }
     }
