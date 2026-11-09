@@ -3809,8 +3809,8 @@ final class ChromeRenderTests: XCTestCase {
     /// each row's 8pt dot, which spans x 20 to 28: x 24 is its center and x
     /// 21 is two points in, inside a hollow ring's stroke. Rows start at y 75
     /// on a 28pt pitch. The tabs share the title bar's one row, pills 28 tall
-    /// from y 6; the selected `claude` pill spans x 409 to 509, its close
-    /// glyph ending at 490.
+    /// from y 6; the selected `claude` pill spans x 395 to 488, its close
+    /// box ending at 483.
     ///
     /// Row 1 is the selected row AND an idle workspace, which is what pins
     /// that selection no longer takes the dot: its stroke has to be green,
@@ -3832,7 +3832,7 @@ final class ChromeRenderTests: XCTestCase {
             ("status/idleHollow", CGPoint(x: 24, y: Self.bar + 160), roles.chrome),
             ("chrome/title", CGPoint(x: 600, y: 4), roles.chrome),
             ("chrome/restTab", CGPoint(x: 275, y: Self.bar / 2), roles.chrome),
-            ("lift/selectedTab", CGPoint(x: 500, y: Self.bar / 2), roles.lift),
+            ("lift/selectedTab", CGPoint(x: 485.5, y: Self.bar / 2), roles.lift),
             ("lift/selectedView", CGPoint(x: 88, y: Self.bar / 2), roles.lift),
             ("hair/title", CGPoint(x: 700, y: Self.bar - 0.75), roles.hair),
             ("chrome/rail", CGPoint(x: 75, y: 400), roles.chrome),
