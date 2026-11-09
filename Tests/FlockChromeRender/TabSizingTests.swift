@@ -7,7 +7,8 @@ import XCTest
 final class TabSizingTests: XCTestCase {
     /// Everything a tab lays out beside its title.
     private static let chrome =
-        ChromeMetrics.Tab.horizontalPadding * 2 + ChromeMetrics.Tab.labelDotGap + ChromeMetrics.Tab.trailingSlot
+        ChromeMetrics.Tab.leadingPadding + ChromeMetrics.Tab.trailingPadding + ChromeMetrics.Tab.labelDotGap
+        + ChromeMetrics.Tab.trailingSlot
 
     override func setUp() {
         super.setUp()
@@ -47,7 +48,7 @@ final class TabSizingTests: XCTestCase {
         let measured = try? titleWidth(title, selected: true)
         XCTAssertGreaterThanOrEqual(
             TabSizing.width(of: title),
-            (measured ?? 0) + ChromeMetrics.Tab.horizontalPadding * 2
+            (measured ?? 0) + ChromeMetrics.Tab.leadingPadding + ChromeMetrics.Tab.trailingPadding
                 + ChromeMetrics.Tab.labelDotGap + ChromeMetrics.CloseButton.size
         )
     }

@@ -351,7 +351,8 @@ private struct TabBlock: View {
                 trailingSlot
             }
         }
-        .padding(.horizontal, ChromeMetrics.Tab.horizontalPadding)
+        .padding(.leading, ChromeMetrics.Tab.leadingPadding)
+        .padding(.trailing, ChromeMetrics.Tab.trailingPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .boundedBackground(fill)
         // Sized off the tab's own label, not the editor's text: a rename in

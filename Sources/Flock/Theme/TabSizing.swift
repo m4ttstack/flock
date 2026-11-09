@@ -14,7 +14,8 @@ enum TabSizing {
         let check = isComplete ? ChromeMetrics.Tab.completeGlyphWidth + ChromeMetrics.Tab.completeGlyphGap : 0
         return TabWidth.fitting(
             titleWidth: check + titleWidth(title.text),
-            horizontalPadding: ChromeMetrics.Tab.horizontalPadding,
+            leadingPadding: ChromeMetrics.Tab.leadingPadding,
+            trailingPadding: ChromeMetrics.Tab.trailingPadding,
             labelDotGap: ChromeMetrics.Tab.labelDotGap,
             trailingSlot: ChromeMetrics.Tab.trailingSlot,
             isCompact: isComplete && !isSelected

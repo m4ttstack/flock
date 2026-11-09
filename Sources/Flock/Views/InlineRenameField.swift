@@ -95,9 +95,12 @@ struct HoverCloseButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "xmark")
-                .font(ChromeType.closeSymbol)
-                .foregroundStyle(isHovering ? theme.textStrong : theme.textLabel)
+            CloseGlyph()
+                .stroke(
+                    isHovering ? theme.textStrong : theme.textLabel,
+                    style: StrokeStyle(lineWidth: ChromeMetrics.CloseButton.glyphStroke, lineCap: .round)
+                )
+                .frame(width: ChromeMetrics.CloseButton.glyphSpan, height: ChromeMetrics.CloseButton.glyphSpan)
                 .frame(width: ChromeMetrics.CloseButton.size, height: ChromeMetrics.CloseButton.size)
                 .background { if isHovering { HoverWashFill(theme: theme, cornerRadius: ChromeMetrics.CloseButton.cornerRadius) } }
                 .contentShape(Rectangle())
@@ -108,5 +111,18 @@ struct HoverCloseButton: View {
         .allowsHitTesting(isRevealed)
         .help(help)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+/// Drawn rather than an SF Symbol: a symbol's ink lands on fractions of a
+/// point, so it cannot sit centred in its box on the pixel grid.
+private struct CloseGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        return path
     }
 }

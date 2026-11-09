@@ -6,7 +6,7 @@ import CoreGraphics
 /// names; a tab past `maximum` spends the strip on one title, so a longer one
 /// truncates there instead.
 public enum TabWidth {
-    public static let minimum: CGFloat = 100
+    public static let minimum: CGFloat = 93
     public static let maximum: CGFloat = 400
     public static let compactMinimum: CGFloat = 72
     public static let compactMaximum: CGFloat = 110
@@ -21,10 +21,10 @@ public enum TabWidth {
     /// carries every tab after it off that grid. Up rather than to nearest,
     /// because a title rounded down is a title truncated.
     public static func fitting(
-        titleWidth: CGFloat, horizontalPadding: CGFloat, labelDotGap: CGFloat, trailingSlot: CGFloat,
+        titleWidth: CGFloat, leadingPadding: CGFloat, trailingPadding: CGFloat, labelDotGap: CGFloat, trailingSlot: CGFloat,
         isCompact: Bool = false
     ) -> CGFloat {
-        let fitted = (horizontalPadding * 2 + titleWidth + labelDotGap + trailingSlot).rounded(.up)
+        let fitted = (leadingPadding + titleWidth + labelDotGap + trailingSlot + trailingPadding).rounded(.up)
         return isCompact ? min(max(fitted, compactMinimum), compactMaximum) : min(max(fitted, minimum), maximum)
     }
 }

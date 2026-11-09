@@ -12,7 +12,7 @@ final class TabWidthTests: XCTestCase {
     /// status dot and the close button share.
     private func width(title: CGFloat, trailingSlot: CGFloat = 6, isCompact: Bool = false) -> CGFloat {
         TabWidth.fitting(
-            titleWidth: title, horizontalPadding: 12, labelDotGap: 6, trailingSlot: trailingSlot, isCompact: isCompact
+            titleWidth: title, leadingPadding: 12, trailingPadding: 5, labelDotGap: 4, trailingSlot: trailingSlot, isCompact: isCompact
         )
     }
 
@@ -20,7 +20,7 @@ final class TabWidthTests: XCTestCase {
     /// the close is the wider of the two. Sized to the dot alone, a revealed
     /// close reaches back over the title it is standing beside.
     func testTheTrailingSlotHoldsTheWidestThingDrawnInIt() {
-        XCTAssertEqual(width(title: 88, trailingSlot: 18), 136)
+        XCTAssertEqual(width(title: 88, trailingSlot: 18), 127)
         XCTAssertEqual(
             width(title: 88, trailingSlot: 18) - width(title: 88, trailingSlot: 6), 12,
             "a wider slot has to widen the tab, or it takes the room from the title"
@@ -33,7 +33,7 @@ final class TabWidthTests: XCTestCase {
     }
 
     func testATitleTooWideForTheMinimumWidensTheTabToHoldIt() {
-        XCTAssertEqual(width(title: 88), 124)
+        XCTAssertEqual(width(title: 88), 115)
     }
 
     func testATitleTooWideForTheMaximumStopsThereAndTruncatesInstead() {
@@ -43,8 +43,8 @@ final class TabWidthTests: XCTestCase {
     /// Both bounds meet the fit exactly, so no title is given a tab with
     /// room it cannot use or a tab that clips what it just measured.
     func testEachBoundMeetsTheFitExactly() {
-        XCTAssertEqual(width(title: 64), TabWidth.minimum)
-        XCTAssertEqual(width(title: 364), TabWidth.maximum)
+        XCTAssertEqual(width(title: 66), TabWidth.minimum)
+        XCTAssertEqual(width(title: 373), TabWidth.maximum)
     }
 
     /// A compact tab (a complete one nobody is looking at) keeps narrower
@@ -52,7 +52,7 @@ final class TabWidthTests: XCTestCase {
     func testACompactTabKeepsItsOwnNarrowerBounds() {
         XCTAssertEqual(width(title: 0, isCompact: true), TabWidth.compactMinimum)
         XCTAssertEqual(width(title: 400, isCompact: true), TabWidth.compactMaximum)
-        XCTAssertEqual(width(title: 60, isCompact: true), 96)
+        XCTAssertEqual(width(title: 60, isCompact: true), 87)
         XCTAssertLessThan(TabWidth.compactMinimum, TabWidth.minimum)
         XCTAssertLessThan(TabWidth.compactMaximum, TabWidth.maximum)
     }
@@ -62,7 +62,7 @@ final class TabWidthTests: XCTestCase {
     /// it off that grid too, so the fit is rounded to a whole point. Up rather
     /// than to nearest, because a title rounded down is a title truncated.
     func testAMeasuredTitleIsRoundedUpToAWholePoint() {
-        XCTAssertEqual(width(title: 64.01), 101)
-        XCTAssertEqual(width(title: 88.25), 125)
+        XCTAssertEqual(width(title: 66.01), 94)
+        XCTAssertEqual(width(title: 88.25), 116)
     }
 }

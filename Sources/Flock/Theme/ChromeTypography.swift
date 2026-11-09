@@ -198,9 +198,6 @@ enum ChromeType {
     static let copiedMessage = inter(13)
     static let delayedTip = inter(12)
 
-    /// Sized from the control's own metric: the glyph and the box it sits in
-    /// are one control, and two numbers for it drift apart.
-    static let closeSymbol = Font.system(size: ChromeMetrics.CloseButton.symbol, weight: .bold)
     static let findField = inter(12.5)
     static let findCount = inter(11).monospacedDigit()
     static let findSymbol = Font.system(size: 11, weight: .semibold)

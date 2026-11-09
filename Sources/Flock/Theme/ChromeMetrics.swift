@@ -184,8 +184,9 @@ enum ChromeMetrics {
     enum Tab {
         static let height: CGFloat = 28
         static let cornerRadius = ChromeRadius.control
-        static let horizontalPadding: CGFloat = 12
-        static let labelDotGap: CGFloat = 6
+        static let leadingPadding: CGFloat = 12
+        static let trailingPadding: CGFloat = 5
+        static let labelDotGap: CGFloat = 4
         static let statusDot: CGFloat = 6
         /// The checkmark leading a tab marked complete.
         static let completeGlyphWidth: CGFloat = 12
@@ -222,9 +223,10 @@ enum ChromeMetrics {
 
     /// The hover-reveal close control on a tab and an attention toast.
     enum CloseButton {
-        static let size: CGFloat = 18
+        static let size: CGFloat = 20
         static let cornerRadius: CGFloat = ChromeRadius.control
-        static let symbol: CGFloat = 11
+        static let glyphSpan: CGFloat = 8.5
+        static let glyphStroke: CGFloat = 1.25
     }
 
     /// The chip over a link the pointer rested on in a pane.

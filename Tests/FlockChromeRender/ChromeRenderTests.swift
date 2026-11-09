@@ -1075,7 +1075,7 @@ final class ChromeRenderTests: XCTestCase {
     /// the label happens to end: a one-character label leaves the tab at its
     /// minimum width with slack to spare, and a title too long for the
     /// maximum truncates with none at all. Both must land the slot at the
-    /// same formula (`maxX - horizontalPadding - trailingSlot`), which is
+    /// same formula (`maxX - trailingPadding - trailingSlot`), which is
     /// what tells a slot that floats with the label apart from one that is
     /// actually pinned to the edge. Both tabs are working: an idle tab draws
     /// no dot at all.
@@ -1105,7 +1105,7 @@ final class ChromeRenderTests: XCTestCase {
         XCTAssertEqual(wide.width, TabWidth.maximum, "the long title fits short of the maximum, so this proves nothing about the clamped case")
 
         for frame in [short, wide] {
-            let slotMaxX = frame.maxX - ChromeMetrics.Tab.horizontalPadding
+            let slotMaxX = frame.maxX - ChromeMetrics.Tab.trailingPadding
             let slotMinX = slotMaxX - ChromeMetrics.Tab.trailingSlot
             let dotMinX = slotMinX + (ChromeMetrics.Tab.trailingSlot - ChromeMetrics.Tab.statusDot) / 2
             let distance = minChannelDistance(
