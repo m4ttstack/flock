@@ -74,7 +74,7 @@ public final class PaneAppearanceStore {
     public static let dimnessKey = "flock.paneDimness"
     /// How far a pane without focus recedes under dim others and drain
     /// colour: the share of its own ground laid over it.
-    public static let dimnessRange: ClosedRange<Double> = 0.3...0.9
+    public static let dimnessRange: ClosedRange<Double> = 0.1...0.9
     public static let standardDimness = 0.44
     public static let desaturationKey = "flock.paneDesaturation"
     /// How much colour drain colour takes from a pane without focus.
