@@ -1,6 +1,6 @@
 import Foundation
 
-/// rt's `chat.slackSupport.persona` names the agent a Slack support chat
+/// rt's `agent.persona` names the agent a Slack support chat
 /// talks to. Until rt answers, or when it has no such key, the copy keeps
 /// naming Slack.
 public struct ChatSlackPersona: Equatable, Sendable {
@@ -13,7 +13,7 @@ public struct ChatSlackPersona: Equatable, Sendable {
 
     public static let unnamed = ChatSlackPersona(name: nil)
 
-    public static let settingArguments = ["settings", "get", "chat.slackSupport.persona", "--json"]
+    public static let settingArguments = ["settings", "get", "agent.persona", "--json"]
 
     /// The feature row and the form's header.
     public var featureTitle: String { name.map { "\($0) Support Chat" } ?? "Slack support" }
