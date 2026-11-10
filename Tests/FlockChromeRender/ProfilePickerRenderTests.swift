@@ -185,37 +185,6 @@ final class ProfilePickerRenderTests: XCTestCase {
         }
     }
 
-    /// While a machine is connecting, unreachable, not running or removed the
-    /// rail is gone; the picker stays where the rail draws it, so it and the
-    /// shortcut still work.
-    func testTheSwitchLoaderKeepsThePickerWhereTheRailDrawsIt() async throws {
-        ChromeType.install()
-        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let picker = try picker(current: "machine.\(Self.mini.id)")
-        let size = CGSize(width: 900, height: 560)
-        let failure = try XCTUnwrap(SwitchLoaderModel.make(SwitchLoaderInput(
-            label: "acme-mini", isMachine: true, isDefaultProfile: false,
-            tunnel: .unreachable(reason: "Permission denied (publickey)."), store: .reconnecting(attempt: 1)
-        )))
-        let run = SwitchLoaderRun(id: 1, startedAt: 0, model: failure)
-        for (scheme, id) in [("dark", "tokyo-night"), ("light", "tokyo-night-day")] {
-            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
-            let screen = SwitchLoaderScreen(theme: theme, run: run, profilePicker: picker, profileDot: .attention, stillAt: 6)
-            let image = try await render(screen.frame(width: size.width, height: size.height), size: size)
-            if let directory {
-                try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("profile-picker-switch-loader-\(scheme).png"))
-            }
-            let top = ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding
-            let band = CGRect(
-                x: ChromeMetrics.Rail.horizontalPadding, y: top,
-                width: RailWidth.default - 2 * ChromeMetrics.Rail.horizontalPadding, height: Self.pickerHeight
-            )
-            XCTAssertTrue(contains(image, band, Color(theme.palette.yellow)), "\(scheme): the picker shows the machine's dot")
-        }
-        XCTAssertTrue(picker.canOpen, "the loader's picker lets the shortcut open it")
-    }
-
     /// ⌃`'s panel: Default current with the last-used machine selected, then
     /// acme-mini current with its live dot and Default selected. The panel's
     /// rows are the switcher's, the marker and dot the picker's.

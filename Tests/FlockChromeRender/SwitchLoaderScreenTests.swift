@@ -63,12 +63,10 @@ final class SwitchLoaderScreenTests: XCTestCase {
         ChromeType.install()
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let themes = try ["tokyo-night", "tokyo-night-day"].map { id in try XCTUnwrap(Theme.builtins.first { $0.id == id }) }
-        let picker = try picker()
         for theme in themes {
             for still in try stills() {
                 let screen = SwitchLoaderScreen(
-                    theme: theme, run: still.run, profilePicker: picker,
-                    profileDot: still.isMachine ? .attention : nil, stillAt: still.time, reduceMotionOverride: still.reduceMotion
+                    theme: theme, run: still.run, stillAt: still.time, reduceMotionOverride: still.reduceMotion
                 )
                 let window = hostWindow(screen)
                 await settle(window)
@@ -86,19 +84,6 @@ final class SwitchLoaderScreenTests: XCTestCase {
     }
 
     // MARK: - harness
-
-    private func picker() throws -> ProfilePickerContext {
-        let suite = "SwitchLoaderScreenTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let store = ProfileStore(
-            userDefaults: defaults, bundleID: "dev.acme.flock-tests", defaultSocketPath: "/tmp/acme.sock",
-            home: "/Users/acme", removeSuite: { _ in }
-        )
-        store.syncMachines([Self.mini])
-        store.select("machine.\(Self.mini.id)")
-        return ProfilePickerContext(profiles: store, isLocked: false, switchProfile: { _ in false }, listMachines: { nil })
-    }
 
     private func hostWindow(_ view: some View) -> NSWindow {
         let window = NSWindow(

@@ -439,15 +439,14 @@ struct FlockApp: App {
                 if let run = switchLoader.run, !showsMissingHerdr {
                     SwitchLoaderScreen(
                         theme: themeStore.active, run: run, isSettled: switchLoader.isSettled,
-                        profilePicker: profilePicker, profileDot: currentProfileDot,
                         onSwitchToDefault: { Task { await controller.switchTo(profileID: FlockProfile.defaultID) } }
                     )
                 }
             }
                 .background(WindowKeySink(isActive: loaderBlocksInput && !switchLoader.coversWindow))
                 .onChange(of: switchLoaderSnapshot, initial: true) { _, snapshot in switchLoader.update(snapshot) }
-                // The popover changes hands between the rail's picker and the
-                // loader's here, so an open one closes rather than jumping.
+                // The rail's picker goes under the loader, so an open popover
+                // closes rather than staying over it.
                 .onChange(of: loaderBlocksInput) { profilePicker.isOpen = false }
                 .overlay {
                     ProfileSwitcherOverlay(

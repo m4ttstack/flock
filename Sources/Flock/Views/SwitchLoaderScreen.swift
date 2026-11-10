@@ -8,16 +8,12 @@ struct SwitchLoaderScreen: View {
     let theme: Theme
     let run: SwitchLoaderRun
     var isSettled = false
-    /// Kept where the rail draws it, so switching away needs no menu.
-    let profilePicker: ProfilePickerContext
-    var profileDot: ProfileConnectionDot?
     var onSwitchToDefault: () -> Void = {}
     /// Renders this run time and nothing else, for stills.
     var stillAt: Double?
     var reduceMotionOverride: Bool?
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    @Environment(RailWidthStore.self) private var railWidth: RailWidthStore?
 
     private var reduceMotion: Bool { reduceMotionOverride ?? systemReduceMotion }
 
@@ -41,14 +37,6 @@ struct SwitchLoaderScreen: View {
 
     private func frameView(_ frame: SwitchLoaderFrame) -> some View {
         SwitchLoaderFrameView(frame: frame, theme: theme, reduceMotion: reduceMotion, onSwitchToDefault: onSwitchToDefault)
-            .overlay(alignment: .topLeading) {
-                ProfilePicker(theme: theme, context: profilePicker, currentDot: profileDot)
-                    .environment(\.profilePickerPresentsPopover, !run.isFinishing)
-                    .padding(.top, ChromeMetrics.TitleBar.height + ChromeMetrics.Rail.verticalPadding)
-                    .padding(.horizontal, ChromeMetrics.Rail.horizontalPadding)
-                    .frame(width: railWidth?.width ?? RailWidth.default)
-                    .opacity(frame.screenOpacity)
-            }
     }
 }
 
