@@ -39,7 +39,7 @@ final class ServerSwitcherTests: XCTestCase {
         let custom = "/tmp/acme/herdr.sock"
         XCTAssertEqual(candidates(current: custom).last, id(custom))
         let switcher = makeSwitcher()
-        XCTAssertTrue(switcher.begin(items: candidates(current: custom), current: id(custom)))
+        switcher.begin(items: candidates(current: custom), current: id(custom))
         XCTAssertEqual(switcher.order.first, id(custom), "the first row is where the switch started")
     }
 
@@ -57,8 +57,9 @@ final class ServerSwitcherTests: XCTestCase {
         let begin = { (reverse: Bool) in
             switcher.begin(items: self.candidates(canChange: false), current: self.id(Self.defaultSocket), reverse: reverse)
         }
-        XCTAssertFalse(switcher.apply(.next, begin: begin, open: {}), "⌥` goes to the terminal")
-        XCTAssertFalse(switcher.isActive)
+        XCTAssertTrue(switcher.apply(.next, begin: begin, open: {}), "⌥` stays out of the terminal")
+        XCTAssertTrue(switcher.isEmpty)
+        XCTAssertEqual(switcher.order, [])
     }
 
     func testOneServerHasNothingToSwitchTo() {
@@ -66,20 +67,21 @@ final class ServerSwitcherTests: XCTestCase {
         let one = ServerSwitcher.candidates(
             Array(Self.entries.prefix(1)), currentSocket: Self.defaultSocket, home: Self.home, canChangeServer: true
         )
-        XCTAssertFalse(switcher.apply(.next, begin: { switcher.begin(items: one, current: self.id(Self.defaultSocket), reverse: $0) }, open: {}))
-        XCTAssertFalse(switcher.isActive)
+        XCTAssertTrue(switcher.apply(.next, begin: { switcher.begin(items: one, current: self.id(Self.defaultSocket), reverse: $0) }, open: {}))
+        XCTAssertTrue(switcher.isEmpty)
+        XCTAssertNil(switcher.finish())
     }
 
     func testATapFlipsToThePreviousServer() {
         let switcher = makeSwitcher()
         switcher.note(currentSocket: Self.workSocket, home: Self.home)
         switcher.note(currentSocket: Self.defaultSocket, home: Self.home)
-        XCTAssertTrue(switcher.begin(items: candidates(), current: id(Self.defaultSocket)))
+        switcher.begin(items: candidates(), current: id(Self.defaultSocket))
         XCTAssertEqual(switcher.order, [id(Self.defaultSocket), id(Self.workSocket), id(Self.buildSocket)])
         XCTAssertEqual(switcher.finish(), id(Self.workSocket))
 
         switcher.note(currentSocket: Self.workSocket, home: Self.home)
-        XCTAssertTrue(switcher.begin(items: candidates(current: Self.workSocket), current: id(Self.workSocket)))
+        switcher.begin(items: candidates(current: Self.workSocket), current: id(Self.workSocket))
         XCTAssertEqual(switcher.finish(), id(Self.defaultSocket), "a second tap goes back")
     }
 
@@ -93,7 +95,7 @@ final class ServerSwitcherTests: XCTestCase {
         let items = ServerSwitcher.candidates(entries, currentSocket: Self.defaultSocket, home: Self.home, canChangeServer: true)
         let stopped = ServerSwitcher.stopped(entries, home: Self.home)
         XCTAssertEqual(stopped, [id(Self.buildSocket)])
-        XCTAssertTrue(switcher.begin(items: items, current: id(Self.defaultSocket), last: stopped))
+        switcher.begin(items: items, current: id(Self.defaultSocket), last: stopped)
         XCTAssertEqual(
             switcher.order, [id(Self.defaultSocket), id(Self.workSocket), id(docsSocket), id(Self.buildSocket)],
             "current, recent running, other running, then stopped"
@@ -104,19 +106,19 @@ final class ServerSwitcherTests: XCTestCase {
     func testAStoppedServerIsReachedWhenNothingElseRuns() {
         let entries = [Self.entries[0], Self.entries[2]]
         let switcher = makeSwitcher()
-        XCTAssertTrue(switcher.begin(
+        switcher.begin(
             items: ServerSwitcher.candidates(entries, currentSocket: Self.defaultSocket, home: Self.home, canChangeServer: true),
             current: id(Self.defaultSocket), last: ServerSwitcher.stopped(entries, home: Self.home)
-        ))
+        )
         XCTAssertEqual(switcher.finish(), id(Self.buildSocket))
     }
 
     func testAStoppedCurrentServerStaysFirst() {
         let switcher = makeSwitcher()
-        XCTAssertTrue(switcher.begin(
+        switcher.begin(
             items: candidates(current: Self.buildSocket), current: id(Self.buildSocket),
             last: ServerSwitcher.stopped(Self.entries, home: Self.home)
-        ))
+        )
         XCTAssertEqual(switcher.order.first, id(Self.buildSocket))
     }
 
@@ -170,16 +172,5 @@ final class ServerSwitcherTests: XCTestCase {
         XCTAssertTrue(SwitcherKey.isHeld(.optionBacktick, control: false, option: true))
         XCTAssertFalse(SwitcherKey.isHeld(.optionBacktick, control: true, option: false))
         XCTAssertEqual(SwitcherTrigger.optionBacktick.label, "\u{2325}`")
-    }
-
-    @MainActor
-    func testBacktickPressThatOpensNothingStaysOutOfThePane() {
-        let switcher = ServerSwitcher(userDefaults: UserDefaults(suiteName: "flock.tests.\(UUID().uuidString)")!)
-        XCTAssertTrue(SwitcherTrigger.optionBacktick.keepsUnopenedPress)
-        XCTAssertTrue(SwitcherTrigger.controlBacktick.keepsUnopenedPress)
-        XCTAssertFalse(SwitcherTrigger.optionTab.keepsUnopenedPress, "an unopened Tab still reaches the pane")
-        XCTAssertTrue(switcher.apply(.next, keepsUnopened: true, begin: { _ in false }, open: {}))
-        XCTAssertFalse(switcher.apply(.next, keepsUnopened: false, begin: { _ in false }, open: {}))
-        XCTAssertFalse(switcher.apply(.pass, keepsUnopened: true, begin: { _ in false }, open: {}))
     }
 }

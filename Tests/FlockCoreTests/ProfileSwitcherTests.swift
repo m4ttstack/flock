@@ -41,21 +41,21 @@ final class ProfileSwitcherTests: XCTestCase {
         switcher.note(currentProfile: FlockProfile.defaultID)
         switcher.note(currentProfile: Self.miniID)
 
-        XCTAssertTrue(switcher.begin(items: candidates, current: ProfileID(rawValue: Self.miniID)))
+        switcher.begin(items: candidates, current: ProfileID(rawValue: Self.miniID))
         XCTAssertEqual(switcher.order, ids(Self.miniID, FlockProfile.defaultID, "acme-work"), "current, then most recent first")
         XCTAssertEqual(switcher.finish(), ProfileID(rawValue: FlockProfile.defaultID))
 
         switcher.note(currentProfile: FlockProfile.defaultID)
-        XCTAssertTrue(switcher.begin(items: candidates, current: ProfileID(rawValue: FlockProfile.defaultID)))
+        switcher.begin(items: candidates, current: ProfileID(rawValue: FlockProfile.defaultID))
         XCTAssertEqual(switcher.finish(), ProfileID(rawValue: Self.miniID), "a second tap goes back")
     }
 
     func testAProfileNeverUsedFollowsTheRecentsInStoreOrder() {
         let switcher = makeSwitcher()
         switcher.note(currentProfile: FlockProfile.defaultID)
-        XCTAssertTrue(switcher.begin(
+        switcher.begin(
             items: ProfileSwitcher.candidates(Self.profiles, isLocked: false), current: ProfileID(rawValue: FlockProfile.defaultID)
-        ))
+        )
         XCTAssertEqual(switcher.order, ids(FlockProfile.defaultID, "acme-work", Self.miniID))
         switcher.step(1)
         XCTAssertEqual(switcher.selected, ProfileID(rawValue: Self.miniID))
@@ -69,32 +69,41 @@ final class ProfileSwitcherTests: XCTestCase {
         XCTAssertEqual(
             ProfileSwitcher.candidates(shuffled, isLocked: false), ids("acme-work", FlockProfile.defaultID, Self.miniID)
         )
-        XCTAssertTrue(switcher.begin(
+        switcher.begin(
             items: ProfileSwitcher.candidates(shuffled, isLocked: false), current: ProfileID(rawValue: Self.miniID)
-        ))
+        )
         XCTAssertEqual(switcher.order, ids(Self.miniID, "acme-work", FlockProfile.defaultID))
     }
 
-    func testATriggerThatStartsNothingReachesThePane() {
+    func testATriggerWithNothingToSwitchToOpensEmptyAndKeepsTheKey() {
         let switcher = makeSwitcher()
         let one = ProfileSwitcher.candidates(Array(Self.profiles.prefix(1)), isLocked: false)
         let current = ProfileID(rawValue: FlockProfile.defaultID)
         let begin = { (reverse: Bool) in switcher.begin(items: one, current: current, reverse: reverse) }
-        XCTAssertFalse(switcher.apply(.next, begin: begin, open: {}), "one profile: ⌃` goes to the terminal")
-        XCTAssertFalse(switcher.apply(.previous, begin: begin, open: {}))
         XCTAssertFalse(switcher.apply(.pass, begin: begin, open: {}))
+        XCTAssertFalse(switcher.isActive)
+        XCTAssertTrue(switcher.apply(.next, begin: begin, open: {}), "one profile: ⌃` still stays out of the terminal")
+        XCTAssertTrue(switcher.isActive)
+        XCTAssertTrue(switcher.isEmpty)
+        XCTAssertTrue(switcher.isShown, "an empty switcher shows at once")
+        XCTAssertTrue(switcher.apply(.next, begin: { _ in XCTFail("an open switcher steps") }, open: {}))
+        XCTAssertEqual(switcher.selection, 0)
+        XCTAssertNil(switcher.finish())
+        XCTAssertTrue(switcher.isLingering)
+        switcher.endLinger(session: switcher.session)
         XCTAssertFalse(switcher.isActive)
 
         let all = ProfileSwitcher.candidates(Self.profiles, isLocked: false)
         XCTAssertTrue(switcher.apply(.next, begin: { switcher.begin(items: all, current: current, reverse: $0) }, open: {}))
         XCTAssertTrue(switcher.isActive)
-        XCTAssertTrue(switcher.apply(.next, begin: { _ in XCTFail("an open switcher steps"); return false }, open: {}))
+        XCTAssertFalse(switcher.isEmpty)
+        XCTAssertTrue(switcher.apply(.next, begin: { _ in XCTFail("an open switcher steps") }, open: {}))
         XCTAssertEqual(switcher.selection, 2)
-        XCTAssertTrue(switcher.apply(.swallow, begin: { _ in false }, open: {}))
+        XCTAssertTrue(switcher.apply(.swallow, begin: { _ in }, open: {}))
         var opened = false
-        XCTAssertTrue(switcher.apply(.commit, begin: { _ in false }, open: { opened = true }))
+        XCTAssertTrue(switcher.apply(.commit, begin: { _ in }, open: { opened = true }))
         XCTAssertTrue(opened)
-        XCTAssertTrue(switcher.apply(.cancel, begin: { _ in false }, open: {}))
+        XCTAssertTrue(switcher.apply(.cancel, begin: { _ in }, open: {}))
         XCTAssertFalse(switcher.isActive)
     }
 
@@ -102,19 +111,23 @@ final class ProfileSwitcherTests: XCTestCase {
         let switcher = makeSwitcher()
         switcher.note(currentProfile: "machine.gone")
         switcher.note(currentProfile: FlockProfile.defaultID)
-        XCTAssertTrue(switcher.begin(
+        switcher.begin(
             items: ProfileSwitcher.candidates(Array(Self.profiles.prefix(2)), isLocked: false),
             current: ProfileID(rawValue: FlockProfile.defaultID)
-        ))
+        )
         XCTAssertEqual(switcher.order, ids(FlockProfile.defaultID, "acme-work"))
     }
 
     func testOneProfileOrALockedWindowHasNothingToSwitchTo() {
         let switcher = makeSwitcher()
         let current = ProfileID(rawValue: FlockProfile.defaultID)
-        XCTAssertFalse(switcher.begin(items: ProfileSwitcher.candidates(Array(Self.profiles.prefix(1)), isLocked: false), current: current))
-        XCTAssertFalse(switcher.begin(items: ProfileSwitcher.candidates(Self.profiles, isLocked: true), current: current))
-        XCTAssertFalse(switcher.isActive)
+        switcher.begin(items: ProfileSwitcher.candidates(Array(Self.profiles.prefix(1)), isLocked: false), current: current)
+        XCTAssertTrue(switcher.isEmpty)
+        XCTAssertNil(switcher.finish())
+        switcher.cancel()
+        switcher.begin(items: ProfileSwitcher.candidates(Self.profiles, isLocked: true), current: current)
+        XCTAssertTrue(switcher.isEmpty)
+        XCTAssertEqual(switcher.order, [], "a locked window lists nothing")
     }
 
     func testControlBacktickKeys() {

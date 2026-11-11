@@ -114,7 +114,6 @@ enum ChromeType {
     /// System rather than Inter: Inter draws ⌃ as a caret, and a backtick
     /// as a speck at this size.
     static let switcherKeycap = Font.system(size: 10, weight: .medium)
-    static let switcherBacktick = Font.system(size: 17, weight: .heavy, design: .monospaced)
     static let emptyCanvas = inter(15.5)
     static let rearrangeSymbol = Font.system(size: 28, weight: .semibold)
 

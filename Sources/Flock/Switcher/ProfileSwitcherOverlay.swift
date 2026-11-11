@@ -45,7 +45,7 @@ extension SwitcherBlockers {
             rtModal: session.viewModel.rt.modal != nil, profilePickerOpen: profilePicker.isOpen,
             active: SwitcherKind.active(
                 workspaces: session.workspaceSwitcher, tabs: session.tabSwitcher, profiles: profiles,
-                servers: session.serverSwitcher
+                servers: session.serverSwitcher, agents: session.agentSwitcher
             )
         )
     }

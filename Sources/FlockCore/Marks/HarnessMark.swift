@@ -33,6 +33,15 @@ public struct HarnessMark: Equatable, Sendable {
 
     public static let discGround = RGB(0, 0, 0)
 
+    /// The mark for herdr's name of a detected agent, if flock has one.
+    public static func forAgent(_ agent: String) -> HarnessMark? {
+        switch agent.lowercased() {
+        case "claude": .claude
+        case "codex": .codex
+        default: nil
+        }
+    }
+
     public static let claude = HarnessMark(
         pathData: CLAUDE,
         ink: RGB(0xD9, 0x77, 0x57),

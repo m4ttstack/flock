@@ -5,7 +5,8 @@ public typealias WorkspaceSwitcher = RecentsSwitcher<WorkspaceID>
 public typealias TabSwitcher = RecentsSwitcher<TabID>
 
 /// A hold-and-tap switcher: ⌃Tab over workspaces, ⌥Tab over the selected
-/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers. Keeps what was
+/// workspace's tabs, ⌃` over profiles, ⌥` over herdr servers, ⌘` over
+/// agents. Keeps what was
 /// most recently selected across launches, and, while the trigger is held,
 /// the rows on offer and which one letting go will open.
 @MainActor
@@ -20,13 +21,23 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     /// otherwise.
     public private(set) var order: [ID] = []
     public private(set) var selection = 0
+    /// False when the current item is not on offer (the focused pane is no
+    /// agent), so no row stands for staying put.
+    public private(set) var startsOnCurrent = true
     /// Held back until a moment after the first tap, so a quick tap goes back
     /// to the last item without the panel flashing up.
     public private(set) var isShown = false
     /// Which press a delayed `show` belongs to.
     public private(set) var session = 0
+    /// Up with nowhere to go, so the press is seen to land rather than
+    /// reaching the pane behind. Shown at once.
+    public private(set) var isEmpty = false
+    /// An empty panel left up a moment after the trigger is let go, so a
+    /// quick tap is still seen. Any key ends it.
+    public private(set) var isLingering = false
+    private var isOpen = false
 
-    public var isActive: Bool { !order.isEmpty }
+    public var isActive: Bool { isOpen }
     public var selected: ID? { order.indices.contains(selection) ? order[selection] : nil }
 
     @ObservationIgnored private let userDefaults: UserDefaults
@@ -47,28 +58,38 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Selects the item before this one, or with `reverse` the last row.
-    /// Returns false, and starts nothing, when there is nowhere to go. Items
+    /// With nowhere to go it opens empty, showing what there is. Items
     /// in `last` follow every other row, recent ones first among them, so a
     /// quick tap reaches one only when nothing else is on offer; the current
-    /// item stays first whatever it is.
-    @discardableResult
-    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) -> Bool {
+    /// item stays first whatever it is. With no current item among `items`,
+    /// the first row is the most recent one and a single row is enough.
+    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) {
         var rows: [ID] = []
-        if let current, items.contains(current) { rows.append(current) }
+        let onCurrent = current.map(items.contains) ?? false
+        if let current, onCurrent { rows.append(current) }
         for group in [items.filter { !last.contains($0) }, items.filter { last.contains($0) }] {
             let known = Set(group)
             for id in recents.filter(known.contains) + group where !rows.contains(id) { rows.append(id) }
         }
-        guard rows.count > 1 else { return false }
         session += 1
+        isOpen = true
+        isLingering = false
         order = rows
-        selection = reverse ? rows.count - 1 : 1
+        guard rows.count > (onCurrent ? 1 : 0) else {
+            startsOnCurrent = true
+            selection = 0
+            isEmpty = true
+            isShown = true
+            return
+        }
+        isEmpty = false
+        startsOnCurrent = onCurrent
+        selection = reverse ? rows.count - 1 : (onCurrent ? 1 : 0)
         isShown = false
-        return true
     }
 
     public func step(_ delta: Int) {
-        guard isActive else { return }
+        guard isActive, !isEmpty, !order.isEmpty else { return }
         selection = ((selection + delta) % order.count + order.count) % order.count
     }
 
@@ -81,32 +102,46 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Ends the switch and names where to go: nil when the selection is back
-    /// on the item it started from.
+    /// on the item it started from. An empty switch lingers instead of
+    /// closing; see `isLingering`.
     public func finish() -> ID? {
-        let target = selection == 0 ? nil : selected
+        if isEmpty {
+            isLingering = true
+            return nil
+        }
+        let target = startsOnCurrent && selection == 0 ? nil : selected
         cancel()
         return target
     }
 
+    /// Ends a lingering empty switch, if `session` is still the one that
+    /// lingered.
+    public func endLinger(session: Int) {
+        if isLingering, session == self.session { cancel() }
+    }
+
     public func cancel() {
+        isOpen = false
+        isEmpty = false
+        isLingering = false
         order = []
         selection = 0
         isShown = false
     }
 
-    /// Acts on a key's decision and says whether the key was used. A trigger
-    /// press that starts nothing (one item, a locked window) is not, so it
-    /// reaches the pane behind.
-    /// `keepsUnopened`: a press that opens nothing is still held back from
-    /// the pane.
+    /// Acts on a key's decision and says whether the key was used: every
+    /// decision but `.pass` is, since a trigger always opens the panel.
     public func apply(
-        _ decision: SwitcherKey.Decision, keepsUnopened: Bool = false, begin: (_ reverse: Bool) -> Bool, open: () -> Void
+        _ decision: SwitcherKey.Decision, begin: (_ reverse: Bool) -> Void, open: () -> Void
     ) -> Bool {
         switch decision {
         case .pass:
             return false
         case .next, .previous:
-            guard isActive else { return begin(decision == .previous) || keepsUnopened }
+            guard isActive else {
+                begin(decision == .previous)
+                return true
+            }
             step(decision == .next ? 1 : -1)
         case .commit:
             open()
@@ -126,8 +161,7 @@ extension RecentsSwitcher where ID == WorkspaceID {
         self.init(defaultsKey: Self.defaultsKey, userDefaults: userDefaults)
     }
 
-    @discardableResult
-    public func begin(workspaces: [WorkspaceID], current: WorkspaceID?, reverse: Bool = false) -> Bool {
+    public func begin(workspaces: [WorkspaceID], current: WorkspaceID?, reverse: Bool = false) {
         begin(items: workspaces, current: current, reverse: reverse)
     }
 
@@ -171,9 +205,9 @@ extension RecentsSwitcher where ID == TabID {
 }
 
 /// What opens a switcher and holds it open: ⌃Tab over workspaces, ⌥Tab over
-/// tabs, ⌃` over profiles, ⌥` over servers.
+/// tabs, ⌃` over profiles, ⌥` over servers, ⌘` over agents.
 public struct SwitcherTrigger: Equatable, Sendable {
-    public enum Modifier: Sendable { case control, option }
+    public enum Modifier: Sendable { case control, option, command }
 
     public let modifier: Modifier
     public let keyCode: UInt16
@@ -182,20 +216,20 @@ public struct SwitcherTrigger: Equatable, Sendable {
     public static let optionTab = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.tab)
     public static let controlBacktick = SwitcherTrigger(modifier: .control, keyCode: SwitcherKey.grave)
     public static let optionBacktick = SwitcherTrigger(modifier: .option, keyCode: SwitcherKey.grave)
+    public static let commandBacktick = SwitcherTrigger(modifier: .command, keyCode: SwitcherKey.grave)
 
     public var modifierGlyph: String {
         switch modifier {
         case .control: "\u{2303}"
         case .option: "\u{2325}"
+        case .command: "\u{2318}"
         }
     }
 
     public var keyGlyph: String { keyCode == SwitcherKey.tab ? "\u{21E5}" : "`" }
 
-    /// ⌥` is the grave accent's dead key and ⌃` types a NUL, so a backtick
-    /// press that opens nothing would leave the pane half-composing an accent
-    /// or reading a stray byte.
-    public var keepsUnopenedPress: Bool { keyCode == SwitcherKey.grave }
+    /// What the footer offers to cancel with: ⌘ is already held, so ⌘.
+    public var cancelGlyph: String { modifier == .command ? "." : "esc" }
 
     /// As menus write a shortcut, for tooltips.
     public var label: String { modifierGlyph + keyGlyph }
@@ -213,7 +247,8 @@ public enum SwitcherKey {
     static let grave: UInt16 = 50
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
-    static let escape: UInt16 = 53
+    public static let escape: UInt16 = 53
+    static let period: UInt16 = 47
     static let leftArrow: UInt16 = 123
     static let rightArrow: UInt16 = 124
     static let downArrow: UInt16 = 125
@@ -223,11 +258,15 @@ public enum SwitcherKey {
         trigger: SwitcherTrigger, keyCode: UInt16, control: Bool, shift: Bool, command: Bool, option: Bool, active: Bool
     ) -> Decision {
         let triggerOnly = switch trigger.modifier {
-        case .control: control && !option
-        case .option: option && !control
+        case .control: control && !option && !command
+        case .option: option && !control && !command
+        case .command: command && !control && !option
         }
-        if keyCode == trigger.keyCode, triggerOnly, !command { return shift ? .previous : .next }
+        if keyCode == trigger.keyCode, triggerOnly { return shift ? .previous : .next }
         guard active else { return .pass }
+        // ⌘Esc can be taken system-wide before Flock sees it; ⌘. is the
+        // Mac's own cancel and always arrives.
+        if keyCode == period, command { return .cancel }
         switch keyCode {
         case escape: return .cancel
         case returnKey, keypadEnter: return .commit
@@ -237,10 +276,11 @@ public enum SwitcherKey {
         }
     }
 
-    public static func isHeld(_ trigger: SwitcherTrigger, control: Bool, option: Bool) -> Bool {
+    public static func isHeld(_ trigger: SwitcherTrigger, control: Bool, option: Bool, command: Bool = false) -> Bool {
         switch trigger.modifier {
         case .control: control
         case .option: option
+        case .command: command
         }
     }
 }

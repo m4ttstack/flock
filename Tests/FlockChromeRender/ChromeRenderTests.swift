@@ -4451,7 +4451,7 @@ final class ChromeRenderTests: XCTestCase {
             let last = try XCTUnwrap(workspaces.last { $0 != current })
             harness.switcher.note(last)
             harness.switcher.note(current)
-            XCTAssertTrue(harness.switcher.begin(workspaces: workspaces, current: current))
+            harness.switcher.begin(workspaces: workspaces, current: current)
             harness.switcher.show(session: harness.switcher.session)
             await settle(window)
             let image = try snapshot(window)
@@ -4574,7 +4574,7 @@ final class ChromeRenderTests: XCTestCase {
             let last = try XCTUnwrap(tabs.last { $0 != current })
             harness.tabSwitcher.note(last)
             harness.tabSwitcher.note(current)
-            XCTAssertTrue(harness.tabSwitcher.begin(items: tabs, current: current))
+            harness.tabSwitcher.begin(items: tabs, current: current)
             harness.tabSwitcher.show(session: harness.tabSwitcher.session)
             await settle(window)
             let image = try snapshot(window)
@@ -4614,12 +4614,64 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertNil(label("w1:t1"), id)
 
             let current = try XCTUnwrap(harness.viewModel.selectedTabID)
-            XCTAssertTrue(harness.tabSwitcher.begin(items: tabs.map(\.tabID), current: current))
+            harness.tabSwitcher.begin(items: tabs.map(\.tabID), current: current)
             harness.tabSwitcher.show(session: harness.tabSwitcher.session)
             await settle(window)
             if let directory {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("tab-switcher-chat-\(id).png"))
+            }
+            window.close()
+        }
+    }
+
+    /// ⌘`'s agents across workspaces: a signed-in agent by its chat name and
+    /// face, the rest by pane title, each with where it lives. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`.
+    func testTheAgentSwitcherNamesAgentsByTheirChatPersona() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let buddy = { (handle: String, name: String, pane: String) in
+            #"{"handle":"\#(handle)","name":"\#(name)","paneId":"\#(pane)","status":"online","unread":0,"mentions":0}"#
+        }
+        let peek = #"{"buddies":[\#(buddy("@oak-claude", "oak", "w1:p2")),\#(buddy("@ivy-claude", "ivy", "w1:p1"))],"rooms":[]}"#
+        var model = try Fixture.model()
+        let agents = model.panes.keys.sorted { $0.rawValue < $1.rawValue }.prefix(4)
+        for (index, id) in agents.enumerated() { model.panes[id]?.agent = ["claude", "claude", "codex", "aider"][index] }
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 0.85, green: 0.45, blue: 0.3, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        let face = ChatFaceImage(image: try XCTUnwrap(context.makeImage()), zoom: 1, isFinal: true)
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(
+                theme: theme, model: model, chatAvailable: true, chatPeekJSON: peek,
+                chatLoadFace: { handle in handle == "@oak-claude" ? .face(face) : .noFace }
+            )
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let live = try XCTUnwrap(harness.viewModel.model)
+            let candidates = AgentSwitcher.candidates(in: live)
+            XCTAssertEqual(Set(candidates), Set(agents), id)
+            harness.agentSwitcher.begin(items: candidates, current: nil)
+            harness.agentSwitcher.show(session: harness.agentSwitcher.session)
+            await settle(window)
+            try await Task.sleep(for: .milliseconds(200))
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-switcher-\(id).png"))
+            }
+            harness.agentSwitcher.cancel()
+            harness.agentSwitcher.begin(items: [], current: nil)
+            XCTAssertTrue(harness.agentSwitcher.isEmpty, "\(id): nowhere to go still opens")
+            XCTAssertTrue(harness.agentSwitcher.isShown, "\(id): shown at once")
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-switcher-empty-\(id).png"))
             }
             window.close()
         }
@@ -4647,7 +4699,7 @@ final class ChromeRenderTests: XCTestCase {
             let window = harness.makeWindow(size: Self.windowSize)
             await settle(window)
             let workspaces = try XCTUnwrap(harness.viewModel.model?.workspaces.map(\.workspaceID))
-            XCTAssertTrue(harness.switcher.begin(workspaces: workspaces, current: harness.viewModel.selectedWorkspaceID, reverse: true))
+            harness.switcher.begin(workspaces: workspaces, current: harness.viewModel.selectedWorkspaceID, reverse: true)
             harness.switcher.show(session: harness.switcher.session)
             await settle(window)
             let image = try snapshot(window)
@@ -4967,6 +5019,7 @@ private struct Harness {
     let palette = CommandPaletteState()
     let switcher: WorkspaceSwitcher
     let tabSwitcher: TabSwitcher
+    let agentSwitcher: AgentSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
     /// Arrange unless a test selects otherwise: every grid render that
@@ -4986,6 +5039,7 @@ private struct Harness {
         // saw before this button existed.
         chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:], chatUnread: [PaneID: Int] = [:],
         chatPeekJSON: String? = nil,
+        chatLoadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
         // False only for a test proving the production fetch wiring itself:
         // every other test wants status/unread in place before the first
         // render, which calling the store here directly gives for free.
@@ -5046,11 +5100,13 @@ private struct Harness {
         paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         switcher = WorkspaceSwitcher(userDefaults: defaults)
         tabSwitcher = TabSwitcher(userDefaults: defaults)
+        agentSwitcher = AgentSwitcher(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
             rtProbe: { true }, deckProbe: { true },
-            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON, peekJSON: chatPeekJSON) }
+            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON, peekJSON: chatPeekJSON) },
+            loadFace: chatLoadFace
         )
         await chatStore.probeTask.value
         await chatStore.peekTask?.value
@@ -5153,6 +5209,7 @@ private struct Harness {
             .environment(paletteRecents)
             .environment(switcher)
             .environment(tabSwitcher)
+            .environment(agentSwitcher)
             .environment(paneAppearance)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),

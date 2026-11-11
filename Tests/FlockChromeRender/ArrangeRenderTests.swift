@@ -289,6 +289,7 @@ struct ArrangeHarness {
         .environment(PaletteRecentsStore(userDefaults: defaults))
         .environment(WorkspaceSwitcher(userDefaults: defaults))
         .environment(TabSwitcher(userDefaults: defaults))
+        .environment(AgentSwitcher(userDefaults: defaults))
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
