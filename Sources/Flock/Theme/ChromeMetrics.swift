@@ -1237,6 +1237,10 @@ enum ChromeMetrics {
         static let backtickWidth: CGFloat = 2.5
         static let backtickHeight: CGFloat = 3
         static let backtickWeight: CGFloat = 2.2
+        /// The period keycap's dot, drawn for the same reason as the backtick.
+        static let periodSize: CGFloat = 3
+        /// On the baseline, so it reads as a period and not a bullet.
+        static let periodDrop: CGFloat = 3
         /// Raised, as the key prints it, so it is not read as a backslash.
         static let backtickRise: CGFloat = 2.5
         /// The server switcher's leading slot, which holds the current

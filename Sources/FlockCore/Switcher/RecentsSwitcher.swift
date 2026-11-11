@@ -231,6 +231,9 @@ public struct SwitcherTrigger: Equatable, Sendable {
 
     public var keyGlyph: String { keyCode == SwitcherKey.tab ? "\u{21E5}" : "`" }
 
+    /// What the footer offers to cancel with: ⌘ is already held, so ⌘.
+    public var cancelGlyph: String { modifier == .command ? "." : "esc" }
+
     /// ⌥` is the grave accent's dead key, ⌃` types a NUL and ⌘` would cycle
     /// windows, so a backtick press that opens nothing would leave the pane
     /// half-composing an accent, reading a stray byte, or the window gone.
@@ -253,6 +256,7 @@ public enum SwitcherKey {
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
     public static let escape: UInt16 = 53
+    static let period: UInt16 = 47
     static let leftArrow: UInt16 = 123
     static let rightArrow: UInt16 = 124
     static let downArrow: UInt16 = 125
@@ -268,6 +272,9 @@ public enum SwitcherKey {
         }
         if keyCode == trigger.keyCode, triggerOnly { return shift ? .previous : .next }
         guard active else { return .pass }
+        // ⌘Esc can be taken system-wide before Flock sees it; ⌘. is the
+        // Mac's own cancel and always arrives.
+        if keyCode == period, command { return .cancel }
         switch keyCode {
         case escape: return .cancel
         case returnKey, keypadEnter: return .commit

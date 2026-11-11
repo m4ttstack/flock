@@ -403,7 +403,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
             hint(keys: [trigger.keyGlyph], after: "next")
             hint(keys: ["\u{2191}", "\u{2193}"], after: "move")
             hint(before: "release", keys: [trigger.modifierGlyph], after: "to open")
-            hint(keys: ["esc"], after: "cancel")
+            hint(keys: [trigger.cancelGlyph], after: "cancel")
             Spacer(minLength: 0)
         }
         .font(ChromeType.paletteFooter)
@@ -432,6 +432,9 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                     .stroke(style: StrokeStyle(lineWidth: Switcher.backtickWeight, lineCap: .round))
                     .frame(width: Switcher.backtickWidth, height: Switcher.backtickHeight)
                     .offset(y: -Switcher.backtickRise)
+            } else if glyph == "." {
+                Circle().frame(width: Switcher.periodSize, height: Switcher.periodSize)
+                    .offset(y: Switcher.periodDrop)
             } else {
                 Text(verbatim: glyph).font(ChromeType.switcherKeycap)
             }
