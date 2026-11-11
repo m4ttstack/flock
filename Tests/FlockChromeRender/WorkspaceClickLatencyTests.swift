@@ -155,6 +155,7 @@ private struct Harness {
     let palette = CommandPaletteState()
     let switcher: WorkspaceSwitcher
     let tabSwitcher: TabSwitcher
+    let agentSwitcher: AgentSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
 
@@ -181,6 +182,7 @@ private struct Harness {
         paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         switcher = WorkspaceSwitcher(userDefaults: defaults)
         tabSwitcher = TabSwitcher(userDefaults: defaults)
+        agentSwitcher = AgentSwitcher(userDefaults: defaults)
         // No chat binary, same as a machine without one: a latency run does
         // not exercise the chat button at all.
         chatStore = ChatStore(toasts: ToastCenter(), probe: { nil }, makeRunner: { _ in fatalError("no verb runs") })
@@ -224,6 +226,7 @@ private struct Harness {
             .environment(paletteRecents)
             .environment(switcher)
             .environment(tabSwitcher)
+            .environment(agentSwitcher)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

@@ -45,7 +45,9 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
     ) -> NSEvent? {
         let flags = event.modifierFlags
         if event.type == .flagsChanged {
-            if switcher.isActive, !SwitcherKey.isHeld(trigger, control: flags.contains(.control), option: flags.contains(.option)) {
+            if switcher.isActive, !SwitcherKey.isHeld(
+                trigger, control: flags.contains(.control), option: flags.contains(.option), command: flags.contains(.command)
+            ) {
                 open()
             }
             return event

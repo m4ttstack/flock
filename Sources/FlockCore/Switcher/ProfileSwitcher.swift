@@ -33,7 +33,7 @@ extension RecentsSwitcher where ID == ProfileID {
 }
 
 public enum SwitcherKind: Hashable, Sendable {
-    case workspaces, tabs, profiles, servers
+    case workspaces, tabs, profiles, servers, agents
 }
 
 /// What an idle switcher passes keys through for: a palette, rename editor,

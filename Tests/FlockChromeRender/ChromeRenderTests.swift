@@ -4625,6 +4625,49 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// ⌘`'s agents across workspaces: a signed-in agent by its chat name and
+    /// face, the rest by pane title, each with where it lives. PNGs go to
+    /// `FLOCK_CHROME_RENDER_DIR`.
+    func testTheAgentSwitcherNamesAgentsByTheirChatPersona() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let buddy = { (handle: String, name: String, pane: String) in
+            #"{"handle":"\#(handle)","name":"\#(name)","paneId":"\#(pane)","status":"online","unread":0,"mentions":0}"#
+        }
+        let peek = #"{"buddies":[\#(buddy("@oak-claude", "oak", "w1:p2")),\#(buddy("@ivy-claude", "ivy", "w1:p1"))],"rooms":[]}"#
+        var model = try Fixture.model()
+        let agents = model.panes.keys.sorted { $0.rawValue < $1.rawValue }.prefix(4)
+        for id in agents { model.panes[id]?.agent = "claude" }
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: 48, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
+            space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(red: 0.85, green: 0.45, blue: 0.3, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 48, height: 48))
+        let face = ChatFaceImage(image: try XCTUnwrap(context.makeImage()), zoom: 1, isFinal: true)
+        for id in ["tokyo-night", "one-light"] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(
+                theme: theme, model: model, chatAvailable: true, chatPeekJSON: peek,
+                chatLoadFace: { handle in handle == "@oak-claude" ? .face(face) : .noFace }
+            )
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let live = try XCTUnwrap(harness.viewModel.model)
+            let candidates = AgentSwitcher.candidates(in: live)
+            XCTAssertEqual(Set(candidates), Set(agents), id)
+            XCTAssertTrue(harness.agentSwitcher.begin(items: candidates, current: nil))
+            harness.agentSwitcher.show(session: harness.agentSwitcher.session)
+            await settle(window)
+            try await Task.sleep(for: .milliseconds(200))
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-switcher-\(id).png"))
+            }
+            window.close()
+        }
+    }
+
     /// More workspaces than fit: the box keeps its margins, draws no scroll
     /// bar, and scrolls the selection into view at the far end of the list.
     func testALongSwitcherListKeepsItsMarginsAndItsSelectionInView() async throws {
@@ -4967,6 +5010,7 @@ private struct Harness {
     let palette = CommandPaletteState()
     let switcher: WorkspaceSwitcher
     let tabSwitcher: TabSwitcher
+    let agentSwitcher: AgentSwitcher
     let paletteRecents: PaletteRecentsStore
     let viewModel: SessionViewModel
     /// Arrange unless a test selects otherwise: every grid render that
@@ -4986,6 +5030,7 @@ private struct Harness {
         // saw before this button existed.
         chatAvailable: Bool = false, chatStatusJSON: [PaneID: String] = [:], chatUnread: [PaneID: Int] = [:],
         chatPeekJSON: String? = nil,
+        chatLoadFace: (@Sendable (_ handle: String) async -> ChatFaceLoad)? = nil,
         // False only for a test proving the production fetch wiring itself:
         // every other test wants status/unread in place before the first
         // render, which calling the store here directly gives for free.
@@ -5046,11 +5091,13 @@ private struct Harness {
         paletteRecents = PaletteRecentsStore(userDefaults: defaults)
         switcher = WorkspaceSwitcher(userDefaults: defaults)
         tabSwitcher = TabSwitcher(userDefaults: defaults)
+        agentSwitcher = AgentSwitcher(userDefaults: defaults)
         chatStore = ChatStore(
             toasts: ToastCenter(),
             probe: { chatAvailable ? "/usr/bin/true" : nil },
             rtProbe: { true }, deckProbe: { true },
-            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON, peekJSON: chatPeekJSON) }
+            makeRunner: { _ in FixtureChatRunning(statusJSON: chatStatusJSON, peekJSON: chatPeekJSON) },
+            loadFace: chatLoadFace
         )
         await chatStore.probeTask.value
         await chatStore.peekTask?.value
@@ -5153,6 +5200,7 @@ private struct Harness {
             .environment(paletteRecents)
             .environment(switcher)
             .environment(tabSwitcher)
+            .environment(agentSwitcher)
             .environment(paneAppearance)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),

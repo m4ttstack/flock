@@ -1,15 +1,17 @@
 import FlockCore
 import SwiftUI
 
-/// Both hold-and-tap switchers over the tab area: ⌃Tab's workspaces and ⌥Tab's
-/// tabs in the selected workspace. Each blocks the other, and ⌃`'s profiles
-/// and ⌥`'s servers block both, while either is up.
+/// The hold-and-tap switchers over the tab area: ⌃Tab's workspaces, ⌥Tab's
+/// tabs in the selected workspace and ⌘`'s agents in every workspace. Each
+/// blocks the others, and ⌃`'s profiles and ⌥`'s servers block all three,
+/// while any is up.
 struct SwitcherOverlay: View {
     let theme: Theme
     let viewModel: SessionViewModel
 
     @Environment(WorkspaceSwitcher.self) private var workspaces
     @Environment(TabSwitcher.self) private var tabs
+    @Environment(AgentSwitcher.self) private var agents
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(ChatStore.self) private var chatStore
     @Environment(ProfileSwitcher.self) private var profiles: ProfileSwitcher?
@@ -18,11 +20,11 @@ struct SwitcherOverlay: View {
 
     var body: some View {
         let palette = commandPalette
-        let blockers = { [viewModel, workspaces, tabs, profiles, servers, profilePicker] in
+        let blockers = { [viewModel, workspaces, tabs, agents, profiles, servers, profilePicker] in
             SwitcherBlockers(
                 paletteOpen: palette.isOpen, renaming: viewModel.renameEditorIsOnScreen, rtModal: viewModel.rt.modal != nil,
                 profilePickerOpen: profilePicker?.isOpen ?? false,
-                active: SwitcherKind.active(workspaces: workspaces, tabs: tabs, profiles: profiles, servers: servers)
+                active: SwitcherKind.active(workspaces: workspaces, tabs: tabs, profiles: profiles, servers: servers, agents: agents)
             )
         }
         ZStack {
@@ -71,7 +73,30 @@ struct SwitcherOverlay: View {
                 blocked: { blockers().blocks(.tabs) },
                 go: { [viewModel] id in Task { await viewModel.jumpToHerdr(tab: id) } }
             )
+            SwitcherView(
+                theme: theme, switcher: agents, trigger: .commandBacktick, accessibilityPrefix: "flock.agentSwitcher",
+                heading: "Agents",
+                width: ChromeMetrics.Switcher.chatWidth,
+                row: { [viewModel] id in Self.agentRow(id, viewModel: viewModel, chat: chat) },
+                onBegin: { if let chat { Task { await chat.refreshBuddies() } } },
+                candidates: { [viewModel] in viewModel.model.map(AgentSwitcher.candidates(in:)) ?? [] },
+                current: { [viewModel] in viewModel.resolvedFocusedPaneID },
+                blocked: { blockers().blocks(.agents) },
+                go: { [viewModel] id in Task { await viewModel.jumpToPane(id) } }
+            )
         }
+    }
+
+    /// Named as chat names the agent when it is signed in, with its face;
+    /// otherwise by its pane's title.
+    static func agentRow(_ id: PaneID, viewModel: SessionViewModel, chat: ChatStore?) -> SwitcherRow? {
+        guard let model = viewModel.model, let pane = model.panes[id], pane.agent != nil else { return nil }
+        let buddy = chat?.buddies[id]
+        return SwitcherRow(
+            status: pane.agentStatus, label: buddy?.displayName ?? pane.displayTitle, count: 0,
+            face: buddy.map { SwitcherRow.Face(name: $0.displayName, handle: $0.handle) }, reservesFace: true,
+            detail: AgentSwitcher.location(of: pane, in: model) ?? ""
+        )
     }
 
     static func workspaceRow(_ id: WorkspaceID, viewModel: SessionViewModel) -> SwitcherRow? {
@@ -93,13 +118,15 @@ struct SwitcherOverlay: View {
 extension SwitcherKind {
     @MainActor
     static func active(
-        workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?, servers: ServerSwitcher?
+        workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?, servers: ServerSwitcher?,
+        agents: AgentSwitcher?
     ) -> Set<SwitcherKind> {
         var active: Set<SwitcherKind> = []
         if workspaces?.isActive == true { active.insert(.workspaces) }
         if tabs?.isActive == true { active.insert(.tabs) }
         if profiles?.isActive == true { active.insert(.profiles) }
         if servers?.isActive == true { active.insert(.servers) }
+        if agents?.isActive == true { active.insert(.agents) }
         return active
     }
 }
@@ -120,6 +147,17 @@ struct SwitcherRow {
     /// Drawn as Settings' Server menu draws a server: a check on the current
     /// one where the status dot goes, its running state where the count goes.
     var server: ServerSwitcherRow? = nil
+    /// A signed-in agent's chat face, drawn before its name.
+    var face: Face? = nil
+    /// Keeps the face's slot empty when there is none, so names line up.
+    var reservesFace = false
+    /// Drawn where the count goes, in its place.
+    var detail: String? = nil
+
+    struct Face {
+        let name: String
+        let handle: String
+    }
 
     struct Profile {
         let isMachine: Bool
@@ -281,6 +319,11 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
             } else {
                 StatusDot(status: item.status, theme: theme, size: ChromeMetrics.WorkspaceRow.statusDot)
             }
+            if let face = item.face {
+                SwitcherFace(theme: theme, face: face)
+            } else if item.reservesFace {
+                Color.clear.frame(width: ChromeMetrics.PaneBar.faceSize, height: ChromeMetrics.PaneBar.faceSize)
+            }
             Text(item.label)
                 .font(selected ? ChromeType.paletteNameSelected : ChromeType.paletteName)
                 .foregroundStyle(item.isEmptyPin ? theme.textLabel.opacity(ChromeMetrics.WorkspaceRow.emptyPinOpacity) : theme.textStrong)
@@ -301,7 +344,13 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                 .foregroundStyle(theme.textLabel)
                 .padding(.trailing, ChromeMetrics.Switcher.chatCountGap)
             }
-            if let status = item.server?.status {
+            if let detail = item.detail {
+                Text(detail)
+                    .font(ChromeType.paletteShortcut)
+                    .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if let status = item.server?.status {
                 Text(status)
                     .font(ChromeType.paletteShortcut)
                     .foregroundStyle(theme.textLabel)
@@ -379,5 +428,18 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     private func open(_ id: ID) {
         switcher.select(id)
         if let target = switcher.finish() { go(target) }
+    }
+}
+
+/// A switcher row's chat face, followed as the pane bar's chip follows it.
+private struct SwitcherFace: View {
+    let theme: Theme
+    let face: SwitcherRow.Face
+
+    @Environment(ChatStore.self) private var chatStore: ChatStore?
+
+    var body: some View {
+        ChatFace(style: LauncherStripStyle(theme: theme), name: face.name, image: chatStore?.face(for: face.handle))
+            .task(id: face.handle) { await chatStore?.followFace(face.handle) }
     }
 }

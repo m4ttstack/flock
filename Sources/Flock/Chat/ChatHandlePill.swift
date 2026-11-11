@@ -49,7 +49,7 @@ struct ChatHandlePill: View {
 
 /// The face rt hands over, or the name's initial until one arrives. An rt
 /// without faces stays on the initial.
-private struct ChatFace: View {
+struct ChatFace: View {
     let style: LauncherStripStyle
     let name: String
     let image: ChatFaceImage?

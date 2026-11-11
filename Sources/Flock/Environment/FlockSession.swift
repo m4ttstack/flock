@@ -41,6 +41,7 @@ final class FlockSession: ProfileSession {
     let topBarOverlaySizeStore: TopBarOverlaySizeStore
     let workspaceSwitcher: WorkspaceSwitcher
     let tabSwitcher: TabSwitcher
+    let agentSwitcher: AgentSwitcher
     let serverSwitcher: ServerSwitcher
 
     let toastCenter: ToastCenter
@@ -127,6 +128,7 @@ final class FlockSession: ProfileSession {
         topBarOverlaySizeStore = TopBarOverlaySizeStore(userDefaults: idState)
         workspaceSwitcher = WorkspaceSwitcher(userDefaults: idState)
         tabSwitcher = TabSwitcher(userDefaults: idState)
+        agentSwitcher = AgentSwitcher(userDefaults: idState)
         serverSwitcher = ServerSwitcher(userDefaults: preferences)
 
         let toastCenter = ToastCenter()

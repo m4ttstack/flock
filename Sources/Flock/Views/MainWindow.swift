@@ -11,6 +11,7 @@ struct MainWindow: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(AgentSwitcher.self) private var agentSwitcher
     @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
     @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
     @Environment(AllWorkspacesModeStore.self) private var allWorkspacesMode
@@ -186,7 +187,7 @@ struct MainWindow: View {
         // palette, and a rename editor on the live rail needs the Return and
         // Esc the palette would take.
         .onChange(of: dragCoordinator.isGridShown) { _, shown in
-            if shown { switcher.cancel(); tabSwitcher.cancel() }
+            if shown { switcher.cancel(); tabSwitcher.cancel(); agentSwitcher.cancel() }
         }
         .onChange(of: paletteSurface) { commandPalette.close() }
         .modifier(TopBarOverlayExclusion(viewModel: viewModel))
@@ -210,6 +211,7 @@ struct MainWindow: View {
                 commandPalette.close()
                 switcher.cancel()
                 tabSwitcher.cancel()
+                agentSwitcher.cancel()
                 profileSwitcher?.cancel()
                 serverSwitcher?.cancel()
             }
@@ -219,6 +221,9 @@ struct MainWindow: View {
         }
         .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
             if let id { tabSwitcher.note(id) }
+        }
+        .onChange(of: viewModel.resolvedFocusedPaneID, initial: true) { _, id in
+            if let id, viewModel.model?.panes[id]?.agent != nil { agentSwitcher.note(id) }
         }
 
         .frame(minWidth: 900, minHeight: 560)
@@ -400,6 +405,7 @@ private struct TopBarOverlayExclusion: ViewModifier {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(WorkspaceSwitcher.self) private var switcher
     @Environment(TabSwitcher.self) private var tabSwitcher
+    @Environment(AgentSwitcher.self) private var agentSwitcher
     @Environment(ProfileSwitcher.self) private var profileSwitcher: ProfileSwitcher?
     @Environment(ServerSwitcher.self) private var serverSwitcher: ServerSwitcher?
 
@@ -410,6 +416,7 @@ private struct TopBarOverlayExclusion: ViewModifier {
                 commandPalette.close()
                 switcher.cancel()
                 tabSwitcher.cancel()
+                agentSwitcher.cancel()
                 profileSwitcher?.cancel()
                 serverSwitcher?.cancel()
                 if viewModel.rt.modal != nil { Task { await viewModel.rt.closeModal() } }
@@ -417,7 +424,7 @@ private struct TopBarOverlayExclusion: ViewModifier {
             .onChange(of: viewModel.rt.modal != nil) { _, shown in if shown { viewModel.topBarOverlay.close() } }
             .onChange(of: commandPalette.isOpen) { _, open in if open { viewModel.topBarOverlay.close() } }
             .onChange(
-                of: switcher.isShown || tabSwitcher.isShown || profileSwitcher?.isShown == true || serverSwitcher?.isShown == true
+                of: switcher.isShown || tabSwitcher.isShown || agentSwitcher.isShown || profileSwitcher?.isShown == true || serverSwitcher?.isShown == true
             ) { _, shown in
                 if shown { viewModel.topBarOverlay.close() }
             }

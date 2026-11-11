@@ -516,6 +516,7 @@ struct FlockApp: App {
                 .environment(paletteRecents)
                 .environment(workspaceSwitcher)
                 .environment(tabSwitcher)
+                .environment(session.agentSwitcher)
                 .environment(profileSwitcher)
                 .environment(session.serverSwitcher)
                 .background(RearrangeKeyMonitorHost(rearrangeMode: rearrangeMode))
