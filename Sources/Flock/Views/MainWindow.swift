@@ -28,6 +28,12 @@ struct MainWindow: View {
 
     private var theme: Theme { themeStore.active }
 
+    /// The focused pane while it runs an agent, so an agent started in an
+    /// already focused shell is noted too.
+    private var focusedAgentPane: PaneID? {
+        viewModel.resolvedFocusedPaneID.flatMap { viewModel.model?.panes[$0]?.agent != nil ? $0 : nil }
+    }
+
     private var bannerConfirmation: HerdrMousePatchStore.PendingConfirmation? {
         herdrMousePatchStore.pendingConfirmation.flatMap { $0.source == .banner ? $0 : nil }
     }
@@ -222,8 +228,8 @@ struct MainWindow: View {
         .onChange(of: viewModel.selectedTabID, initial: true) { _, id in
             if let id { tabSwitcher.note(id) }
         }
-        .onChange(of: viewModel.resolvedFocusedPaneID, initial: true) { _, id in
-            if let id, viewModel.model?.panes[id]?.agent != nil { agentSwitcher.note(id) }
+        .onChange(of: focusedAgentPane, initial: true) { _, id in
+            if let id { agentSwitcher.note(id) }
         }
 
         .frame(minWidth: 900, minHeight: 560)

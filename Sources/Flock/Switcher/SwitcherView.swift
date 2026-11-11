@@ -116,17 +116,22 @@ struct SwitcherOverlay: View {
 }
 
 extension SwitcherKind {
+    /// The switchers that block another trigger. A lingering empty one does
+    /// not: it closes on the next key, which may be another trigger.
     @MainActor
     static func active(
         workspaces: WorkspaceSwitcher?, tabs: TabSwitcher?, profiles: ProfileSwitcher?, servers: ServerSwitcher?,
         agents: AgentSwitcher?
     ) -> Set<SwitcherKind> {
+        func blocks<ID>(_ switcher: RecentsSwitcher<ID>?) -> Bool {
+            switcher.map { $0.isActive && !$0.isLingering } ?? false
+        }
         var active: Set<SwitcherKind> = []
-        if workspaces?.isActive == true { active.insert(.workspaces) }
-        if tabs?.isActive == true { active.insert(.tabs) }
-        if profiles?.isActive == true { active.insert(.profiles) }
-        if servers?.isActive == true { active.insert(.servers) }
-        if agents?.isActive == true { active.insert(.agents) }
+        if blocks(workspaces) { active.insert(.workspaces) }
+        if blocks(tabs) { active.insert(.tabs) }
+        if blocks(profiles) { active.insert(.profiles) }
+        if blocks(servers) { active.insert(.servers) }
+        if blocks(agents) { active.insert(.agents) }
         return active
     }
 }
