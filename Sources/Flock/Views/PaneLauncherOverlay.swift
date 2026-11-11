@@ -635,7 +635,7 @@ private struct HarnessBadge: View {
 /// decode happens here, per draw, rather than once into shared storage: a
 /// `Shape` must be `Sendable`, so it cannot carry the decoded `CGPath`, and a
 /// cache would be shared mutable state for a parse that costs microseconds.
-private struct MarkShape: Shape {
+struct MarkShape: Shape {
     let mark: HarnessMark
 
     func path(in rect: CGRect) -> Path {

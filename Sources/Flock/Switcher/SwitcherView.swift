@@ -94,7 +94,7 @@ struct SwitcherOverlay: View {
         let buddy = chat?.buddies[id]
         return SwitcherRow(
             status: pane.agentStatus, label: buddy?.displayName ?? pane.displayTitle, count: 0,
-            face: buddy.map { SwitcherRow.Face(name: $0.displayName, handle: $0.handle) }, reservesFace: true,
+            face: buddy.map { SwitcherRow.Face(name: $0.displayName, handle: $0.handle) }, agent: pane.agent,
             detail: AgentSwitcher.location(of: pane, in: model) ?? ""
         )
     }
@@ -149,8 +149,9 @@ struct SwitcherRow {
     var server: ServerSwitcherRow? = nil
     /// A signed-in agent's chat face, drawn before its name.
     var face: Face? = nil
-    /// Keeps the face's slot empty when there is none, so names line up.
-    var reservesFace = false
+    /// The agent herdr detected, whose mark fills the face's slot when chat
+    /// has no face for it.
+    var agent: String? = nil
     /// Drawn where the count goes, in its place.
     var detail: String? = nil
 
@@ -321,8 +322,8 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
             }
             if let face = item.face {
                 SwitcherFace(theme: theme, face: face)
-            } else if item.reservesFace {
-                Color.clear.frame(width: ChromeMetrics.PaneBar.faceSize, height: ChromeMetrics.PaneBar.faceSize)
+            } else if let agent = item.agent {
+                AgentMarkFace(theme: theme, agent: agent)
             }
             Text(item.label)
                 .font(selected ? ChromeType.paletteNameSelected : ChromeType.paletteName)
@@ -428,6 +429,27 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     private func open(_ id: ID) {
         switcher.select(id)
         if let target = switcher.finish() { go(target) }
+    }
+}
+
+/// An agent with no chat face: its harness's mark on the mark's own ground,
+/// shaped as a face, or the agent's initial where flock has no mark.
+private struct AgentMarkFace: View {
+    let theme: Theme
+    let agent: String
+
+    private typealias M = ChromeMetrics.PaneBar
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: M.faceCornerRadius, style: .continuous)
+        if let mark = HarnessMark.forAgent(agent), mark.cgPath != nil {
+            shape
+                .fill(Color(mark.ground))
+                .frame(width: M.faceSize, height: M.faceSize)
+                .overlay(MarkShape(mark: mark).fill(Color(mark.ink)).padding(M.faceSize * 0.2))
+        } else {
+            ChatFace(style: LauncherStripStyle(theme: theme), name: agent, image: nil)
+        }
     }
 }
 

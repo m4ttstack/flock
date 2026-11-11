@@ -4636,7 +4636,7 @@ final class ChromeRenderTests: XCTestCase {
         let peek = #"{"buddies":[\#(buddy("@oak-claude", "oak", "w1:p2")),\#(buddy("@ivy-claude", "ivy", "w1:p1"))],"rooms":[]}"#
         var model = try Fixture.model()
         let agents = model.panes.keys.sorted { $0.rawValue < $1.rawValue }.prefix(4)
-        for id in agents { model.panes[id]?.agent = "claude" }
+        for (index, id) in agents.enumerated() { model.panes[id]?.agent = ["claude", "claude", "codex", "aider"][index] }
         let context = try XCTUnwrap(CGContext(
             data: nil, width: 48, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
             space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
