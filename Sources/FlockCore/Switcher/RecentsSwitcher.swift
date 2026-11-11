@@ -29,8 +29,15 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     public private(set) var isShown = false
     /// Which press a delayed `show` belongs to.
     public private(set) var session = 0
+    /// Up with nowhere to go, so the press is seen to land rather than
+    /// reaching the pane behind. Shown at once.
+    public private(set) var isEmpty = false
+    /// An empty panel left up a moment after the trigger is let go, so a
+    /// quick tap is still seen. Any key ends it.
+    public private(set) var isLingering = false
+    private var isOpen = false
 
-    public var isActive: Bool { !order.isEmpty }
+    public var isActive: Bool { isOpen }
     public var selected: ID? { order.indices.contains(selection) ? order[selection] : nil }
 
     @ObservationIgnored private let userDefaults: UserDefaults
@@ -51,7 +58,7 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Selects the item before this one, or with `reverse` the last row.
-    /// Returns false, and starts nothing, when there is nowhere to go. Items
+    /// With nowhere to go it opens empty, showing what there is. Items
     /// in `last` follow every other row, recent ones first among them, so a
     /// quick tap reaches one only when nothing else is on offer; the current
     /// item stays first whatever it is. With no current item among `items`,
@@ -65,9 +72,18 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
             let known = Set(group)
             for id in recents.filter(known.contains) + group where !rows.contains(id) { rows.append(id) }
         }
-        guard rows.count > (onCurrent ? 1 : 0) else { return false }
         session += 1
+        isOpen = true
+        isLingering = false
         order = rows
+        guard rows.count > (onCurrent ? 1 : 0) else {
+            startsOnCurrent = true
+            selection = 0
+            isEmpty = true
+            isShown = true
+            return true
+        }
+        isEmpty = false
         startsOnCurrent = onCurrent
         selection = reverse ? rows.count - 1 : (onCurrent ? 1 : 0)
         isShown = false
@@ -75,7 +91,7 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     public func step(_ delta: Int) {
-        guard isActive else { return }
+        guard isActive, !isEmpty, !order.isEmpty else { return }
         selection = ((selection + delta) % order.count + order.count) % order.count
     }
 
@@ -88,14 +104,28 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     }
 
     /// Ends the switch and names where to go: nil when the selection is back
-    /// on the item it started from.
+    /// on the item it started from. An empty switch lingers instead of
+    /// closing; see `isLingering`.
     public func finish() -> ID? {
+        if isEmpty {
+            isLingering = true
+            return nil
+        }
         let target = startsOnCurrent && selection == 0 ? nil : selected
         cancel()
         return target
     }
 
+    /// Ends a lingering empty switch, if `session` is still the one that
+    /// lingered.
+    public func endLinger(session: Int) {
+        if isLingering, session == self.session { cancel() }
+    }
+
     public func cancel() {
+        isOpen = false
+        isEmpty = false
+        isLingering = false
         order = []
         selection = 0
         isShown = false
@@ -222,7 +252,7 @@ public enum SwitcherKey {
     static let grave: UInt16 = 50
     static let returnKey: UInt16 = 36
     static let keypadEnter: UInt16 = 76
-    static let escape: UInt16 = 53
+    public static let escape: UInt16 = 53
     static let leftArrow: UInt16 = 123
     static let rightArrow: UInt16 = 124
     static let downArrow: UInt16 = 125

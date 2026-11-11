@@ -45,12 +45,16 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
     ) -> NSEvent? {
         let flags = event.modifierFlags
         if event.type == .flagsChanged {
-            if switcher.isActive, !SwitcherKey.isHeld(
+            if switcher.isActive, !switcher.isLingering, !SwitcherKey.isHeld(
                 trigger, control: flags.contains(.control), option: flags.contains(.option), command: flags.contains(.command)
             ) {
                 open()
             }
             return event
+        }
+        if switcher.isLingering {
+            switcher.cancel()
+            if event.keyCode == SwitcherKey.escape { return nil }
         }
         guard switcher.isActive || !blocked() else { return event }
         let decision = SwitcherKey.decide(

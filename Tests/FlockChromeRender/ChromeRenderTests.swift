@@ -4664,6 +4664,14 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-switcher-\(id).png"))
             }
+            harness.agentSwitcher.cancel()
+            XCTAssertTrue(harness.agentSwitcher.begin(items: [], current: nil), "\(id): nowhere to go still opens")
+            XCTAssertTrue(harness.agentSwitcher.isShown, "\(id): shown at once")
+            await settle(window)
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-switcher-empty-\(id).png"))
+            }
             window.close()
         }
     }

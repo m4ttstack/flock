@@ -1219,6 +1219,8 @@ enum ChromeMetrics {
         /// How long ⌃Tab is held before the panel shows: a quicker tap goes
         /// back to the last workspace without it.
         static let showDelay: Duration = .milliseconds(150)
+        /// How long a panel with nothing to switch to stays after a quick tap.
+        static let emptyLinger: Duration = .milliseconds(900)
 
         /// The least clear space above and below the box in the pane area.
         static let margin: CGFloat = 48
@@ -1232,9 +1234,11 @@ enum ChromeMetrics {
         static let keycapGap: CGFloat = 2
         static let keycapLabelGap: CGFloat = 4
         static let keycapFillOpacity: Double = 0.12
-        /// A backtick sits at the top of its line; this brings it to the
-        /// cap's middle.
-        static let backtickDrop: CGFloat = 5
+        static let backtickWidth: CGFloat = 2.5
+        static let backtickHeight: CGFloat = 3
+        static let backtickWeight: CGFloat = 2.2
+        /// Raised, as the key prints it, so it is not read as a backslash.
+        static let backtickRise: CGFloat = 2.5
         /// The server switcher's leading slot, which holds the current
         /// server's check.
         static let checkWidth: CGFloat = 10

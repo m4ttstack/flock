@@ -217,11 +217,12 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         ZStack {
             if switcher.isShown {
                 let rows = switcher.order.enumerated().compactMap { index, id in row(id).map { SwitcherLine(index: index, id: id, row: $0) } }
+                let lineCount = rows.count + (switcher.isEmpty ? 1 : 0)
                 GeometryReader { proxy in
                     ZStack(alignment: .top) {
                         scrim
                         box(rows: rows, maxListHeight: ChromeMetrics.Switcher.maxListHeight(inTabAreaHeight: proxy.size.height))
-                            .padding(.top, ChromeMetrics.Switcher.top(inTabAreaHeight: proxy.size.height, rowCount: rows.count))
+                            .padding(.top, ChromeMetrics.Switcher.top(inTabAreaHeight: proxy.size.height, rowCount: lineCount))
                     }
                 }
             }
@@ -230,7 +231,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         .onAppear {
             monitor.install(
                 switcher: switcher, trigger: trigger, blocked: blocked, begin: begin,
-                open: { if let target = switcher.finish() { go(target) } }
+                open: { finish() }
             )
         }
         // A switcher held open by a monitor that is gone would block the
@@ -249,6 +250,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         guard switcher.begin(items: items, current: current(), reverse: reverse, last: last()) else { return false }
         onBegin()
         let session = switcher.session
+        if switcher.isEmpty { return true }
         Task {
             try? await Task.sleep(for: ChromeMetrics.Switcher.showDelay)
             switcher.show(session: session)
@@ -279,6 +281,14 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
                             }
                             .buttonStyle(.plain)
                             .id(line.id)
+                        }
+                        if switcher.isEmpty {
+                            Text("No \(rows.isEmpty ? "" : "other ")\(heading.lowercased())")
+                                .font(ChromeType.paletteName)
+                                .foregroundStyle(theme.textLabel)
+                                .padding(.horizontal, Metrics.rowPadding + 2)
+                                .frame(height: Metrics.rowHeight)
+                                .accessibilityIdentifier("\(accessibilityPrefix).empty")
                         }
                     }
                     .padding(Metrics.listPadding)
@@ -416,9 +426,16 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
         typealias Switcher = ChromeMetrics.Switcher
         let isBacktick = glyph == SwitcherTrigger.controlBacktick.keyGlyph
         let shape = RoundedRectangle(cornerRadius: ChromeRadius.tiny)
-        return Text(verbatim: glyph)
-            .font(isBacktick ? ChromeType.switcherBacktick : ChromeType.switcherKeycap)
-            .offset(y: isBacktick ? Switcher.backtickDrop : 0)
+        return Group {
+            if isBacktick {
+                BacktickStroke()
+                    .stroke(style: StrokeStyle(lineWidth: Switcher.backtickWeight, lineCap: .round))
+                    .frame(width: Switcher.backtickWidth, height: Switcher.backtickHeight)
+                    .offset(y: -Switcher.backtickRise)
+            } else {
+                Text(verbatim: glyph).font(ChromeType.switcherKeycap)
+            }
+        }
             .padding(.horizontal, glyph.count > 1 ? Switcher.keycapPadding : 0)
             .frame(minWidth: Switcher.keycapHeight, minHeight: Switcher.keycapHeight, maxHeight: Switcher.keycapHeight)
             .background(shape.fill(theme.textLabel.opacity(Switcher.keycapFillOpacity)))
@@ -428,7 +445,19 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     private func open(_ id: ID) {
         switcher.select(id)
-        if let target = switcher.finish() { go(target) }
+        finish()
+    }
+
+    private func finish() {
+        if let target = switcher.finish() {
+            go(target)
+        } else if switcher.isLingering {
+            let session = switcher.session
+            Task {
+                try? await Task.sleep(for: ChromeMetrics.Switcher.emptyLinger)
+                switcher.endLinger(session: session)
+            }
+        }
     }
 }
 
@@ -463,5 +492,16 @@ private struct SwitcherFace: View {
     var body: some View {
         ChatFace(style: LauncherStripStyle(theme: theme), name: face.name, image: chatStore?.face(for: face.handle))
             .task(id: face.handle) { await chatStore?.followFace(face.handle) }
+    }
+}
+
+/// The backtick as a keycap legend: the font's grave is a speck at keycap
+/// size, so it is drawn as the key prints it, a short stroke falling right.
+private struct BacktickStroke: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        }
     }
 }
