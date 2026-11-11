@@ -21,7 +21,7 @@ final class AgentSwitcherTests: XCTestCase {
         let switcher = makeSwitcher()
         switcher.note(b)
         switcher.note(a)
-        XCTAssertTrue(switcher.begin(items: [a, b], current: a))
+        switcher.begin(items: [a, b], current: a)
         XCTAssertEqual(switcher.finish(), b)
     }
 
@@ -29,17 +29,22 @@ final class AgentSwitcherTests: XCTestCase {
         let switcher = makeSwitcher()
         switcher.note(a)
         switcher.note(b)
-        XCTAssertTrue(switcher.begin(items: [a, b], current: shell))
+        switcher.begin(items: [a, b], current: shell)
         XCTAssertEqual(switcher.order, [b, a])
         XCTAssertEqual(switcher.finish(), b)
     }
 
     func testFromAShellOneAgentIsEnoughButNoneIsNot() {
         let switcher = makeSwitcher()
-        XCTAssertTrue(switcher.begin(items: [a], current: shell))
+        switcher.begin(items: [a], current: shell)
+        XCTAssertFalse(switcher.isEmpty)
         XCTAssertEqual(switcher.finish(), a)
-        XCTAssertFalse(switcher.begin(items: [], current: shell))
-        XCTAssertFalse(switcher.begin(items: [a], current: a), "the only agent is already here")
+        switcher.begin(items: [], current: shell)
+        XCTAssertTrue(switcher.isEmpty)
+        switcher.cancel()
+        switcher.begin(items: [a], current: a)
+        XCTAssertTrue(switcher.isEmpty, "the only agent is already here")
+        XCTAssertNil(switcher.finish())
     }
 
     func testCommandBacktickKeys() {

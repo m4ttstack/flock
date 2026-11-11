@@ -16,7 +16,7 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
         switcher: RecentsSwitcher<ID>,
         trigger: SwitcherTrigger,
         blocked: @escaping () -> Bool,
-        begin: @escaping (_ reverse: Bool) -> Bool,
+        begin: @escaping (_ reverse: Bool) -> Void,
         open: @escaping () -> Void
     ) {
         remove()
@@ -41,7 +41,7 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
 
     private static func handle(
         _ event: NSEvent, switcher: RecentsSwitcher<ID>, trigger: SwitcherTrigger, blocked: () -> Bool,
-        begin: (Bool) -> Bool, open: () -> Void
+        begin: (Bool) -> Void, open: () -> Void
     ) -> NSEvent? {
         let flags = event.modifierFlags
         if event.type == .flagsChanged {
@@ -61,6 +61,6 @@ final class SwitcherMonitor<ID: Hashable & Sendable & RawRepresentable<String>> 
             trigger: trigger, keyCode: event.keyCode, control: flags.contains(.control), shift: flags.contains(.shift),
             command: flags.contains(.command), option: flags.contains(.option), active: switcher.isActive
         )
-        return switcher.apply(decision, keepsUnopened: trigger.keepsUnopenedPress, begin: begin, open: open) ? nil : event
+        return switcher.apply(decision, begin: begin, open: open) ? nil : event
     }
 }

@@ -244,18 +244,16 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
 
     /// Only items that draw a row are offered, so `selection`, which counts
     /// `order`, counts the rows as drawn.
-    @discardableResult
-    func begin(reverse: Bool) -> Bool {
+    func begin(reverse: Bool) {
         let items = candidates().filter { row($0) != nil }
-        guard switcher.begin(items: items, current: current(), reverse: reverse, last: last()) else { return false }
+        switcher.begin(items: items, current: current(), reverse: reverse, last: last())
         onBegin()
         let session = switcher.session
-        if switcher.isEmpty { return true }
+        if switcher.isEmpty { return }
         Task {
             try? await Task.sleep(for: ChromeMetrics.Switcher.showDelay)
             switcher.show(session: session)
         }
-        return true
     }
 
     private var scrim: some View {

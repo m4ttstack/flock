@@ -204,10 +204,10 @@ final class ProfilePickerRenderTests: XCTestCase {
                 switcher.note(currentProfile: cases[index].current == miniID ? FlockProfile.defaultID : miniID)
                 switcher.note(currentProfile: cases[index].current)
                 let profiles = pickers[index].profiles
-                XCTAssertTrue(switcher.begin(
+                switcher.begin(
                     items: ProfileSwitcher.candidates(profiles.profiles, isLocked: false),
                     current: ProfileID(rawValue: profiles.currentID)
-                ))
+                )
                 switcher.show(session: switcher.session)
                 return switcher
             }

@@ -33,7 +33,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
     func testTheOrderLeadsWithTheCurrentWorkspaceThenRecentsThenTheRest() {
         let switcher = makeSwitcher()
         for name in ["d", "b", "c"] { switcher.note(WorkspaceID(rawValue: name)) }
-        XCTAssertTrue(switcher.begin(workspaces: ids("a", "b", "c", "d", "e"), current: WorkspaceID(rawValue: "c")))
+        switcher.begin(workspaces: ids("a", "b", "c", "d", "e"), current: WorkspaceID(rawValue: "c"))
         XCTAssertEqual(switcher.order, ids("c", "b", "d", "a", "e"))
     }
 
@@ -71,7 +71,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
 
         let switcher = makeSwitcher()
         switcher.note(WorkspaceID(rawValue: "w9"))
-        XCTAssertTrue(switcher.begin(workspaces: ids, current: WorkspaceID(rawValue: "w1")))
+        switcher.begin(workspaces: ids, current: WorkspaceID(rawValue: "w1"))
         XCTAssertEqual(switcher.order.map(\.rawValue), ["w1", "pin:p1"])
         XCTAssertEqual(switcher.selected, stale.switcherID)
     }
@@ -125,7 +125,15 @@ final class WorkspaceSwitcherTests: XCTestCase {
 
     func testOneWorkspaceHasNothingToSwitchTo() {
         let switcher = makeSwitcher()
-        XCTAssertFalse(switcher.begin(workspaces: ids("a"), current: WorkspaceID(rawValue: "a")))
+        switcher.begin(workspaces: ids("a"), current: WorkspaceID(rawValue: "a"))
+        XCTAssertTrue(switcher.isActive)
+        XCTAssertTrue(switcher.isEmpty)
+        switcher.step(1)
+        XCTAssertNil(switcher.finish())
+        XCTAssertTrue(switcher.isLingering)
+        switcher.endLinger(session: switcher.session - 1)
+        XCTAssertTrue(switcher.isLingering, "a stale linger timer leaves a newer switch alone")
+        switcher.endLinger(session: switcher.session)
         XCTAssertFalse(switcher.isActive)
     }
 
@@ -199,7 +207,7 @@ final class WorkspaceSwitcherTests: XCTestCase {
         XCTAssertEqual(TabSwitcher(userDefaults: defaults).recents.map(\.rawValue), ["w1:t1", "w1:t2"])
         XCTAssertEqual(WorkspaceSwitcher(userDefaults: defaults).recents.map(\.rawValue), ["w1"])
 
-        XCTAssertTrue(tabs.begin(items: [TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t2"), TabID(rawValue: "w1:t3")], current: TabID(rawValue: "w1:t1")))
+        tabs.begin(items: [TabID(rawValue: "w1:t1"), TabID(rawValue: "w1:t2"), TabID(rawValue: "w1:t3")], current: TabID(rawValue: "w1:t1"))
         XCTAssertEqual(tabs.order.map(\.rawValue), ["w1:t1", "w1:t2", "w1:t3"])
         XCTAssertEqual(tabs.selected?.rawValue, "w1:t2")
     }

@@ -63,8 +63,7 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
     /// quick tap reaches one only when nothing else is on offer; the current
     /// item stays first whatever it is. With no current item among `items`,
     /// the first row is the most recent one and a single row is enough.
-    @discardableResult
-    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) -> Bool {
+    public func begin(items: [ID], current: ID?, reverse: Bool = false, last: Set<ID> = []) {
         var rows: [ID] = []
         let onCurrent = current.map(items.contains) ?? false
         if let current, onCurrent { rows.append(current) }
@@ -81,13 +80,12 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
             selection = 0
             isEmpty = true
             isShown = true
-            return true
+            return
         }
         isEmpty = false
         startsOnCurrent = onCurrent
         selection = reverse ? rows.count - 1 : (onCurrent ? 1 : 0)
         isShown = false
-        return true
     }
 
     public func step(_ delta: Int) {
@@ -131,19 +129,19 @@ public final class RecentsSwitcher<ID: Hashable & Sendable & RawRepresentable<St
         isShown = false
     }
 
-    /// Acts on a key's decision and says whether the key was used. A trigger
-    /// press that starts nothing (one item, a locked window) is not, so it
-    /// reaches the pane behind.
-    /// `keepsUnopened`: a press that opens nothing is still held back from
-    /// the pane.
+    /// Acts on a key's decision and says whether the key was used: every
+    /// decision but `.pass` is, since a trigger always opens the panel.
     public func apply(
-        _ decision: SwitcherKey.Decision, keepsUnopened: Bool = false, begin: (_ reverse: Bool) -> Bool, open: () -> Void
+        _ decision: SwitcherKey.Decision, begin: (_ reverse: Bool) -> Void, open: () -> Void
     ) -> Bool {
         switch decision {
         case .pass:
             return false
         case .next, .previous:
-            guard isActive else { return begin(decision == .previous) || keepsUnopened }
+            guard isActive else {
+                begin(decision == .previous)
+                return true
+            }
             step(decision == .next ? 1 : -1)
         case .commit:
             open()
@@ -163,8 +161,7 @@ extension RecentsSwitcher where ID == WorkspaceID {
         self.init(defaultsKey: Self.defaultsKey, userDefaults: userDefaults)
     }
 
-    @discardableResult
-    public func begin(workspaces: [WorkspaceID], current: WorkspaceID?, reverse: Bool = false) -> Bool {
+    public func begin(workspaces: [WorkspaceID], current: WorkspaceID?, reverse: Bool = false) {
         begin(items: workspaces, current: current, reverse: reverse)
     }
 
@@ -233,11 +230,6 @@ public struct SwitcherTrigger: Equatable, Sendable {
 
     /// What the footer offers to cancel with: ⌘ is already held, so ⌘.
     public var cancelGlyph: String { modifier == .command ? "." : "esc" }
-
-    /// ⌥` is the grave accent's dead key, ⌃` types a NUL and ⌘` would cycle
-    /// windows, so a backtick press that opens nothing would leave the pane
-    /// half-composing an accent, reading a stray byte, or the window gone.
-    public var keepsUnopenedPress: Bool { keyCode == SwitcherKey.grave }
 
     /// As menus write a shortcut, for tooltips.
     public var label: String { modifierGlyph + keyGlyph }
