@@ -401,7 +401,7 @@ struct SwitcherView<ID: Hashable & Sendable & RawRepresentable<String>>: View {
     private var footer: some View {
         HStack(spacing: Metrics.footerGap) {
             hint(keys: [trigger.keyGlyph], after: "next")
-            hint(keys: ["\u{21E7}", trigger.keyGlyph], after: "back")
+            hint(keys: ["\u{2191}", "\u{2193}"], after: "move")
             hint(before: "release", keys: [trigger.modifierGlyph], after: "to open")
             hint(keys: ["esc"], after: "cancel")
             Spacer(minLength: 0)
