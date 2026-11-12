@@ -25,8 +25,8 @@ struct ChatSidebar: View {
 
     private func expanded(_ selection: ChatSidebarSelection) -> some View {
         VStack(spacing: 0) {
+            // No rule of its own: the title bar's hair runs under the header.
             ChatSidebarHeader(theme: theme, store: store, selection: selection)
-            Rectangle().fill(theme.rule).frame(height: ChromeMetrics.ruleWidth)
             if let url = store.embedURL {
                 ChatEmbedWebView(
                     url: ChatEmbedAddress.themed(url, isDark: !ChromeRoles.isLight(panelBg: theme.palette.panelBg)),

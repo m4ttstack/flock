@@ -3323,7 +3323,9 @@ final class ChromeRenderTests: XCTestCase {
             let workspace = try XCTUnwrap(model.workspaces.first { $0.workspaceID != viewModel.selectedWorkspaceID }?.workspaceID)
             viewModel.moveToTopBar(workspace: workspace, at: nil)
             let pane = try XCTUnwrap(viewModel.selectedLayout?.panes.first?.paneID.rawValue)
-            let chat = ChatSidebarChat(room: "dm-acme", name: "acme", displayName: "Acme Support", requesterPane: pane)
+            let chat = ChatSidebarChat(
+                room: "dm-acme", pane: "bg:w2:p1", name: "acme", displayName: "Acme Support", requesterPane: pane
+            )
             let sidebar = ChatSidebarStore(
                 readChats: { ChatSidebarChats(conversations: [chat]) },
                 readPort: { nil },

@@ -559,7 +559,8 @@ enum ChromeMetrics {
         static let railWidth: CGFloat = 36
         static let railGap: CGFloat = 10
         static let railTopPadding: CGFloat = 12
-        static let headerHeight: CGFloat = 51
+        /// The header sits in the title bar's row, so its rule continues the bar's.
+        static let headerHeight: CGFloat = TitleBar.height
         static let headerHorizontalPadding: CGFloat = 12
         static let headerGap: CGFloat = 8
         static let nameGap: CGFloat = 1
