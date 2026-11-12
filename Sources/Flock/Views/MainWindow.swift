@@ -57,6 +57,7 @@ struct MainWindow: View {
     }
 
     @State private var titleBarTrailingWidth: CGFloat = 0
+    @State private var chatSidebarWidth: CGFloat = 0
 
     @ViewBuilder
     private var banners: some View {
@@ -124,7 +125,7 @@ struct MainWindow: View {
                                 selectedTabID: viewModel.selectedTabID,
                                 onSelect: { id in Task { await viewModel.jumpToHerdr(tab: id) } }
                             )
-                            .padding(.trailing, chatSidebar == nil ? titleBarTrailingWidth : 0)
+                            .padding(.trailing, titleBarTrailingWidth)
                             banners
                             PaneCanvas(theme: theme, viewModel: viewModel, layout: viewModel.selectedLayout)
                         }
@@ -138,6 +139,8 @@ struct MainWindow: View {
                     .overlay { SwitcherOverlay(theme: theme, viewModel: viewModel) }
                     if let chatSidebar {
                         ChatSidebar(theme: theme, store: chatSidebar)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { chatSidebarWidth = $0 }
+                            .onDisappear { chatSidebarWidth = 0 }
                     }
                 }
             }
@@ -166,6 +169,7 @@ struct MainWindow: View {
                 isDevBuild: isDevBuild, blockedCount: blockedCount, viewModel: viewModel,
                 leadingDragWidth: dragCoordinator.isGridShown ? nil : railWidth.width,
                 onTrailingWidth: { titleBarTrailingWidth = $0 },
+                trailingReserve: chatSidebarWidth,
                 machineNotice: machineNotice
             )
         }
@@ -454,6 +458,9 @@ struct TitleBar: View {
     /// How much of the bar's trailing end the cluster takes, so the tab strip
     /// stops short of it.
     var onTrailingWidth: ((CGFloat) -> Void)? = nil
+    /// The chat sidebar's width: its header shares the bar's row, so the
+    /// cluster ends where the sidebar starts.
+    var trailingReserve: CGFloat = 0
     /// A machine profile's connection line, which replaces "herdr · label".
     var machineNotice: MachineNotice? = nil
 
@@ -489,6 +496,7 @@ struct TitleBar: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.leading, ChromeMetrics.TitleBar.tabsLeadingInset)
             trailingCluster
+                .padding(.trailing, trailingReserve)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         }
         .frame(maxWidth: .infinity)

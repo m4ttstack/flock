@@ -3309,6 +3309,46 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// The chat sidebar's header shares the title bar's row, so the DEV tag
+    /// and the top-bar workspaces end where the sidebar starts. PNGs go to
+    /// `FLOCK_DEV_RENDER_DIR`.
+    func testTheTitleBarsTrailingClusterStopsAtTheChatSidebar() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_DEV_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let size = CGSize(width: Self.windowSize.width + 300, height: Self.windowSize.height)
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme)
+            let viewModel = harness.viewModel
+            let model = try XCTUnwrap(viewModel.model)
+            let workspace = try XCTUnwrap(model.workspaces.first { $0.workspaceID != viewModel.selectedWorkspaceID }?.workspaceID)
+            viewModel.moveToTopBar(workspace: workspace, at: nil)
+            let pane = try XCTUnwrap(viewModel.selectedLayout?.panes.first?.paneID.rawValue)
+            let chat = ChatSidebarChat(room: "dm-acme", name: "acme", displayName: "Acme Support", requesterPane: pane)
+            let sidebar = ChatSidebarStore(
+                readChats: { ChatSidebarChats(conversations: [chat]) },
+                readPort: { nil },
+                pause: { _ in try await Task.sleep(for: .seconds(3600)) }
+            )
+            let window = harness.makeWindow(size: size, isDevBuild: true, chatSidebar: sidebar)
+            await settle(window)
+            XCTAssertNotNil(sidebar.selection, "\(scheme): the sidebar never picked the chat")
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("chat-sidebar-title-bar-\(scheme)-\(id).png"))
+            }
+            let label = theme.palette.chromeRoles.textLabel.hex
+            let sidebarStart = size.width - ChromeMetrics.ChatSidebar.width
+            // Between the chat's name and the collapse button.
+            let headerGap = CGRect(x: sidebarStart + 150, y: 0, width: ChromeMetrics.ChatSidebar.width - 190, height: ChromeMetrics.TitleBar.height)
+            XCTAssertEqual(inkCount(near: label, in: headerGap, of: image), 0, "\(scheme): the DEV tag draws over the sidebar's header")
+            let beside = CGRect(x: sidebarStart - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
+            XCTAssertGreaterThan(inkCount(near: label, in: beside, of: image), 0, "\(scheme): no DEV tag left of the sidebar")
+            window.close()
+        }
+    }
+
     /// Rebuild Flock Dev's two pills in the restart offer's place: a rebuild
     /// halfway through its estimate, and one that failed. PNGs go to
     /// `FLOCK_DEV_RENDER_DIR`.
@@ -5139,7 +5179,7 @@ private struct Harness {
 
     func makeWindow(
         size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil, devRebuild: DevRebuild? = nil,
-        herdrMousePatchStore: HerdrMousePatchStore? = nil
+        herdrMousePatchStore: HerdrMousePatchStore? = nil, chatSidebar: ChatSidebarStore? = nil
     ) -> NSWindow {
         // The default resolves to no herdr, so the patch banner stays off and
         // every render assertion here measures the same chrome on any machine.
@@ -5152,6 +5192,7 @@ private struct Harness {
         )
             .environment(devBuild)
             .environment(devRebuild)
+            .environment(chatSidebar)
         return host(root, size: size)
     }
 
