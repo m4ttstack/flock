@@ -37,6 +37,12 @@ public enum PaneLayoutStyle: String, CaseIterable, Sendable {
         case .edgeToEdge: "Edge to edge"
         }
     }
+
+    /// Boxed only takes effect where there are panes to tell apart: a lone
+    /// pane, or a zoomed one, fills the canvas edge to edge.
+    public func effective(visiblePanes: Int) -> PaneLayoutStyle {
+        self == .boxed && visiblePanes > 1 ? .boxed : .edgeToEdge
+    }
 }
 
 /// The line under a pane's header that carries its agent's status. Working

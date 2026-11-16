@@ -30,7 +30,16 @@ struct PaneCanvas: View {
     /// intermediate frame and so can never tell a resize from its end.
     @State private var isWindowResizing = false
 
-    private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
+    private var composition: CanvasComposition {
+        solo.map { CanvasComposition.zoomed($0) } ?? layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
+    }
+
+    private var effectiveLayout: PaneLayoutStyle {
+        let visiblePanes = composition.zoomedPaneID == nil ? (layout?.panes.count ?? 0) : 1
+        return (appearance?.layout ?? .standard).effective(visiblePanes: visiblePanes)
+    }
+
+    private var isEdgeToEdge: Bool { effectiveLayout == .edgeToEdge }
 
     private var dividerThickness: CGFloat {
         isEdgeToEdge ? ChromeMetrics.Pane.EdgeToEdge.gutter : DividerBand.gutter
@@ -57,7 +66,7 @@ struct PaneCanvas: View {
             // began at the window's corner would still leave the surface on a
             // fractional device pixel.
             let grid = CanvasGrid(canvas: proxy.size, phase: proxy.frame(in: .global).origin, displayScale: scale)
-            let composition = solo.map { CanvasComposition.zoomed($0) } ?? layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
+            let composition = composition
             let geometry = resolvedGeometry(grid: grid, composition: composition)
             let compact: Set<PaneID> = compactPanes(in: geometry)
             ZStack(alignment: .topLeading) {
@@ -180,6 +189,7 @@ struct PaneCanvas: View {
             compactHeader: isCompact
         )
         .environment(\.paneCellRole, solo == nil ? .canvas : .solo)
+        .environment(\.paneLayoutStyle, effectiveLayout)
         // Placed by offset rather than `.position`, which
         // centers on a midpoint and so halves the box size:
         // this keeps the snapped origin exactly as

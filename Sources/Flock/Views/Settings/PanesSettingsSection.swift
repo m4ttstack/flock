@@ -14,6 +14,9 @@ struct PanesSettingsSection: View {
             } label: {
                 Text("Pane layout")
                 Text("Boxes on the canvas, or panes filling it with a thin line between.")
+                if store.layout == .boxed {
+                    Text("A tab with one pane, or a zoomed pane, still fills the canvas.")
+                }
             }
             .accessibilityIdentifier("flock.settings.paneLayout")
             Picker(selection: Binding(get: { store.focusStyle }, set: { store.select($0) })) {

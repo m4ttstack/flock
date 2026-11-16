@@ -52,6 +52,19 @@ extension EnvironmentValues {
     }
 }
 
+private struct PaneLayoutStyleKey: EnvironmentKey {
+    static let defaultValue = PaneLayoutStyle.standard
+}
+
+extension EnvironmentValues {
+    /// The layout this cell's canvas actually draws, which can differ from
+    /// the chosen one (see `PaneLayoutStyle.effective`).
+    var paneLayoutStyle: PaneLayoutStyle {
+        get { self[PaneLayoutStyleKey.self] }
+        set { self[PaneLayoutStyleKey.self] = newValue }
+    }
+}
+
 /// A single pane cell: a bordered box with the pane's title in its top
 /// chrome, over its one ghostty surface once `SessionViewModel` hands one
 /// back. Every pane the canvas renders is a visible pane of the selected tab,
@@ -92,6 +105,7 @@ struct PaneCellView: View {
     @Environment(DividerDragCoordinator.self) private var dividerDrag
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(\.paneCellRole) private var role
+    @Environment(\.paneLayoutStyle) private var layoutStyle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
     @Environment(BoardStore.self) private var board: BoardStore?
@@ -443,7 +457,7 @@ struct PaneCellView: View {
 
     private var focusStyle: PaneFocusStyle { appearance?.focusStyle ?? .standard }
 
-    private var isEdgeToEdge: Bool { (appearance?.layout ?? .standard) == .edgeToEdge }
+    private var isEdgeToEdge: Bool { layoutStyle == .edgeToEdge }
 
     private var cornerRadius: CGFloat { isEdgeToEdge ? 0 : PaneChrome.cornerRadius }
 
