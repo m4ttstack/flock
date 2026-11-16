@@ -16,7 +16,10 @@ struct PaneHoverLift: ViewModifier {
     /// the caster itself stays hidden under an opaque pane.
     let fill: Color
     let active: Bool
-    var cornerRadius: CGFloat = PaneChrome.cornerRadius
+    var cornerRadii = RectangleCornerRadii(
+        topLeading: PaneChrome.cornerRadius, bottomLeading: PaneChrome.cornerRadius,
+        bottomTrailing: PaneChrome.cornerRadius, topTrailing: PaneChrome.cornerRadius
+    )
 
     static let shadowRadius: CGFloat = 16
     static let shadowOpacity: Double = 0.5
@@ -24,7 +27,7 @@ struct PaneHoverLift: ViewModifier {
 
     func body(content: Content) -> some View {
         content.background {
-            RoundedRectangle(cornerRadius: cornerRadius)
+            UnevenRoundedRectangle(cornerRadii: cornerRadii)
                 .fill(fill)
                 .shadow(
                     color: .black.opacity(active ? Self.shadowOpacity : 0),
@@ -62,6 +65,20 @@ extension EnvironmentValues {
     var paneLayoutStyle: PaneLayoutStyle {
         get { self[PaneLayoutStyleKey.self] }
         set { self[PaneLayoutStyleKey.self] = newValue }
+    }
+}
+
+private struct PaneCornerRadiiKey: EnvironmentKey {
+    static let defaultValue = RectangleCornerRadii(
+        topLeading: PaneChrome.cornerRadius, bottomLeading: PaneChrome.cornerRadius,
+        bottomTrailing: PaneChrome.cornerRadius, topTrailing: PaneChrome.cornerRadius
+    )
+}
+
+extension EnvironmentValues {
+    var paneCornerRadii: RectangleCornerRadii {
+        get { self[PaneCornerRadiiKey.self] }
+        set { self[PaneCornerRadiiKey.self] = newValue }
     }
 }
 
@@ -106,6 +123,7 @@ struct PaneCellView: View {
     @Environment(CommandPaletteState.self) private var commandPalette
     @Environment(\.paneCellRole) private var role
     @Environment(\.paneLayoutStyle) private var layoutStyle
+    @Environment(\.paneCornerRadii) private var cornerRadii
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(WorkspaceIdentityStore.self) private var identity: WorkspaceIdentityStore?
     @Environment(BoardStore.self) private var board: BoardStore?
@@ -410,7 +428,7 @@ struct PaneCellView: View {
             // can stop short of the pane's edge by part of a row.
             .overlay(alignment: .bottom) { launcherStrip }
             .overlay { focusWash.animation(.easeOut(duration: ChromeMetrics.Pane.Focus.transitionDuration), value: isFocused) }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .clipShape(boxShape)
             // The track spans the content area, so the two paddings are the
             // box's own (asymmetric) content insets: a symmetric one would
             // leave the thumb unable to reach the last row.
@@ -427,11 +445,11 @@ struct PaneCellView: View {
             }
             .overlay {
                 if let border {
-                    RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(border.color, lineWidth: border.width)
+                    boxShape.strokeBorder(border.color, lineWidth: border.width)
                 }
             }
             .modifier(PaneHoverLift(
-                fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging, cornerRadius: cornerRadius
+                fill: theme.pane, active: rearrangeMode.active && isHoveringWhileRearranging, cornerRadii: cornerRadii
             ))
             .onHover { isHoveringWhileRearranging = $0 }
             .animation(.easeOut(duration: 0.12), value: rearrangeMode.active)
@@ -459,7 +477,7 @@ struct PaneCellView: View {
 
     private var isEdgeToEdge: Bool { layoutStyle == .edgeToEdge }
 
-    private var cornerRadius: CGFloat { isEdgeToEdge ? 0 : PaneChrome.cornerRadius }
+    private var boxShape: UnevenRoundedRectangle { UnevenRoundedRectangle(cornerRadii: cornerRadii) }
 
     /// Edge to edge, the canvas draws the line between panes, so a pane only
     /// strokes its own edge to say it has focus.

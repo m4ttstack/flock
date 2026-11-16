@@ -203,6 +203,13 @@ enum ChromeMetrics {
 
     enum Canvas {
         static let margin: CGFloat = 6
+        /// A side on the window's own edge reads tighter than one against a
+        /// hairline inside the window, so it gets more room.
+        static let windowEdgeMargin: CGFloat = 8
+        /// macOS 26's window corner. No public API reports it.
+        static let windowCornerRadius: CGFloat = 16
+        /// A pane corner sitting in a window corner runs parallel to it.
+        static var windowCornerPaneRadius: CGFloat { max(PaneChrome.cornerRadius, windowCornerRadius - windowEdgeMargin) }
     }
 
     /// The inline rename editor, wherever it opens (pane legend, tab, rail

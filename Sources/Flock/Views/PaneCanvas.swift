@@ -29,6 +29,7 @@ struct PaneCanvas: View {
     /// this arrives once per gesture, where `proxy.size` arrives once per
     /// intermediate frame and so can never tell a resize from its end.
     @State private var isWindowResizing = false
+    @State private var windowEdges = WindowEdges.none
 
     private var composition: CanvasComposition {
         solo.map { CanvasComposition.zoomed($0) } ?? layout.map { CanvasComposition.of(layout: $0) } ?? .tiled
@@ -50,10 +51,33 @@ struct PaneCanvas: View {
     }
 
     private var canvasPadding: EdgeInsets {
-        let padding = PaneBox.canvasPadding(margin: isEdgeToEdge ? 0 : ChromeMetrics.Canvas.margin, dividerThickness: dividerThickness)
+        func padding(onWindowEdge: Bool) -> (leadingAndTop: CGFloat, trailingAndBottom: CGFloat) {
+            let margin = isEdgeToEdge ? 0 : onWindowEdge ? ChromeMetrics.Canvas.windowEdgeMargin : ChromeMetrics.Canvas.margin
+            return PaneBox.canvasPadding(margin: margin, dividerThickness: dividerThickness)
+        }
         return EdgeInsets(
-            top: padding.leadingAndTop, leading: padding.leadingAndTop,
-            bottom: padding.trailingAndBottom, trailing: padding.trailingAndBottom
+            top: padding(onWindowEdge: windowEdges.top).leadingAndTop,
+            leading: padding(onWindowEdge: windowEdges.leading).leadingAndTop,
+            bottom: padding(onWindowEdge: windowEdges.bottom).trailingAndBottom,
+            trailing: padding(onWindowEdge: windowEdges.trailing).trailingAndBottom
+        )
+    }
+
+    /// Square edge to edge; otherwise the pane radius, except a corner sitting
+    /// in one of the window's own corners.
+    private func cornerRadii(box: CGRect, area: CGSize) -> RectangleCornerRadii {
+        guard !isEdgeToEdge else { return RectangleCornerRadii() }
+        let standard = PaneChrome.cornerRadius
+        let atTop = box.minY <= dividerThickness, atBottom = area.height - box.maxY <= dividerThickness
+        let atLeading = box.minX <= dividerThickness, atTrailing = area.width - box.maxX <= dividerThickness
+        func radius(_ vertical: Bool, _ horizontal: Bool) -> CGFloat {
+            vertical && horizontal ? ChromeMetrics.Canvas.windowCornerPaneRadius : standard
+        }
+        return RectangleCornerRadii(
+            topLeading: radius(atTop && windowEdges.top, atLeading && windowEdges.leading),
+            bottomLeading: radius(atBottom && windowEdges.bottom, atLeading && windowEdges.leading),
+            bottomTrailing: radius(atBottom && windowEdges.bottom, atTrailing && windowEdges.trailing),
+            topTrailing: radius(atTop && windowEdges.top, atTrailing && windowEdges.trailing)
         )
     }
 
@@ -76,7 +100,7 @@ struct PaneCanvas: View {
                            let frame = geometry.paneFrames[paneRect.paneID] {
                             let box = PaneBox.frame(in: frame, dividerThickness: dividerThickness)
                             paneCell(
-                                pane, box: box, isCompact: compact.contains(pane.paneID),
+                                pane, box: box, radii: cornerRadii(box: box, area: proxy.size), isCompact: compact.contains(pane.paneID),
                                 isZoomed: solo == nil && composition.zoomedPaneID == pane.paneID, cell: cell, fontSize: fontSize
                             )
                         }
@@ -124,6 +148,7 @@ struct PaneCanvas: View {
             .environment(\.paneStatusSpan, proxy.frame(in: DragSpace.coordinateSpace))
         }
         .padding(canvasPadding)
+        .background { WindowEdgeReporter { windowEdges = $0 } }
         // Edge to edge, the one point between panes is all of the canvas
         // that shows, so its colour is the divider's.
         .background(isEdgeToEdge ? theme.hair : theme.canvas)
@@ -152,7 +177,7 @@ struct PaneCanvas: View {
     /// taken out.
     @ViewBuilder
     private func paneCell(
-        _ pane: PaneRecord, box: CGRect, isCompact: Bool, isZoomed: Bool, cell: CGSize, fontSize: Double
+        _ pane: PaneRecord, box: CGRect, radii: RectangleCornerRadii, isCompact: Bool, isZoomed: Bool, cell: CGSize, fontSize: Double
     ) -> some View {
         let fit = SurfaceGrid.fit(
             inner: Self.innerSize(
@@ -190,6 +215,7 @@ struct PaneCanvas: View {
         )
         .environment(\.paneCellRole, solo == nil ? .canvas : .solo)
         .environment(\.paneLayoutStyle, effectiveLayout)
+        .environment(\.paneCornerRadii, radii)
         // Placed by offset rather than `.position`, which
         // centers on a midpoint and so halves the box size:
         // this keeps the snapped origin exactly as
