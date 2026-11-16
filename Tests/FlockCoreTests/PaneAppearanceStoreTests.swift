@@ -48,7 +48,7 @@ final class PaneAppearanceStoreTests: XCTestCase {
         let suite = try makeDefaults()
         let store = PaneAppearanceStore(userDefaults: suite)
 
-        store.setDimness(0.05)
+        store.setDimness(-0.1)
         XCTAssertEqual(store.dimness, PaneAppearanceStore.dimnessRange.lowerBound)
         store.setDimness(2)
         XCTAssertEqual(store.dimness, PaneAppearanceStore.dimnessRange.upperBound)
@@ -65,7 +65,7 @@ final class PaneAppearanceStoreTests: XCTestCase {
     @MainActor
     func testOutOfRangeStoredValuesClampOnLaunch() throws {
         let suite = try makeDefaults()
-        suite.set(0.0, forKey: PaneAppearanceStore.dimnessKey)
+        suite.set(-0.5, forKey: PaneAppearanceStore.dimnessKey)
         suite.set(1.5, forKey: PaneAppearanceStore.desaturationKey)
 
         let store = PaneAppearanceStore(userDefaults: suite)
