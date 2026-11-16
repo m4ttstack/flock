@@ -91,4 +91,11 @@ final class PaneAppearanceStoreTests: XCTestCase {
         XCTAssertTrue(PaneAppearanceStore.dimnessRange.contains(PaneAppearanceStore.standardDimness))
         XCTAssertTrue(PaneAppearanceStore.desaturationRange.contains(PaneAppearanceStore.standardDesaturation))
     }
+
+    func testBoxedTakesEffectOnlyWithMoreThanOnePaneShowing() {
+        XCTAssertEqual(PaneLayoutStyle.boxed.effective(visiblePanes: 2), .boxed)
+        XCTAssertEqual(PaneLayoutStyle.boxed.effective(visiblePanes: 1), .edgeToEdge)
+        XCTAssertEqual(PaneLayoutStyle.boxed.effective(visiblePanes: 0), .edgeToEdge)
+        XCTAssertEqual(PaneLayoutStyle.edgeToEdge.effective(visiblePanes: 3), .edgeToEdge)
+    }
 }

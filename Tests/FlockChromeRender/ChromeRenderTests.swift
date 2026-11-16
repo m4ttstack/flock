@@ -3942,9 +3942,11 @@ final class ChromeRenderTests: XCTestCase {
     /// border, its body, the gutter between the boxes, the focused pane's
     /// `hairFocus` border, its body, and its far `hairFocus` border. Zoomed,
     /// herdr's renderer holds the focused pane open over the whole tab area,
-    /// so the gutter and the left pane's own border have to be that pane's
-    /// body and its `hairFocus` border instead -- a canvas still drawing both
-    /// boxes fails on the gutter, and one drawing the wrong pane over the
+    /// and with one pane showing boxed gives way to edge to edge: the gutter
+    /// and the mid-canvas box edge have to be that pane's body, and its
+    /// `hairFocus` border has to sit on the canvas's own edges -- a canvas
+    /// still drawing both boxes fails on the gutter, one still boxing the
+    /// lone pane fails on its edges, and one drawing the wrong pane over the
     /// whole area fails on the border color, which only the focused pane
     /// wears.
     func testAZoomedTabDrawsItsHeldPaneAcrossTheWholeCanvas() async throws {
@@ -3968,16 +3970,19 @@ final class ChromeRenderTests: XCTestCase {
 
         let leftBorder = CGPoint(x: 199.25, y: 400)
         let gutter = CGPoint(x: 546, y: 400)
-        let focusedBorder = CGPoint(x: 551.25, y: 400)
-        let farBorder = CGPoint(x: 893.25, y: 400)
+        let focusedBorder = CGPoint(x: 550.25, y: 400)
+        let zoomedLeftEdge = CGPoint(x: 193.25, y: 400)
+        let zoomedRightEdge = CGPoint(x: 898.25, y: 400)
 
         XCTAssertEqual(hex(restingImage, gutter), roles.canvas.hex, "the resting canvas draws no gutter, so the zoomed check below proves nothing")
         XCTAssertEqual(hex(restingImage, leftBorder), roles.hair.hex, "the resting canvas does not put an unfocused pane at the left edge")
+        XCTAssertEqual(hex(restingImage, focusedBorder), roles.hairFocus.hex, "the resting canvas does not start the focused box after the gutter")
 
         XCTAssertEqual(hex(zoomedImage, gutter), roles.pane.hex, "the gutter between the two boxes is still drawn: the zoomed pane does not fill the canvas")
         XCTAssertEqual(hex(zoomedImage, focusedBorder), roles.pane.hex, "a box edge is still drawn mid-canvas")
-        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.hairFocus.hex, "the pane at the canvas's left edge is not the focused one the zoom holds open")
-        XCTAssertEqual(hex(zoomedImage, farBorder), roles.hairFocus.hex, "the pane at the canvas's right edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, leftBorder), roles.pane.hex, "the lone zoomed pane is still boxed inside the canvas margin")
+        XCTAssertEqual(hex(zoomedImage, zoomedLeftEdge), roles.hairFocus.hex, "the pane at the canvas's left edge is not the focused one the zoom holds open")
+        XCTAssertEqual(hex(zoomedImage, zoomedRightEdge), roles.hairFocus.hex, "the pane at the canvas's right edge is not the focused one the zoom holds open")
 
         zoomedWindow.close()
         restingWindow.close()
@@ -4012,8 +4017,9 @@ final class ChromeRenderTests: XCTestCase {
     /// canvas focus is `w1:p2` too, so soloing `w1:p1` fails if either the
     /// layout's own zoom or the main window's focus leaks through: the box
     /// spanning the row must be `w1:p1`'s and must wear the focus border
-    /// (boxed, brighter border, the one style that draws focus as an edge),
-    /// with no canvas-coloured gutter anywhere along it. Only `w1:p1`'s program
+    /// (brighter border, the one style that draws focus as an edge; boxed is
+    /// chosen and gives way to edge to edge for the lone pane), with no
+    /// canvas-coloured gutter anywhere along it. Only `w1:p1`'s program
     /// holds the mouse, so a bar that gains a button when it does names the
     /// pane drawn and shows the controls survive solo. No drag grip is drawn,
     /// and nothing is published to the drag coordinator.
@@ -4053,10 +4059,15 @@ final class ChromeRenderTests: XCTestCase {
             )
 
             let midX = Self.windowSize.width / 2
+            // Read off the leading border: a lone pane is drawn edge to edge, so
+            // its top border sits against the test window's title bar, which
+            // tints that row.
             let top = try XCTUnwrap(
-                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first { hex(image, CGPoint(x: midX, y: $0)) == roles.hairFocus.hex },
-                "\(scheme): the solo box has no focus top border"
-            )
+                stride(from: CGFloat(0), to: Self.windowSize.height / 4, by: 0.5).first {
+                    hex(image, CGPoint(x: first, y: $0)) == roles.hairFocus.hex
+                },
+                "\(scheme): the solo box has no focus leading border"
+            ) - ChromeMetrics.ruleWidth
             // `w1:p1` is a shell, so its header is the compact one.
             let legend = CGRect(
                 x: midX, y: top + PaneChrome.titleRowTop(compact: true),
