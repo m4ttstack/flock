@@ -865,7 +865,10 @@ enum ChromeMetrics {
     enum CloseCard {
         static let width: CGFloat = 320
         static let padding: CGFloat = 18
-        static let titleGap: CGFloat = 10
+        static let titleGap: CGFloat = 12
+        static let nameChipTop: CGFloat = 8
+        static let nameChipHorizontalPadding: CGFloat = 8
+        static let nameChipVerticalPadding: CGFloat = 4
         static let lineSpacing: CGFloat = 2
         static let toggleTop: CGFloat = 14
         static let buttonsTop: CGFloat = 18

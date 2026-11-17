@@ -57,6 +57,15 @@ final class CloseConsequenceTests: XCTestCase {
         XCTAssertEqual(CloseConsequence.heading(noun: "tab", name: "Deploy logs"), "Close Tab: Deploy logs")
     }
 
+    /// The card shows the name apart from the action; a number stays in it.
+    func testTheActionAndTheNameComeApart() {
+        XCTAssertEqual(CloseConsequence.headingParts(noun: "pane", name: "Boxed setting").action, "Close Pane")
+        XCTAssertEqual(CloseConsequence.headingParts(noun: "pane", name: "Boxed setting").name, "Boxed setting")
+        XCTAssertEqual(CloseConsequence.headingParts(noun: "tab", name: "2").action, "Close Tab 2")
+        XCTAssertNil(CloseConsequence.headingParts(noun: "tab", name: "2").name)
+        XCTAssertNil(CloseConsequence.headingParts(noun: "tab", name: nil).name)
+    }
+
     func testALongNameIsCutShort() {
         let name = String(repeating: "a", count: CloseConsequence.nameLimit + 5)
         let heading = CloseConsequence.heading(noun: "tab", name: name)

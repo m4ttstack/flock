@@ -77,9 +77,12 @@ public enum CloseConsequence: Equatable, Sendable {
         // A close that escalates is named for what it really takes.
         let noun = casualtyNoun ?? subject.noun
         let name = casualty?.description ?? subjectName
+        let parts = Self.headingParts(noun: noun, name: name)
         return CloseConfirmation(
             subject: subject,
             title: Self.heading(noun: noun, name: name),
+            action: parts.action,
+            name: parts.name,
             message: summary(closing: subject, noun: noun, busy: busy, agents: agents),
             confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)",
             warnsOfAgents: !agents.isEmpty
@@ -88,6 +91,15 @@ public enum CloseConsequence: Equatable, Sendable {
 
     /// The prompt's longest name before it is cut short.
     static let nameLimit = 40
+
+    /// The action and the name the prompt shows apart from it. A tab herdr
+    /// only numbers keeps its number in the action: a place, not a name.
+    static func headingParts(noun: String, name: String?) -> (action: String, name: String?) {
+        let Noun = noun.prefix(1).uppercased() + noun.dropFirst()
+        guard let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return ("Close \(Noun)", nil) }
+        if TabTitle.isAutoNamed(name) { return ("Close \(Noun) \(name)", nil) }
+        return ("Close \(Noun)", name)
+    }
 
     /// "Close Tab: name", or "Close Tab 2" for a tab herdr only numbers.
     static func heading(noun: String, name: String?) -> String {
@@ -177,12 +189,20 @@ public struct CloseConfirmation: Equatable, Identifiable, Sendable {
     /// The prompt offers "Don't warn me next time", which turns off this
     /// reason alone.
     public let warnsOfAgents: Bool
+    /// `title` in two parts, for a prompt that sets the name apart.
+    public let action: String
+    public let name: String?
 
     public var id: CloseSubject { subject }
 
-    public init(subject: CloseSubject, title: String, message: String, confirmButtonTitle: String, warnsOfAgents: Bool = false) {
+    public init(
+        subject: CloseSubject, title: String, action: String? = nil, name: String? = nil,
+        message: String, confirmButtonTitle: String, warnsOfAgents: Bool = false
+    ) {
         self.subject = subject
         self.title = title
+        self.action = action ?? title
+        self.name = name
         self.message = message
         self.confirmButtonTitle = confirmButtonTitle
         self.warnsOfAgents = warnsOfAgents

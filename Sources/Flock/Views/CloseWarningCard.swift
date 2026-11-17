@@ -135,9 +135,23 @@ struct CloseWarningCard: ViewModifier {
     private func card(_ pending: CloseConfirmation, arrowX: CGFloat? = nil) -> some View {
         let shape = CalloutShape(cornerRadius: M.cornerRadius, arrowX: arrowX, arrowWidth: M.arrowWidth, arrowHeight: M.arrowHeight)
         return VStack(alignment: .leading, spacing: 0) {
-            Text(pending.title)
+            Text(pending.action)
                 .font(ChromeType.closeCardTitle)
                 .foregroundStyle(Color(colors.title))
+            if let name = pending.name {
+                Text(name)
+                    .font(ChromeType.closeCardName)
+                    .foregroundStyle(Color(colors.title))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, M.nameChipHorizontalPadding)
+                    .padding(.vertical, M.nameChipVerticalPadding)
+                    .background(
+                        Color(colors.edge).opacity(M.quietFillOpacity),
+                        in: RoundedRectangle(cornerRadius: M.buttonCornerRadius)
+                    )
+                    .padding(.top, M.nameChipTop)
+            }
             Text((try? AttributedString(markdown: pending.message)) ?? AttributedString(pending.message))
                 .font(ChromeType.closeCardMessage)
                 .foregroundStyle(Color(colors.body))
