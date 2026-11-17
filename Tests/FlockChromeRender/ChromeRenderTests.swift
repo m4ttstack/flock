@@ -4593,6 +4593,9 @@ final class ChromeRenderTests: XCTestCase {
             XCTAssertEqual(harness.viewModel.pendingClose?.warnsOfAgents, true, "\(id): no agent warning raised")
             await settle(window)
             XCTAssertNil(window.attachedSheet, "\(id): the prompt is a sheet, whose slide is what the card replaced")
+            // Past the card's entrance.
+            try? await Task.sleep(for: .milliseconds(300))
+            await settle(window)
             if let directory {
                 try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-close-warning-\(id).png"))

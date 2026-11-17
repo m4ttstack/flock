@@ -15,6 +15,10 @@ struct CloseWarningCard: ViewModifier {
     @State private var pointer: CGPoint?
     @State private var cardSize: CGSize = .zero
     @State private var dontWarnAgain = false
+    /// Outlives `pendingClose` by the exit fade. Input follows `pendingClose`
+    /// alone, so an answered card takes no second answer while it fades.
+    @State private var shown: CloseConfirmation?
+    @State private var isIn = false
 
     private typealias M = ChromeMetrics.CloseCard
 
@@ -22,30 +26,49 @@ struct CloseWarningCard: ViewModifier {
         content
             .background(CloseInputMonitor(source: input, isActive: viewModel.pendingClose != nil, onKey: handle))
             .overlayPreferenceValue(TabAreaAnchor.self) { tabArea in
-                if let pending = viewModel.pendingClose {
+                if let shown {
                     GeometryReader { proxy in
                         ZStack(alignment: .topLeading) {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { cancel(pending) }
+                            if viewModel.pendingClose != nil {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { if let pending = viewModel.pendingClose { cancel(pending) } }
+                            }
                             if let pointer {
                                 let origin = origin(near: pointer, in: proxy.size)
-                                card(pending)
+                                card(shown)
                                     .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+                                    .modifier(CardMotion(isIn: isIn, anchor: .topLeading))
                                     .offset(x: origin.x, y: origin.y)
                             } else {
                                 let canvas = canvas(in: proxy.size, tabArea: tabArea.map { proxy[$0] })
-                                card(pending)
+                                card(shown)
+                                    .modifier(CardMotion(isIn: isIn, anchor: .center))
                                     .frame(width: canvas.width, height: canvas.height)
                                     .offset(x: canvas.minX, y: canvas.minY)
                             }
                         }
+                        .allowsHitTesting(viewModel.pendingClose != nil)
                     }
                 }
             }
-            .onChange(of: viewModel.pendingClose?.id) { _, id in
-                guard id != nil else { return }
-                pointer = input.pointer()
+            .onChange(of: viewModel.pendingClose) { _, pending in
+                if let pending {
+                    pointer = input.pointer()
+                    shown = pending
+                    isIn = false
+                    // A turn later, so the card first lays out at its starting
+                    // scale and the entrance has somewhere to come from.
+                    Task { @MainActor in
+                        withAnimation(.easeOut(duration: M.enterDuration)) { isIn = true }
+                    }
+                } else {
+                    withAnimation(.easeIn(duration: M.exitDuration)) {
+                        isIn = false
+                    } completion: {
+                        if viewModel.pendingClose == nil { shown = nil }
+                    }
+                }
             }
     }
 
@@ -106,10 +129,13 @@ struct CloseWarningCard: ViewModifier {
         .frame(width: M.width, alignment: .leading)
         .environment(\.colorScheme, cardIsLight ? .light : .dark)
         // On the ground alone: a shadow over the whole card haloes its text.
+        // A tight contact shadow under a wide soft one lifts the card off the
+        // chrome instead of pressing it flat.
         .background {
             RoundedRectangle(cornerRadius: M.cornerRadius)
                 .fill(Color(colors.ground))
-                .shadow(color: .black.opacity(ChromeMetrics.Modal.shadowOpacity), radius: ChromeMetrics.Modal.shadowRadius, y: ChromeMetrics.Modal.shadowY)
+                .shadow(color: .black.opacity(M.contactShadowOpacity), radius: M.contactShadowRadius, y: M.contactShadowY)
+                .shadow(color: .black.opacity(M.liftShadowOpacity), radius: M.liftShadowRadius, y: M.liftShadowY)
         }
         .overlay(RoundedRectangle(cornerRadius: M.cornerRadius).strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth))
         .accessibilityElement(children: .contain)
@@ -203,5 +229,18 @@ private struct CloseInputMonitor: NSViewRepresentable {
             }
             monitors = [keys, mouse].compactMap { $0 }
         }
+    }
+}
+
+/// The card's entrance and exit: a short fade with a slight grow from where it
+/// sits, so it arrives without a sheet's long slide.
+private struct CardMotion: ViewModifier {
+    let isIn: Bool
+    let anchor: UnitPoint
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isIn ? 1 : ChromeMetrics.CloseCard.enterScale, anchor: anchor)
+            .opacity(isIn ? 1 : 0)
     }
 }

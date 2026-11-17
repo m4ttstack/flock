@@ -875,6 +875,15 @@ enum ChromeMetrics {
         static let pointerOffset: CGFloat = 8
         /// The least gap kept between the card and the window's edges.
         static let edgeMargin: CGFloat = 8
+        static let enterDuration: Double = 0.14
+        static let exitDuration: Double = 0.09
+        static let enterScale: CGFloat = 0.95
+        static let contactShadowOpacity: Double = 0.14
+        static let contactShadowRadius: CGFloat = 1.5
+        static let contactShadowY: CGFloat = 1
+        static let liftShadowOpacity: Double = 0.28
+        static let liftShadowRadius: CGFloat = 22
+        static let liftShadowY: CGFloat = 14
 
         /// Neutral rather than themed: the card is drawn in the scheme
         /// opposite the window's, which a theme defines no colours for.
@@ -886,8 +895,8 @@ enum ChromeMetrics {
             let edgeOpacity: Double
 
             static let light = Colors(
-                ground: RGB(246, 246, 248), title: RGB(29, 29, 31), body: RGB(84, 84, 90),
-                edge: RGB(0, 0, 0), edgeOpacity: 0.12
+                ground: RGB(234, 231, 225), title: RGB(26, 25, 23), body: RGB(84, 81, 76),
+                edge: RGB(0, 0, 0), edgeOpacity: 0.10
             )
             static let dark = Colors(
                 ground: RGB(44, 45, 52), title: RGB(245, 245, 247), body: RGB(174, 174, 182),
