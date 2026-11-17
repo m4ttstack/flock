@@ -158,11 +158,15 @@ struct CloseWarningCard: ViewModifier {
             HStack(spacing: M.buttonGap) {
                 Spacer(minLength: 0)
                 Button("Cancel") { cancel(pending) }
-                    .buttonStyle(CloseCardButtonStyle(fill: Color(colors.edge).opacity(M.quietFillOpacity), ink: Color(colors.title)))
+                    .buttonStyle(CloseCardButtonStyle(
+                        fill: Color(colors.edge).opacity(M.quietFillOpacity),
+                        pressedFill: Color(colors.edge).opacity(M.quietPressedFillOpacity),
+                        ink: Color(colors.title)
+                    ))
                     .modifier(SelectionRing(isSelected: selection == .cancel, color: theme.accent))
                     .accessibilityIdentifier("flock.close.cancel")
                 Button(pending.confirmButtonTitle) { confirm(pending) }
-                    .buttonStyle(CloseCardButtonStyle(fill: theme.accent, ink: theme.chrome))
+                    .buttonStyle(CloseCardButtonStyle(fill: theme.accent, pressedFill: nil, ink: theme.chrome))
                     .modifier(SelectionRing(isSelected: selection == .confirm, color: theme.accent))
                     .accessibilityIdentifier("flock.close.confirm")
             }
@@ -320,6 +324,9 @@ private struct CardMotion: ViewModifier {
 /// to no theme.
 private struct CloseCardButtonStyle: ButtonStyle {
     let fill: Color
+    /// A faint fill has no colour to darken, so it states its pressed look;
+    /// nil darkens `fill`.
+    let pressedFill: Color?
     let ink: Color
 
     private typealias M = ChromeMetrics.CloseCard
@@ -332,8 +339,8 @@ private struct CloseCardButtonStyle: ButtonStyle {
             .frame(height: M.buttonHeight)
             .background(
                 RoundedRectangle(cornerRadius: M.buttonCornerRadius)
-                    .fill(fill)
-                    .brightness(configuration.isPressed ? -0.08 : 0)
+                    .fill(configuration.isPressed ? (pressedFill ?? fill) : fill)
+                    .brightness(configuration.isPressed && pressedFill == nil ? -0.08 : 0)
             )
             .contentShape(Rectangle())
     }

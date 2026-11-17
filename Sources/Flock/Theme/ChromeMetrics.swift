@@ -875,6 +875,7 @@ enum ChromeMetrics {
         static let buttonHorizontalPadding: CGFloat = 14
         static let buttonCornerRadius: CGFloat = ChromeRadius.control
         static let quietFillOpacity: Double = 0.07
+        static let quietPressedFillOpacity: Double = 0.15
         static let ringWidth: CGFloat = 2
         /// From the control's edge to the ring's outer edge.
         static let ringOffset: CGFloat = 3
