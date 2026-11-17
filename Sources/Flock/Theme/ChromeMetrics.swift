@@ -869,6 +869,8 @@ enum ChromeMetrics {
         static let nameChipTop: CGFloat = 8
         static let nameChipHorizontalPadding: CGFloat = 8
         static let nameChipVerticalPadding: CGFloat = 4
+        static let nameChipFillOpacity: Double = 0.11
+        static let nameChipEdgeOpacity: Double = 0.18
         static let lineSpacing: CGFloat = 2
         static let toggleTop: CGFloat = 14
         static let buttonsTop: CGFloat = 18

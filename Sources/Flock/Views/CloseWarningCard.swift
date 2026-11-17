@@ -147,8 +147,12 @@ struct CloseWarningCard: ViewModifier {
                     .padding(.horizontal, M.nameChipHorizontalPadding)
                     .padding(.vertical, M.nameChipVerticalPadding)
                     .background(
-                        Color(colors.edge).opacity(M.quietFillOpacity),
+                        Color(colors.edge).opacity(M.nameChipFillOpacity),
                         in: RoundedRectangle(cornerRadius: M.buttonCornerRadius)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: M.buttonCornerRadius)
+                            .strokeBorder(Color(colors.edge).opacity(M.nameChipEdgeOpacity), lineWidth: ChromeMetrics.ruleWidth)
                     )
                     .padding(.top, M.nameChipTop)
             }
