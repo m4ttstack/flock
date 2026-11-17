@@ -514,8 +514,22 @@ public final class HerdrStore {
             guard let newLayout = Self.predictedLayout(forSplitRatio: ratio, atPath: path, tab: tab, model: model) else { return [] }
             return [.layoutUpdated(newLayout)]
 
-        case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes,
-             .closePane, .closeTab, .closeWorkspace:
+        // herdr can take a second or more to answer a close while it stops
+        // the programs inside, so the strip and canvas drop the tab at once.
+        // Its own `tab_closed` arriving later finds nothing left to remove.
+        case let .closeTab(tab):
+            return [.tabClosed(tab)]
+
+        // Only the close that takes its tab: one among siblings reflows the
+        // layout, which only herdr's `layout.updated` can say.
+        case let .closePane(pane):
+            guard let record = model.panes[pane],
+                  !model.panes.values.contains(where: { $0.tabID == record.tabID && $0.paneID != pane }),
+                  (model.tabs[record.workspaceID]?.count ?? 0) > 1
+            else { return [] }
+            return [.paneClosed(pane), .tabClosed(record.tabID)]
+
+        case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes, .closeWorkspace:
             return []
         }
     }
