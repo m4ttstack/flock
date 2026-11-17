@@ -239,87 +239,95 @@ struct MainWindow: View {
         .frame(minWidth: 900, minHeight: 560)
         .ignoresSafeArea(edges: .top)
         .background(TitlebarConfigurator(windowBg: theme.chrome))
-        // herdr refuses a plain close on a workspace that is a worktree
-        // group's primary; this is that refusal, asked rather than reported.
-        //
-        // `presenting:` is what makes the confirm correct, not just tidier:
-        // the dialog clears its own presentation state as it dismisses, which
-        // runs before the button's enqueued work does, so an action that read
-        // the workspace back off `pendingGroupClose` would find it already
-        // nil. The presented value is captured when the prompt goes up, and
-        // it is also what lets the message name what is about to close.
-        .confirmationDialog(
-            "Close this workspace and its worktrees?",
-            isPresented: Binding(
-                get: { viewModel.pendingGroupClose != nil },
-                set: { shown in if !shown { viewModel.cancelPendingGroupClose() } }
-            ),
-            titleVisibility: .visible,
-            presenting: viewModel.pendingGroupClose
-        ) { pending in
-            Button("Close Group") {
-                Task { await viewModel.confirmGroupClose(pending.workspaceID) }
-            }
-            // No destructive role: as the default it draws blue anyway, and the
-            // role's red flashes back in as the prompt dismisses.
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("flock.workspace.closeGroup.confirm")
-            Button("Cancel", role: .cancel) { viewModel.cancelPendingGroupClose() }
-                .accessibilityIdentifier("flock.workspace.closeGroup.cancel")
-        } message: { pending in
-            // The busy sentence is absent when nothing is, so a quiet
-            // workspace reads exactly as it did before.
-            Text(
-                ([
-                    "herdr keeps \"\(pending.label)\" and its linked worktree workspaces together. "
-                        + "Closing it closes all of them.",
-                    pending.busy.groupSentence,
-                ] as [String?]).compactMap { $0 }.joined(separator: " ")
-            )
-        }
+        .modifier(GroupCloseCard(theme: theme, viewModel: viewModel))
         .modifier(CloseWarningCard(theme: theme, viewModel: viewModel))
-        .modifier(TopBarRefusalAlert(viewModel: viewModel))
-        // The same confirmation the settings row raises, hosted here too so
-        // the banner's Install is the identical action rather than a shortcut
-        // around it. Naming the exact path being replaced is the point of it,
-        // and it is shown every time by design. Only the banner's own
-        // requests: the Settings row presents its own.
-        .confirmationDialog(
-            bannerConfirmation?.confirmation.title ?? "",
-            isPresented: Binding(
-                get: { bannerConfirmation != nil },
-                set: { shown in if !shown { herdrMousePatchStore.cancelPendingConfirmation() } }
-            ),
-            titleVisibility: .visible,
-            presenting: bannerConfirmation
-        ) { pending in
-            Button(pending.confirmation.confirmButtonTitle) { herdrMousePatchStore.confirmPendingAction() }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.confirm")
-            Button("Cancel", role: .cancel) { herdrMousePatchStore.cancelPendingConfirmation() }
-        } message: { pending in
-            Text(pending.confirmation.message)
-        }
+        .modifier(TopBarRefusalCard(theme: theme, viewModel: viewModel))
+        .modifier(MousePatchBannerCard(theme: theme, store: herdrMousePatchStore, pending: bannerConfirmation))
     }
 }
 
-private struct TopBarRefusalAlert: ViewModifier {
+/// herdr refuses a plain close on a workspace that is a worktree group's
+/// primary; this is that refusal, asked rather than reported.
+private struct GroupCloseCard: ViewModifier {
+    let theme: Theme
     let viewModel: SessionViewModel
 
     func body(content: Content) -> some View {
-        content.alert(
-            viewModel.topBarRefusal?.title ?? "",
-            isPresented: Binding(
-                get: { viewModel.topBarRefusal != nil },
-                set: { shown in if !shown { viewModel.dismissTopBarRefusal() } }
-            ),
-            presenting: viewModel.topBarRefusal
-        ) { _ in
-            Button("OK") { viewModel.dismissTopBarRefusal() }
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("flock.topBar.refusal.ok")
-        } message: { refusal in
-            Text(refusal.message)
-        }
+        content.modifier(ConfirmCardPresenter(
+            theme: theme,
+            item: viewModel.pendingGroupClose,
+            content: { pending in
+                ConfirmCardContent(
+                    action: "Close Workspace and Worktrees",
+                    name: pending.label,
+                    // The busy sentence is absent when nothing is, so a quiet
+                    // workspace reads as it always did.
+                    message: AttributedString(
+                        (["herdr keeps this workspace and its linked worktree workspaces together. Closing it closes all of them.",
+                          pending.busy.groupSentence] as [String?]).compactMap { $0 }.joined(separator: " ")
+                    ),
+                    confirmTitle: "Close Group",
+                    identifier: "flock.workspace.closeGroup"
+                )
+            },
+            answer: { pending, answer in
+                if answer.confirmed {
+                    Task { await viewModel.confirmGroupClose(pending.workspaceID) }
+                } else {
+                    viewModel.cancelPendingGroupClose()
+                }
+            }
+        ))
+    }
+}
+
+private struct TopBarRefusalCard: ViewModifier {
+    let theme: Theme
+    let viewModel: SessionViewModel
+
+    func body(content: Content) -> some View {
+        content.modifier(ConfirmCardPresenter(
+            theme: theme,
+            item: viewModel.topBarRefusal,
+            content: { refusal in
+                ConfirmCardContent(
+                    action: refusal.title, message: AttributedString(refusal.message),
+                    cancelTitle: nil, confirmTitle: "OK", identifier: "flock.topBar.refusal"
+                )
+            },
+            answer: { _, _ in viewModel.dismissTopBarRefusal() }
+        ))
+    }
+}
+
+/// The same confirmation the settings row raises, hosted here too so the
+/// banner's Install is the identical action rather than a shortcut around it.
+/// Naming the exact path being replaced is the point of it, so it is shown
+/// every time. Only the banner's own requests: the Settings row presents its
+/// own.
+private struct MousePatchBannerCard: ViewModifier {
+    let theme: Theme
+    let store: HerdrMousePatchStore
+    let pending: HerdrMousePatchStore.PendingConfirmation?
+
+    func body(content: Content) -> some View {
+        content.modifier(ConfirmCardPresenter(
+            theme: theme,
+            item: pending,
+            content: { pending in
+                ConfirmCardContent(
+                    action: pending.confirmation.title, message: AttributedString(pending.confirmation.message),
+                    confirmTitle: pending.confirmation.confirmButtonTitle, identifier: "flock.herdrMousePatch.banner"
+                )
+            },
+            answer: { _, answer in
+                if answer.confirmed {
+                    store.confirmPendingAction()
+                } else {
+                    store.cancelPendingConfirmation()
+                }
+            }
+        ))
     }
 }
 

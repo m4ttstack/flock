@@ -862,7 +862,7 @@ enum ChromeMetrics {
 
     /// A modal over an area: a card of one hosted pane, a title row above it
     /// and, optionally, a footer below it.
-    enum CloseCard {
+    enum ConfirmCard {
         static let width: CGFloat = 320
         static let padding: CGFloat = 18
         static let titleGap: CGFloat = 12

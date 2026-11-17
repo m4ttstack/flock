@@ -70,10 +70,10 @@ enum ChromeType {
     static let chatButtonHandleWeight = Weight.semibold
     static let chatButtonHandleSize: CGFloat = 11.5
     static let chatButtonHandle = inter(chatButtonHandleSize, chatButtonHandleWeight)
-    static let closeCardTitle = inter(14, .semibold)
-    static let closeCardMessage = inter(12.5)
-    static let closeCardName = inter(12.5, .medium)
-    static let closeCardButton = inter(12.5, .medium)
+    static let confirmCardTitle = inter(14, .semibold)
+    static let confirmCardMessage = inter(12.5)
+    static let confirmCardName = inter(12.5, .medium)
+    static let confirmCardButton = inter(12.5, .medium)
     static let chatPopoverTitle = inter(14, .semibold)
     static let chatPopoverHandle = inter(13, .semibold)
     static let chatPopoverStateWord = inter(12)
