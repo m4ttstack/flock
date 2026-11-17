@@ -884,6 +884,7 @@ enum ChromeMetrics {
         /// From the control's edge to the ring's outer edge.
         static let ringOffset: CGFloat = 3
         static let ringOpacity: Double = 0.6
+        static let toggleRingInset = CGSize(width: 6, height: 3)
         static let cornerRadius: CGFloat = ChromeRadius.container
         /// From the pointer to the card's top-leading corner, so the card
         /// never sits under the pointer that raised it.

@@ -125,7 +125,7 @@ struct CloseWarningCard: ViewModifier {
                         .foregroundStyle(Color(colors.body))
                 }
                 .toggleStyle(.checkbox)
-                .modifier(SelectionRing(isSelected: selection == .dontWarn, color: theme.accent))
+                .modifier(SelectionRing(isSelected: selection == .dontWarn, color: theme.accent, inset: M.toggleRingInset))
                 .padding(.top, M.toggleTop)
                 .accessibilityIdentifier("flock.close.dontWarn")
             }
@@ -311,17 +311,25 @@ private enum CloseCardItem {
 private struct SelectionRing: ViewModifier {
     let isSelected: Bool
     let color: Color
+    /// Room between a control with no fill of its own and its ring. The
+    /// control keeps its place; only the ring stands further out.
+    var inset: CGSize = .zero
 
     private typealias M = ChromeMetrics.CloseCard
 
     func body(content: Content) -> some View {
-        content.overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: M.buttonCornerRadius + M.ringOffset)
-                    .strokeBorder(color.opacity(M.ringOpacity), lineWidth: M.ringWidth)
-                    .padding(-M.ringOffset)
-                    .allowsHitTesting(false)
+        content
+            .padding(.horizontal, inset.width)
+            .padding(.vertical, inset.height)
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: M.buttonCornerRadius + M.ringOffset)
+                        .strokeBorder(color.opacity(M.ringOpacity), lineWidth: M.ringWidth)
+                        .padding(-M.ringOffset)
+                        .allowsHitTesting(false)
+                }
             }
-        }
+            .padding(.horizontal, -inset.width)
+            .padding(.vertical, -inset.height)
     }
 }
