@@ -24,39 +24,47 @@ struct CloseWarningCard: ViewModifier {
             .overlayPreferenceValue(TabAreaAnchor.self) { tabArea in
                 if let pending = viewModel.pendingClose {
                     GeometryReader { proxy in
-                        let origin = origin(in: proxy.size, tabArea: tabArea.map { proxy[$0] })
                         ZStack(alignment: .topLeading) {
                             Color.clear
                                 .contentShape(Rectangle())
                                 .onTapGesture { cancel(pending) }
-                            card(pending)
-                                .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-                                .opacity(cardSize == .zero ? 0 : 1)
-                                .offset(x: origin.x, y: origin.y)
+                            if let pointer {
+                                let origin = origin(near: pointer, in: proxy.size)
+                                card(pending)
+                                    .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+                                    .offset(x: origin.x, y: origin.y)
+                            } else {
+                                let canvas = canvas(in: proxy.size, tabArea: tabArea.map { proxy[$0] })
+                                card(pending)
+                                    .frame(width: canvas.width, height: canvas.height)
+                                    .offset(x: canvas.minX, y: canvas.minY)
+                            }
                         }
                     }
                 }
             }
             .onChange(of: viewModel.pendingClose?.id) { _, id in
                 guard id != nil else { return }
-                cardSize = .zero
                 pointer = input.pointer()
             }
     }
 
-    private func origin(in bounds: CGSize, tabArea: CGRect?) -> CGPoint {
-        let top = ChromeMetrics.TitleBar.height
-        if let pointer {
-            let x = pointer.x + M.pointerOffset, y = pointer.y + M.pointerOffset
-            return CGPoint(
-                x: min(max(x, M.edgeMargin), max(M.edgeMargin, bounds.width - cardSize.width - M.edgeMargin)),
-                y: min(max(y, top + M.edgeMargin), max(top + M.edgeMargin, bounds.height - cardSize.height - M.edgeMargin))
-            )
-        }
-        // The tab strip shares the title bar's row, so the canvas starts below it.
-        let area = (tabArea ?? CGRect(origin: .zero, size: bounds))
-        let canvas = CGRect(x: area.minX, y: max(area.minY, top), width: area.width, height: area.maxY - max(area.minY, top))
-        return CGPoint(x: canvas.midX - cardSize.width / 2, y: canvas.midY - cardSize.height / 2)
+    /// Kept inside the window, clear of the title bar. Until the card has been
+    /// measured once it clamps as if it had no size.
+    private func origin(near pointer: CGPoint, in bounds: CGSize) -> CGPoint {
+        let top = ChromeMetrics.TitleBar.height + M.edgeMargin
+        let x = pointer.x + M.pointerOffset, y = pointer.y + M.pointerOffset
+        return CGPoint(
+            x: min(max(x, M.edgeMargin), max(M.edgeMargin, bounds.width - cardSize.width - M.edgeMargin)),
+            y: min(max(y, top), max(top, bounds.height - cardSize.height - M.edgeMargin))
+        )
+    }
+
+    /// The tab strip shares the title bar's row, so the canvas starts below it.
+    private func canvas(in bounds: CGSize, tabArea: CGRect?) -> CGRect {
+        let area = tabArea ?? CGRect(origin: .zero, size: bounds)
+        let top = max(area.minY, ChromeMetrics.TitleBar.height)
+        return CGRect(x: area.minX, y: top, width: area.width, height: max(0, area.maxY - top))
     }
 
     private func card(_ pending: CloseConfirmation) -> some View {
