@@ -4572,8 +4572,10 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// Closing a tab that runs Claude asks, and the prompt carries "Don't
-    /// warn me next time"; ticking it and closing turns the warning off.
+    /// Closing a tab that runs Claude asks, in a card on the window rather than
+    /// a sheet, carrying "Don't warn me next time"; answering with it ticked
+    /// turns the tab warning off and leaves the pane one on. With no pointer
+    /// input seen, the card is centred over the canvas.
     func testTheAgentCloseWarningOffersDontWarnMeNextTime() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         for (id, appearance) in [("tokyo-night", NSAppearance.Name.darkAqua), ("one-light", .aqua)] {
@@ -4590,18 +4592,13 @@ final class ChromeRenderTests: XCTestCase {
             await harness.viewModel.closeTab(tab)
             XCTAssertEqual(harness.viewModel.pendingClose?.warnsOfAgents, true, "\(id): no agent warning raised")
             await settle(window)
-            let sheet = try XCTUnwrap(window.attachedSheet, "\(id): the prompt is not a sheet on the window")
-            let buttons = Self.buttons(in: try XCTUnwrap(sheet.contentView))
-            let checkbox = try XCTUnwrap(buttons.first { $0.title == "Don't warn me next time" }, "\(id): \(buttons.map(\.title))")
-            if let directory, let view = sheet.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: rep)
-                try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            XCTAssertNil(window.attachedSheet, "\(id): the prompt is a sheet, whose slide is what the card replaced")
+            if let directory {
+                try XCTUnwrap(try snapshot(window).representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("agent-close-warning-\(id).png"))
             }
-            checkbox.performClick(nil)
-            let confirm = try XCTUnwrap(buttons.first { $0.title.hasPrefix("Close") }, "\(id): \(buttons.map(\.title))")
-            confirm.performClick(nil)
-            await settle(window)
+            await harness.viewModel.answerClose(.tab(tab), confirm: true, stopWarning: true)
+            XCTAssertNil(harness.viewModel.pendingClose, "\(id): answering left the card up")
             XCTAssertFalse(store.warns(on: .tab), "\(id): the ticked box left the tab warning on")
             XCTAssertTrue(store.warns(on: .pane), "\(id): a tab's box turned the pane warning off")
             window.close()

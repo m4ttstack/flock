@@ -863,6 +863,20 @@ enum ChromeMetrics {
 
     /// A modal over an area: a card of one hosted pane, a title row above it
     /// and, optionally, a footer below it.
+    enum CloseCard {
+        static let width: CGFloat = 300
+        static let padding: CGFloat = 14
+        static let gap: CGFloat = 6
+        static let buttonGap: CGFloat = 8
+        static let buttonsTop: CGFloat = 6
+        static let cornerRadius: CGFloat = ChromeRadius.container
+        /// From the pointer to the card's top-leading corner, so the card
+        /// never sits under the pointer that raised it.
+        static let pointerOffset: CGFloat = 8
+        /// The least gap kept between the card and the window's edges.
+        static let edgeMargin: CGFloat = 8
+    }
+
     enum Modal {
         /// Of the area under the modal, on each axis.
         static func sizeFraction(_ size: ModalSize) -> CGFloat {

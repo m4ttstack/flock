@@ -1871,6 +1871,17 @@ public final class SessionViewModel {
         agentCloseWarning?.select(false, for: AgentCloseWarningStore.Kind(subject))
     }
 
+    /// The close prompt answered either way. Its "Don't warn me next time"
+    /// counts whichever button answered it, as a system alert's box does.
+    public func answerClose(_ subject: CloseSubject, confirm: Bool, stopWarning: Bool) async {
+        if stopWarning { stopWarningOnAgentCloses(subject) }
+        if confirm {
+            await confirmClose(subject)
+        } else {
+            cancelPendingClose()
+        }
+    }
+
     /// Closes `pane`, asking first when herdr would take the tab or the
     /// workspace with it -- a close is irreversible, and Close Pane sits one
     /// modifier from Cut. One pane among siblings goes straight out with

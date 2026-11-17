@@ -277,7 +277,7 @@ struct MainWindow: View {
                 ] as [String?]).compactMap { $0 }.joined(separator: " ")
             )
         }
-        .modifier(CloseConfirmationDialog(viewModel: viewModel))
+        .modifier(CloseWarningCard(theme: theme, viewModel: viewModel))
         .modifier(TopBarRefusalAlert(viewModel: viewModel))
         // The same confirmation the settings row raises, hosted here too so
         // the banner's Install is the identical action rather than a shortcut
@@ -298,79 +298,6 @@ struct MainWindow: View {
             Button("Cancel", role: .cancel) { herdrMousePatchStore.cancelPendingConfirmation() }
         } message: { pending in
             Text(pending.confirmation.message)
-        }
-    }
-}
-
-/// A pane or tab close that escalates, interrupts a busy pane or ends an agent
-/// session. One prompt for both verbs, since one rule decides both. Same
-/// `presenting:` shape as the group close, and for the same reason: what the
-/// confirm button closes is captured when the prompt goes up.
-private struct CloseConfirmationDialog: ViewModifier {
-    let viewModel: SessionViewModel
-
-    @State private var dontWarnAgain = false
-
-    /// Presented from a background of its own: the suppression box is set on
-    /// the presenting view, and toggling it there leaves the window's content
-    /// untouched.
-    func body(content: Content) -> some View {
-        content.background { presenter }
-    }
-
-    private var presenter: some View {
-        Color.clear.confirmationDialog(
-            viewModel.pendingClose?.title ?? "",
-            isPresented: Binding(
-                get: { viewModel.pendingClose != nil },
-                set: { shown in
-                    guard !shown else { return }
-                    if let pending = viewModel.pendingClose { answered(pending.subject) }
-                    viewModel.cancelPendingClose()
-                }
-            ),
-            titleVisibility: .visible,
-            presenting: viewModel.pendingClose
-        ) { pending in
-            Button(pending.confirmButtonTitle) {
-                answered(pending.subject)
-                Task { await viewModel.confirmClose(pending.subject) }
-            }
-            // No destructive role: as the default it draws blue anyway, and the
-            // role's red flashes back in as the prompt dismisses.
-            .keyboardShortcut(.defaultAction)
-            .accessibilityIdentifier("flock.close.confirm")
-            Button("Cancel", role: .cancel) {
-                answered(pending.subject)
-                viewModel.cancelPendingClose()
-            }
-            .accessibilityIdentifier("flock.close.cancel")
-        } message: { pending in
-            Text(pending.message)
-        }
-        .modifier(AgentWarningSuppression(
-            isOffered: viewModel.pendingClose?.warnsOfAgents == true, isSuppressed: $dontWarnAgain
-        ))
-    }
-
-    /// The box counts whichever way the prompt is answered, as a system
-    /// alert's suppression box does.
-    private func answered(_ subject: CloseSubject) {
-        guard dontWarnAgain else { return }
-        dontWarnAgain = false
-        viewModel.stopWarningOnAgentCloses(subject)
-    }
-}
-
-private struct AgentWarningSuppression: ViewModifier {
-    let isOffered: Bool
-    @Binding var isSuppressed: Bool
-
-    func body(content: Content) -> some View {
-        if isOffered {
-            content.dialogSuppressionToggle("Don't warn me next time", isSuppressed: $isSuppressed)
-        } else {
-            content
         }
     }
 }
@@ -398,7 +325,7 @@ private struct TopBarRefusalAlert: ViewModifier {
 
 /// The tab area's bounds, which the top-bar overlay centres its card on.
 /// Absent while the grid replaces the tab area.
-private struct TabAreaAnchor: PreferenceKey {
+struct TabAreaAnchor: PreferenceKey {
     static var defaultValue: Anchor<CGRect>? { nil }
 
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
