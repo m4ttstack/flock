@@ -1,77 +1,75 @@
 import AppKit
 import SwiftUI
 
-/// Whether the latest input was a key or the mouse, and where the pointer is,
-/// in the space of the view it backs.
+/// One for the app, rather than a view per card: a view mounted behind the
+/// window's root kept the rail's rename field from opening. It knows whether
+/// the latest input was a key or the mouse and where the last press landed,
+/// and hands every key to the card that is showing.
 @MainActor
-final class ConfirmInputSource {
-    weak var view: NSView?
-    var lastWasPointer = false
-    var lastPress: CGPoint?
+final class ConfirmInputTracker {
+    static let shared = ConfirmInputTracker()
 
-    /// How the card about to show was raised, read once as it shows.
-    func origin() -> ConfirmOrigin {
-        guard lastWasPointer else { return .keyboard }
-        guard let view, let window = view.window else { return .keyboard }
-        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        let onTitleBar = lastPress.map { $0.y < ChromeMetrics.TitleBar.height } ?? false
-        return .pointer(view.bounds.contains(point) ? point : nil, pressOnTitleBar: onTitleBar)
-    }
-}
+    private var lastWasPointer = false
+    private var lastPress: (window: NSWindow, point: CGPoint)?
+    private var keyTaker: KeyTaker?
+    private var monitors: [Any] = []
 
-struct ConfirmInputMonitor: NSViewRepresentable {
-    let source: ConfirmInputSource
-    let isActive: Bool
-    let onKey: (NSEvent) -> Void
+    private init() {}
 
-    func makeNSView(context: Context) -> MonitorView {
-        let view = MonitorView()
-        source.view = view
-        view.source = source
-        return view
-    }
-
-    func updateNSView(_ view: MonitorView, context: Context) {
-        source.view = view
-        view.source = source
-        view.isActive = isActive
-        view.onKey = onKey
-    }
-
-    final class MonitorView: NSView {
-        weak var source: ConfirmInputSource?
-        var isActive = false
-        var onKey: (NSEvent) -> Void = { _ in }
-        nonisolated(unsafe) private var monitors: [Any] = []
-
-        override var isFlipped: Bool { true }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        deinit {
-            for monitor in monitors { NSEvent.removeMonitor(monitor) }
+    /// Installed by the first card a window mounts; later calls do nothing.
+    func start() {
+        guard monitors.isEmpty else { return }
+        let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            self.lastWasPointer = false
+            guard let taker = self.keyTaker, let window = taker.window, event.window === window else { return event }
+            taker.handle(event)
+            return nil
         }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            for monitor in monitors { NSEvent.removeMonitor(monitor) }
-            monitors = []
-            guard let window else { return }
-            let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === window else { return event }
-                self.source?.lastWasPointer = false
-                guard self.isActive else { return event }
-                self.onKey(event)
-                return nil
-            }
-            let mouse = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-                guard let self else { return event }
-                self.source?.lastWasPointer = true
-                self.source?.lastPress = event.window === window ? self.convert(event.locationInWindow, from: nil) : nil
-                return event
-            }
-            monitors = [keys, mouse].compactMap { $0 }
+        let mouse = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            self.lastWasPointer = true
+            self.lastPress = event.window.map { ($0, Self.topLeft(event.locationInWindow, in: $0)) }
+            return event
         }
+        monitors = [keys, mouse].compactMap { $0 }
+    }
+
+    /// How a card about to show in `window` was raised, in the window's
+    /// content space, top-left, which is the space the card is laid out in.
+    func origin(in window: NSWindow?) -> ConfirmOrigin {
+        guard lastWasPointer, let window, let content = window.contentView else { return .keyboard }
+        let point = Self.topLeft(window.mouseLocationOutsideOfEventStream, in: window)
+        let inside = CGRect(origin: .zero, size: content.bounds.size).contains(point)
+        let onTitleBar = lastPress.map { $0.window === window && $0.point.y < ChromeMetrics.TitleBar.height } ?? false
+        return .pointer(inside ? point : nil, pressOnTitleBar: onTitleBar)
+    }
+
+    /// The newest card takes its window's keys. Held weakly, so a window
+    /// that closes under a card gives them back.
+    func takeKeys(_ id: UUID, in window: NSWindow?, handle: @escaping (NSEvent) -> Void) {
+        guard let window else { return }
+        keyTaker = KeyTaker(id: id, window: window, handle: handle)
+    }
+
+    func releaseKeys(_ id: UUID) {
+        if keyTaker?.id == id { keyTaker = nil }
+    }
+
+    private final class KeyTaker {
+        let id: UUID
+        weak var window: NSWindow?
+        let handle: (NSEvent) -> Void
+
+        init(id: UUID, window: NSWindow, handle: @escaping (NSEvent) -> Void) {
+            self.id = id
+            self.window = window
+            self.handle = handle
+        }
+    }
+
+    private static func topLeft(_ point: NSPoint, in window: NSWindow) -> CGPoint {
+        CGPoint(x: point.x, y: (window.contentView?.bounds.height ?? 0) - point.y)
     }
 }
 

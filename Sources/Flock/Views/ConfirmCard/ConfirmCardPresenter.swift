@@ -48,7 +48,8 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     /// Called once per showing. The card goes when `item` clears.
     let answer: (Item, ConfirmAnswer) -> Void
 
-    @State private var input = ConfirmInputSource()
+    /// This card's claim on the keys while it shows.
+    @State private var keyClaim = UUID()
     @State private var origin = ConfirmOrigin.keyboard
     @State private var cardSize: CGSize = .zero
     @State private var suppressed = false
@@ -64,7 +65,8 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .background(ConfirmInputMonitor(source: input, isActive: item != nil && !isAnswered, onKey: handle))
+            .onAppear { ConfirmInputTracker.shared.start() }
+            .onDisappear { ConfirmInputTracker.shared.releaseKeys(keyClaim) }
             .overlayPreferenceValue(TabAreaAnchor.self) { tabArea in
                 if let shown {
                     GeometryReader { proxy in
@@ -82,7 +84,9 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
             }
             .onChange(of: item) { _, item in
                 if let item {
-                    origin = input.origin()
+                    let window = NSApp.keyWindow ?? NSApp.mainWindow
+                    origin = ConfirmInputTracker.shared.origin(in: window)
+                    ConfirmInputTracker.shared.takeKeys(keyClaim, in: window, handle: handle)
                     selection = .confirm
                     suppressed = false
                     isAnswered = false
@@ -94,6 +98,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
                         withAnimation(.snappy(duration: M.enterDuration)) { isIn = true }
                     }
                 } else {
+                    ConfirmInputTracker.shared.releaseKeys(keyClaim)
                     withAnimation(.easeIn(duration: M.exitDuration)) {
                         isIn = false
                     } completion: {
@@ -267,6 +272,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     private func respond(confirmed: Bool) {
         guard let item, !isAnswered else { return }
         isAnswered = true
+        ConfirmInputTracker.shared.releaseKeys(keyClaim)
         let suppressedNow = suppressed
         suppressed = false
         answer(item, ConfirmAnswer(confirmed: confirmed, suppressed: suppressedNow))
