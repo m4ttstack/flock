@@ -867,12 +867,7 @@ enum ChromeMetrics {
         static let width: CGFloat = 320
         static let padding: CGFloat = 18
         static let titleGap: CGFloat = 10
-        static let pointGap: CGFloat = 5
-        static let markerSize: CGFloat = 4
-        static let markerGap: CGFloat = 8
-        static let markerOpacity: Double = 0.55
-        /// Lifts the marker's centre onto the line's x-height middle.
-        static let markerBaselineLift: CGFloat = 4
+        static let lineSpacing: CGFloat = 2
         static let toggleTop: CGFloat = 14
         static let buttonsTop: CGFloat = 18
         static let buttonGap: CGFloat = 8
@@ -891,9 +886,9 @@ enum ChromeMetrics {
         static let pointerOffset: CGFloat = 8
         /// The least gap kept between the card and the window's edges.
         static let edgeMargin: CGFloat = 8
-        static let enterDuration: Double = 0.14
-        static let exitDuration: Double = 0.09
-        static let enterScale: CGFloat = 0.95
+        static let enterDuration: Double = 0.1
+        static let exitDuration: Double = 0.07
+        static let enterScale: CGFloat = 0.97
         static let contactShadowOpacity: Double = 0.14
         static let contactShadowRadius: CGFloat = 1.5
         static let contactShadowY: CGFloat = 1

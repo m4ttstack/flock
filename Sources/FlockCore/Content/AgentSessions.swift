@@ -28,15 +28,6 @@ public struct AgentSessions: Equatable, Sendable {
             : "The close ends \(agents.count) \(name) sessions."
     }
 
-    /// The sentence as a list line.
-    var phrase: String? {
-        guard let first = agents.first else { return nil }
-        let name = agents.allSatisfy { $0 == first } ? Self.displayName(first) : "agent"
-        return agents.count == 1
-            ? "Ends \(Self.article(name)) \(name) session"
-            : "Ends \(agents.count) \(name) sessions"
-    }
-
     static func displayName(_ agent: String) -> String {
         switch agent {
         case "claude": "Claude Code"

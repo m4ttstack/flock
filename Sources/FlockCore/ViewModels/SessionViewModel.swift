@@ -1920,7 +1920,9 @@ public final class SessionViewModel {
             let busy = BusyPanes(closing: subject, consequence: consequence, model: model)
             let agents = agentCloseWarning?.warns(on: AgentCloseWarningStore.Kind(subject)) == true
                 ? AgentSessions(closing: subject, consequence: consequence, model: model) : .none
-            if let confirmation = consequence.confirmation(closing: subject, busy: busy, agents: agents) {
+            if let confirmation = consequence.confirmation(
+                closing: subject, busy: busy, agents: agents, subjectName: CloseConsequence.name(of: subject, in: model)
+            ) {
                 pendingClose = confirmation
                 return
             }

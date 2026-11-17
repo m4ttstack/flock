@@ -62,7 +62,7 @@ struct CloseWarningCard: ViewModifier {
                     // A turn later, so the card first lays out at its starting
                     // scale and the entrance has somewhere to come from.
                     Task { @MainActor in
-                        withAnimation(.easeOut(duration: M.enterDuration)) { isIn = true }
+                        withAnimation(.snappy(duration: M.enterDuration)) { isIn = true }
                     }
                 } else {
                     withAnimation(.easeIn(duration: M.exitDuration)) {
@@ -103,20 +103,11 @@ struct CloseWarningCard: ViewModifier {
             Text(pending.title)
                 .font(ChromeType.closeCardTitle)
                 .foregroundStyle(Color(colors.title))
-            VStack(alignment: .leading, spacing: M.pointGap) {
-                ForEach(pending.points.isEmpty ? [pending.message] : pending.points, id: \.self) { point in
-                    HStack(alignment: .firstTextBaseline, spacing: M.markerGap) {
-                        Circle()
-                            .fill(Color(colors.body).opacity(M.markerOpacity))
-                            .frame(width: M.markerSize, height: M.markerSize)
-                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + M.markerBaselineLift }
-                        Text(point)
-                            .font(ChromeType.closeCardMessage)
-                            .foregroundStyle(Color(colors.body))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
+            Text((try? AttributedString(markdown: pending.message)) ?? AttributedString(pending.message))
+                .font(ChromeType.closeCardMessage)
+                .foregroundStyle(Color(colors.body))
+                .lineSpacing(M.lineSpacing)
+                .fixedSize(horizontal: false, vertical: true)
             .padding(.top, M.titleGap)
             if pending.warnsOfAgents {
                 Toggle(isOn: $dontWarnAgain) {

@@ -71,27 +71,67 @@ public enum CloseConsequence: Equatable, Sendable {
     /// says both, because they are different losses: one destroys a container
     /// the user did not name, the other throws away work in progress.
     public func confirmation(
-        closing subject: CloseSubject, busy: BusyPanes = .none, agents: AgentSessions = .none
+        closing subject: CloseSubject, busy: BusyPanes = .none, agents: AgentSessions = .none, subjectName: String? = nil
     ) -> CloseConfirmation? {
         guard casualty != nil || !busy.isEmpty || !agents.isEmpty else { return nil }
-        let escalation = casualty.map { _ in
-            "This is its last \(subject.noun), so closing the \(subject.noun) closes \(taken(by: subject))."
-        }
-        let interruption = busy.sentence
-        let points = [
-            casualty.map { _ in "Also closes \(alsoTaken(by: subject))" },
-            busy.sentence.map { String($0.dropLast()) },
-            agents.phrase,
-        ].compactMap { $0 }
+        // A close that escalates is named for what it really takes.
+        let noun = casualtyNoun ?? subject.noun
+        let name = casualty?.description ?? subjectName
         return CloseConfirmation(
             subject: subject,
-            title: casualty.map { "Close \($0.description)?" } ?? "Close this \(subject.noun)?",
-            message: ([escalation, interruption, agents.sentence].compactMap { $0 } + ["A close cannot be undone."])
-                .joined(separator: " "),
+            title: Self.heading(noun: noun, name: name),
+            message: summary(closing: subject, noun: noun, busy: busy, agents: agents),
             confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)",
-            warnsOfAgents: !agents.isEmpty,
-            points: points
+            warnsOfAgents: !agents.isEmpty
         )
+    }
+
+    /// The prompt's longest name before it is cut short.
+    static let nameLimit = 40
+
+    /// "Close Tab: name", or "Close Tab 2" for a tab herdr only numbers.
+    static func heading(noun: String, name: String?) -> String {
+        let Noun = noun.prefix(1).uppercased() + noun.dropFirst()
+        guard let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return "Close \(Noun)" }
+        if TabTitle.isAutoNamed(name) { return "Close \(Noun) \(name)" }
+        let shown = name.count > nameLimit ? String(name.prefix(nameLimit - 1)) + "…" : name
+        return "Close \(Noun): \(shown)"
+    }
+
+    /// Markdown: the count it turns on is bold.
+    private func summary(closing subject: CloseSubject, noun: String, busy: BusyPanes, agents: AgentSessions) -> String {
+        if !agents.isEmpty {
+            let count = agents.agents.count
+            let state = busy.working > 0 ? "working" : "running"
+            return "There \(count == 1 ? "is" : "are") currently **\(count) \(count == 1 ? "agent" : "agents")** \(state). "
+                + "Closing this \(noun) will kill \(count == 1 ? "that session" : "those sessions")."
+        }
+        if !busy.isEmpty {
+            let count = busy.count
+            let state = busy.blocked == 0 ? "working" : busy.working == 0 ? "waiting for you" : "busy"
+            return "There \(count == 1 ? "is" : "are") currently **\(count) \(count == 1 ? "pane" : "panes")** \(state). "
+                + "Closing this \(noun) will stop \(count == 1 ? "it" : "them")."
+        }
+        return "This is the last \(subject.noun) in the \(noun), so the \(noun) closes with it."
+    }
+
+    private var casualtyNoun: String? {
+        switch self {
+        case .subjectOnly: return nil
+        case .closesTab: return "tab"
+        case .closesWorkspace: return "workspace"
+        }
+    }
+
+    /// What the prompt calls `subject` itself: a tab by the title its strip
+    /// shows, a pane by its own.
+    public static func name(of subject: CloseSubject, in model: SessionModel) -> String? {
+        switch subject {
+        case .pane(let pane):
+            return model.panes[pane]?.displayTitle
+        case .tab(let tab):
+            return model.tabs.values.flatMap { $0 }.first { $0.tabID == tab }.map { TabTitle.resolve($0, in: model).text }
+        }
     }
 
     private var casualty: (description: String, buttonTitle: String)? {
@@ -99,25 +139,6 @@ public enum CloseConsequence: Equatable, Sendable {
         case .subjectOnly: return nil
         case .closesTab(let description): return (description, "Close Tab")
         case .closesWorkspace(let description): return (description, "Close Workspace")
-        }
-    }
-
-    /// Everything the close takes, in the order it takes it. A pane that is its
-    /// workspace's last names both rungs, since the tab going is what takes the
-    /// workspace with it.
-    private func taken(by subject: CloseSubject) -> String {
-        switch (self, subject) {
-        case (.closesWorkspace, .pane): return "the tab and the workspace with it"
-        case (.closesWorkspace, .tab): return "the workspace"
-        default: return "the tab"
-        }
-    }
-
-    private func alsoTaken(by subject: CloseSubject) -> String {
-        switch (self, subject) {
-        case (.closesWorkspace, .pane): return "the tab and its workspace"
-        case (.closesWorkspace, .tab): return "the workspace"
-        default: return "the tab"
         }
     }
 
@@ -129,29 +150,19 @@ public enum CloseConsequence: Equatable, Sendable {
         model.tabs.first { $0.value.contains { $0.tabID == tab } }?.key
     }
 
-    /// herdr reports a tab nobody has renamed as its own 1-based position, so
-    /// `carriedName` returning nil means the label IS that position and the
-    /// prompt says it as one rather than quoting a number as a name.
     private static func describe(tab tabID: TabID, in model: SessionModel) -> String {
-        guard let record = model.tabs.values.flatMap({ $0 }).first(where: { $0.tabID == tabID }) else {
-            return "this tab"
-        }
-        guard let name = carriedName(ofTab: tabID, model: model) else { return "tab \(record.label)" }
-        return "the tab \"\(name)\""
+        name(of: .tab(tabID), in: model) ?? "this tab"
     }
 
-    /// No position guard here, and deliberately: herdr labels a workspace with
-    /// its custom name, else its cwd's own basename, else the bare word
-    /// "workspace" (`Workspace::display_name_from` and `fallback_label_from_cwd`
-    /// in `src/workspace/git/discovery.rs`). A workspace label is never its
-    /// rail position, so reading one as a position would misread a workspace
-    /// named for a directory that happens to match where it sits.
+    /// herdr labels a workspace with its custom name, else its cwd's own
+    /// basename, else the bare word "workspace" (`Workspace::display_name_from`
+    /// in `src/workspace/git/discovery.rs`), so a label is never a position.
     private static func describe(workspace workspaceID: WorkspaceID, in model: SessionModel) -> String {
         guard let record = model.workspaces.first(where: { $0.workspaceID == workspaceID }) else {
             return "this workspace"
         }
         let label = record.label.trimmingCharacters(in: .whitespaces)
-        return label.isEmpty ? "workspace \(record.number)" : "the workspace \"\(label)\""
+        return label.isEmpty ? "\(record.number)" : label
     }
 }
 
@@ -166,21 +177,14 @@ public struct CloseConfirmation: Equatable, Identifiable, Sendable {
     /// The prompt offers "Don't warn me next time", which turns off this
     /// reason alone.
     public let warnsOfAgents: Bool
-    /// The same consequences as `message`, one short line each, for a prompt
-    /// that lists rather than narrates.
-    public let points: [String]
 
     public var id: CloseSubject { subject }
 
-    public init(
-        subject: CloseSubject, title: String, message: String, confirmButtonTitle: String,
-        warnsOfAgents: Bool = false, points: [String] = []
-    ) {
+    public init(subject: CloseSubject, title: String, message: String, confirmButtonTitle: String, warnsOfAgents: Bool = false) {
         self.subject = subject
         self.title = title
         self.message = message
         self.confirmButtonTitle = confirmButtonTitle
         self.warnsOfAgents = warnsOfAgents
-        self.points = points
     }
 }
