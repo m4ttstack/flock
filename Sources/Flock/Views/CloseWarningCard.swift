@@ -67,20 +67,26 @@ struct CloseWarningCard: ViewModifier {
         return CGRect(x: area.minX, y: top, width: area.width, height: max(0, area.maxY - top))
     }
 
+    /// The card takes the scheme opposite the window's, so a warning never
+    /// sinks into the chrome around it.
+    private var cardIsLight: Bool { !ChromeRoles.isLight(panelBg: theme.palette.panelBg) }
+
+    private var colors: ChromeMetrics.CloseCard.Colors { cardIsLight ? .light : .dark }
+
     private func card(_ pending: CloseConfirmation) -> some View {
         VStack(alignment: .leading, spacing: M.gap) {
             Text(pending.title)
                 .font(ChromeType.closeCardTitle)
-                .foregroundStyle(theme.textStrong)
+                .foregroundStyle(Color(colors.title))
             Text(pending.message)
                 .font(ChromeType.closeCardMessage)
-                .foregroundStyle(theme.textDim)
+                .foregroundStyle(Color(colors.body))
                 .fixedSize(horizontal: false, vertical: true)
             if pending.warnsOfAgents {
                 Toggle(isOn: $dontWarnAgain) {
                     Text("Don't warn me next time")
                         .font(ChromeType.closeCardMessage)
-                        .foregroundStyle(theme.textDim)
+                        .foregroundStyle(Color(colors.body))
                 }
                 .toggleStyle(.checkbox)
                 .accessibilityIdentifier("flock.close.dontWarn")
@@ -98,9 +104,14 @@ struct CloseWarningCard: ViewModifier {
         }
         .padding(M.padding)
         .frame(width: M.width, alignment: .leading)
-        .background(theme.chrome, in: RoundedRectangle(cornerRadius: M.cornerRadius))
-        .overlay(RoundedRectangle(cornerRadius: M.cornerRadius).strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth))
-        .shadow(color: .black.opacity(ChromeMetrics.Modal.shadowOpacity), radius: ChromeMetrics.Modal.shadowRadius, y: ChromeMetrics.Modal.shadowY)
+        .environment(\.colorScheme, cardIsLight ? .light : .dark)
+        // On the ground alone: a shadow over the whole card haloes its text.
+        .background {
+            RoundedRectangle(cornerRadius: M.cornerRadius)
+                .fill(Color(colors.ground))
+                .shadow(color: .black.opacity(ChromeMetrics.Modal.shadowOpacity), radius: ChromeMetrics.Modal.shadowRadius, y: ChromeMetrics.Modal.shadowY)
+        }
+        .overlay(RoundedRectangle(cornerRadius: M.cornerRadius).strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.close.card")
     }

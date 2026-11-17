@@ -875,6 +875,25 @@ enum ChromeMetrics {
         static let pointerOffset: CGFloat = 8
         /// The least gap kept between the card and the window's edges.
         static let edgeMargin: CGFloat = 8
+
+        /// Neutral rather than themed: the card is drawn in the scheme
+        /// opposite the window's, which a theme defines no colours for.
+        struct Colors {
+            let ground: RGB
+            let title: RGB
+            let body: RGB
+            let edge: RGB
+            let edgeOpacity: Double
+
+            static let light = Colors(
+                ground: RGB(246, 246, 248), title: RGB(29, 29, 31), body: RGB(84, 84, 90),
+                edge: RGB(0, 0, 0), edgeOpacity: 0.12
+            )
+            static let dark = Colors(
+                ground: RGB(44, 45, 52), title: RGB(245, 245, 247), body: RGB(174, 174, 182),
+                edge: RGB(255, 255, 255), edgeOpacity: 0.14
+            )
+        }
     }
 
     enum Modal {
