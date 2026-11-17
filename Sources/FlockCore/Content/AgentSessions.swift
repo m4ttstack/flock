@@ -19,26 +19,6 @@ public struct AgentSessions: Equatable, Sendable {
     public init(closing subject: CloseSubject, consequence: CloseConsequence, model: SessionModel) {
         self.init(agents: BusyPanes.destroyed(by: subject, consequence: consequence, model: model).compactMap(\.agent))
     }
-
-    var sentence: String? {
-        guard let first = agents.first else { return nil }
-        let name = agents.allSatisfy { $0 == first } ? Self.displayName(first) : "agent"
-        return agents.count == 1
-            ? "The close ends \(Self.article(name)) \(name) session."
-            : "The close ends \(agents.count) \(name) sessions."
-    }
-
-    static func displayName(_ agent: String) -> String {
-        switch agent {
-        case "claude": "Claude Code"
-        case "codex": "Codex"
-        default: agent.prefix(1).uppercased() + agent.dropFirst()
-        }
-    }
-
-    private static func article(_ name: String) -> String {
-        "AEIOU".contains(name.prefix(1).uppercased()) ? "an" : "a"
-    }
 }
 
 /// Settings > Closing, one switch for tabs and one for panes, and the close

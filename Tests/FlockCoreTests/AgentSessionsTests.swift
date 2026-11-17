@@ -51,14 +51,14 @@ final class AgentSessionsTests: XCTestCase {
         )
     }
 
+    /// Idle, so "running": the session is open even with nothing in flight.
     func testClosingATabWithAnIdleClaudeAsks() throws {
         let model = twoTabModel("claude", nil)
 
         let prompt = try XCTUnwrap(confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model))
 
         XCTAssertTrue(prompt.warnsOfAgents)
-        XCTAssertEqual(prompt.title, "Close this tab?")
-        XCTAssertEqual(prompt.message, "The close ends a Claude Code session. A close cannot be undone.")
+        XCTAssertEqual(prompt.message, "There is currently **1 agent** running. Closing this tab will kill that session.")
     }
 
     func testABareTerminalClosesWithoutAsking() {
@@ -75,39 +75,24 @@ final class AgentSessionsTests: XCTestCase {
         XCTAssertNil(confirmation(closing: .pane(PaneID(rawValue: "w1:p1")), in: model))
         XCTAssertEqual(
             confirmation(closing: .pane(PaneID(rawValue: "w1:p2")), in: model)?.message,
-            "The close ends a Claude Code session. A close cannot be undone."
+            "There is currently **1 agent** running. Closing this pane will kill that session."
         )
     }
 
-    func testOneAgentTwiceIsCountedByName() {
-        let model = twoTabModel("codex", "codex")
+    /// Any agent herdr detects counts, whatever it is.
+    func testEveryAgentCountsWhateverItIs() {
+        for agents in [("codex", "codex"), ("claude", "codex"), ("gemini", "claude")] {
+            let model = twoTabModel(agents.0, agents.1)
 
-        XCTAssertEqual(
-            confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model)?.message,
-            "The close ends 2 Codex sessions. A close cannot be undone."
-        )
+            XCTAssertEqual(
+                confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model)?.message,
+                "There are currently **2 agents** running. Closing this tab will kill those sessions.",
+                "\(agents)"
+            )
+        }
     }
 
-    func testMixedAgentsAreCountedAsAgentSessions() {
-        let model = twoTabModel("claude", "codex")
-
-        XCTAssertEqual(
-            confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model)?.message,
-            "The close ends 2 agent sessions. A close cannot be undone."
-        )
-    }
-
-    /// Any agent herdr detects counts, under the name herdr gives it.
-    func testAnUnnamedAgentIsCalledByHerdrsName() {
-        let model = twoTabModel("gemini", nil)
-
-        XCTAssertEqual(
-            confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model)?.message,
-            "The close ends a Gemini session. A close cannot be undone."
-        )
-    }
-
-    /// A last-tab close asks anyway; the agent line joins that prompt.
+    /// A last-tab close asks anyway, and the prompt names what really goes.
     func testTheAgentLineJoinsAnEscalationPrompt() throws {
         let model = makeModel(tabs: [("w1:t1", [("w1:p1", "claude")])])
 
@@ -115,7 +100,7 @@ final class AgentSessionsTests: XCTestCase {
 
         XCTAssertTrue(prompt.warnsOfAgents)
         XCTAssertEqual(prompt.confirmButtonTitle, "Close Workspace")
-        XCTAssertTrue(prompt.message.contains("The close ends a Claude Code session."), prompt.message)
+        XCTAssertEqual(prompt.message, "There is currently **1 agent** running. Closing this workspace will kill that session.")
     }
 
     func testAnEscalationWithoutAnAgentCarriesNoWarning() throws {

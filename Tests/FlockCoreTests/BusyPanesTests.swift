@@ -86,7 +86,8 @@ final class BusyPanesTests: XCTestCase {
     }
 
     /// An escalating close and a busy pane are independent reasons to ask,
-    /// and the prompt has to say both: they are different losses.
+    /// and the prompt has to say both: they are different losses. The title
+    /// names what really goes; the message, what is interrupted.
     func testAnEscalatingCloseWithABusyPaneSaysBothThings() {
         let model = makeModel(tabs: [("w1:t1", [("w1:p1", "working")]), ("w1:t2", [("w1:p2", "idle")])])
         let subject = CloseSubject.pane(PaneID(rawValue: "w1:p1"))
@@ -96,9 +97,11 @@ final class BusyPanesTests: XCTestCase {
             closing: subject, busy: busy(closing: subject, in: model)
         )
 
-        let message = try? XCTUnwrap(confirmation?.message)
-        XCTAssertEqual(message?.contains("closes the tab"), true, "the escalation half is missing")
-        XCTAssertEqual(message?.contains("still working"), true, "the interruption half is missing")
+        XCTAssertEqual(confirmation?.title.hasPrefix("Close Tab"), true, "the escalation half is missing")
+        XCTAssertEqual(
+            confirmation?.message, "There is currently **1 pane** working. Closing this tab will stop it.",
+            "the interruption half is missing"
+        )
     }
 
     /// The quiet path has to stay quiet: nothing escalating and nothing busy
@@ -111,17 +114,6 @@ final class BusyPanesTests: XCTestCase {
             CloseConsequence.of(subject, model: model)
                 .confirmation(closing: subject, busy: busy(closing: subject, in: model))
         )
-    }
-
-    func testTheSentenceCountsRatherThanNames() {
-        XCTAssertEqual(BusyPanes(working: 1, blocked: 0).sentence, "1 pane is still working.")
-        XCTAssertEqual(BusyPanes(working: 3, blocked: 0).sentence, "3 panes are still working.")
-        XCTAssertEqual(BusyPanes(working: 0, blocked: 1).sentence, "1 pane is waiting for you.")
-        XCTAssertEqual(
-            BusyPanes(working: 2, blocked: 1).sentence,
-            "2 panes are still working and 1 waiting for you."
-        )
-        XCTAssertNil(BusyPanes.none.sentence)
     }
 
     /// The group close counts only the primary workspace, because nothing in

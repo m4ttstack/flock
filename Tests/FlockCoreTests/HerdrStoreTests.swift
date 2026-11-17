@@ -402,6 +402,34 @@ final class HerdrStoreTests: XCTestCase {
         guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
     }
 
+    /// herdr can take a second or more to answer a close while it stops the
+    /// programs inside, so the tab leaves the model before the answer.
+    @MainActor
+    func testATabCloseDropsTheTabBeforeHerdrAnswers() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoTabSnapshotResultJSON())
+        fake.respond(to: "tab.close", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let tab = TabID(rawValue: "w1:t2")
+        XCTAssertTrue(store.model?.tabs.values.contains { $0.contains { $0.tabID == tab } } == true)
+        let hold = fake.holdNext(method: "tab.close")
+        let task = Task { await store.execute(OpPlan(ops: [.closeTab(tab)], label: "Close tab")) }
+
+        try await waitUntil { store.model?.tabs.values.contains { $0.contains { $0.tabID == tab } } == false }
+        XCTAssertNil(store.model?.layouts[tab])
+        XCTAssertFalse(store.model?.panes.values.contains { $0.tabID == tab } == true, "the closed tab's panes outlived it")
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+        XCTAssertFalse(store.model?.tabs.values.contains { $0.contains { $0.tabID == tab } } == true)
+    }
+
     /// A move re-keys the pane but keeps its PTY, so the predicted record
     /// must keep the terminal too, which rt's links key on, the folder rt
     /// opens at, and the agent the chat button needs.

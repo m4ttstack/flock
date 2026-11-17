@@ -80,21 +80,6 @@ public struct BusyPanes: Equatable, Sendable {
         }
     }
 
-    /// How the prompt says it aloud, or nil when nothing is busy. Counts
-    /// rather than names: a pane's title is its program's terminal title,
-    /// which changes under the prompt while it is open.
-    var sentence: String? {
-        guard !isEmpty else { return nil }
-        switch (working, blocked) {
-        case (let w, 0):
-            return "\(w) \(Self.paneWord(w)) still working."
-        case (0, let b):
-            return "\(b) \(Self.paneWord(b)) waiting for you."
-        case (let w, let b):
-            return "\(w) \(Self.paneWord(w)) still working and \(b) waiting for you."
-        }
-    }
-
     /// The group close's wording. Scoped to "in this workspace" on purpose:
     /// the count covers the primary only, and the prompt it joins already
     /// says the linked workspaces are going too, so an unscoped number there

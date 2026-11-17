@@ -37,18 +37,31 @@ final class CloseConsequenceTests: XCTestCase {
 
         let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
-        XCTAssertEqual(consequence, .closesTab(description: "the tab \"Deploy logs\""))
+        XCTAssertEqual(consequence, .closesTab(description: "Deploy logs"))
     }
 
-    /// herdr labels a tab nobody has renamed with its own 1-based position, so
-    /// that string is a place and not a name: quoting it as one would put
-    /// "2" in the prompt as if the user had typed it.
-    func testAnUnrenamedTabIsNamedByItsPosition() {
+    /// herdr labels a tab nobody has renamed with its own 1-based position;
+    /// the strip shows a lone pane's title there instead, and so does the
+    /// prompt.
+    func testAnUnrenamedTabOfOnePaneIsNamedAsTheStripNamesIt() {
         let model = makeModel(tabs: [("w1:t1", ["w1:p1"], nil), ("w1:t2", ["w1:p2"], nil)])
 
         let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p2")), model: model)
 
-        XCTAssertEqual(consequence, .closesTab(description: "tab 2"))
+        XCTAssertEqual(consequence, .closesTab(description: "shell"))
+    }
+
+    /// A position is a place, not a name: "Close Tab 2", never "Close Tab: 2".
+    func testAPositionIsNotQuotedAsAName() {
+        XCTAssertEqual(CloseConsequence.heading(noun: "tab", name: "2"), "Close Tab 2")
+        XCTAssertEqual(CloseConsequence.heading(noun: "tab", name: "Deploy logs"), "Close Tab: Deploy logs")
+    }
+
+    func testALongNameIsCutShort() {
+        let name = String(repeating: "a", count: CloseConsequence.nameLimit + 5)
+        let heading = CloseConsequence.heading(noun: "tab", name: name)
+
+        XCTAssertEqual(heading, "Close Tab: " + String(repeating: "a", count: CloseConsequence.nameLimit - 1) + "…")
     }
 
     func testTheLastPaneOfTheLastTabTakesTheWorkspace() {
@@ -56,7 +69,7 @@ final class CloseConsequenceTests: XCTestCase {
 
         let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
-        XCTAssertEqual(consequence, .closesWorkspace(description: "the workspace \"flock\""))
+        XCTAssertEqual(consequence, .closesWorkspace(description: "flock"))
     }
 
     /// A prompt that does not say what it is destroying is not a prompt. Both
@@ -68,11 +81,9 @@ final class CloseConsequenceTests: XCTestCase {
         let confirmation = CloseConsequence.of(pane, model: model).confirmation(closing: pane)
 
         XCTAssertEqual(confirmation?.subject, pane)
-        XCTAssertEqual(confirmation?.title, "Close the tab \"Deploy logs\"?")
+        XCTAssertEqual(confirmation?.title, "Close Tab: Deploy logs")
         XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Tab")
-        XCTAssertEqual(
-            confirmation?.message,
-            "This is its last pane, so closing the pane closes the tab. A close cannot be undone.")
+        XCTAssertEqual(confirmation?.message, "This is the last pane in the tab, so the tab closes with it.")
     }
 
     func testTheWorkspacePromptNamesTheWorkspaceAndTheVerb() {
@@ -81,12 +92,9 @@ final class CloseConsequenceTests: XCTestCase {
 
         let confirmation = CloseConsequence.of(pane, model: model).confirmation(closing: pane)
 
-        XCTAssertEqual(confirmation?.title, "Close the workspace \"flock\"?")
+        XCTAssertEqual(confirmation?.title, "Close Workspace: flock")
         XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Workspace")
-        XCTAssertEqual(
-            confirmation?.message,
-            "This is its last pane, so closing the pane closes the tab and the workspace with it. "
-                + "A close cannot be undone.")
+        XCTAssertEqual(confirmation?.message, "This is the last pane in the workspace, so the workspace closes with it.")
     }
 
     /// A workspace herdr has left unlabelled still has to be named as some
@@ -96,7 +104,7 @@ final class CloseConsequenceTests: XCTestCase {
 
         let consequence = CloseConsequence.of(.pane(PaneID(rawValue: "w1:p1")), model: model)
 
-        XCTAssertEqual(consequence, .closesWorkspace(description: "workspace 4"))
+        XCTAssertEqual(consequence, .closesWorkspace(description: "4"))
     }
 
     /// A pane the model does not carry escalates to nothing: the close goes
@@ -127,7 +135,7 @@ final class CloseConsequenceTests: XCTestCase {
 
         let consequence = CloseConsequence.of(.tab(TabID(rawValue: "w1:t1")), model: model)
 
-        XCTAssertEqual(consequence, .closesWorkspace(description: "the workspace \"flock\""))
+        XCTAssertEqual(consequence, .closesWorkspace(description: "flock"))
     }
 
     /// The prompt says which workspace, and says it in the closing tab's own
@@ -139,11 +147,9 @@ final class CloseConsequenceTests: XCTestCase {
         let confirmation = CloseConsequence.of(tab, model: model).confirmation(closing: tab)
 
         XCTAssertEqual(confirmation?.subject, tab)
-        XCTAssertEqual(confirmation?.title, "Close the workspace \"flock\"?")
+        XCTAssertEqual(confirmation?.title, "Close Workspace: flock")
         XCTAssertEqual(confirmation?.confirmButtonTitle, "Close Workspace")
-        XCTAssertEqual(
-            confirmation?.message,
-            "This is its last tab, so closing the tab closes the workspace. A close cannot be undone.")
+        XCTAssertEqual(confirmation?.message, "This is the last tab in the workspace, so the workspace closes with it.")
     }
 
     func testAnUnknownTabRaisesNoPrompt() {

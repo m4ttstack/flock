@@ -2581,7 +2581,7 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertTrue(executor.executedPlans.isEmpty, "nothing may reach herdr before the answer")
         XCTAssertEqual(viewModel.pendingClose?.subject, .pane(PaneID(rawValue: "w1:p3")))
-        XCTAssertEqual(viewModel.pendingClose?.title, "Close the tab \"second\"?")
+        XCTAssertEqual(viewModel.pendingClose?.title, "Close Tab: second")
     }
 
     /// The seeded model is one workspace of one tab of one pane, so this close
@@ -2639,7 +2639,7 @@ final class SessionViewModelTests: XCTestCase {
 
         XCTAssertTrue(executor.executedPlans.isEmpty, "nothing may reach herdr before the answer")
         XCTAssertEqual(viewModel.pendingClose?.subject, .tab(TabID(rawValue: "w1:t1")))
-        XCTAssertEqual(viewModel.pendingClose?.title, "Close the workspace \"seed\"?")
+        XCTAssertEqual(viewModel.pendingClose?.title, "Close Workspace: seed")
         XCTAssertEqual(viewModel.pendingClose?.confirmButtonTitle, "Close Workspace")
     }
 
