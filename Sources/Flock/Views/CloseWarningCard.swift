@@ -45,7 +45,11 @@ struct CloseWarningCard: ViewModifier {
                                 let canvas = canvas(in: proxy.size, tabArea: tabArea.map { proxy[$0] })
                                 card(shown)
                                     .modifier(CardMotion(isIn: isIn, anchor: .center))
-                                    .frame(width: canvas.width, height: canvas.height)
+                                    .alignmentGuide(.closeCardRest) { $0[VerticalAlignment.center] }
+                                    .frame(
+                                        width: canvas.width, height: canvas.height,
+                                        alignment: Alignment(horizontal: .center, vertical: .closeCardRest)
+                                    )
                                     .offset(x: canvas.minX, y: canvas.minY)
                             }
                         }
@@ -323,4 +327,16 @@ private struct SelectionRing: ViewModifier {
             .padding(.horizontal, -inset.width)
             .padding(.vertical, -inset.height)
     }
+}
+
+private extension VerticalAlignment {
+    /// Where a centred card rests: above the canvas's middle, where the eye
+    /// already is, rather than dead centre.
+    enum CloseCardRest: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat {
+            context.height * ChromeMetrics.CloseCard.restHeightFraction
+        }
+    }
+
+    static let closeCardRest = VerticalAlignment(CloseCardRest.self)
 }

@@ -889,6 +889,8 @@ enum ChromeMetrics {
         static let enterDuration: Double = 0.1
         static let exitDuration: Double = 0.07
         static let enterScale: CGFloat = 0.97
+        /// How far down the canvas a keyboard-raised card's centre sits.
+        static let restHeightFraction: CGFloat = 0.4
         static let contactShadowOpacity: Double = 0.14
         static let contactShadowRadius: CGFloat = 1.5
         static let contactShadowY: CGFloat = 1
