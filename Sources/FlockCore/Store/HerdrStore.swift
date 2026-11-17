@@ -518,20 +518,93 @@ public final class HerdrStore {
         // the programs inside, so the strip and canvas drop the tab at once.
         // Its own `tab_closed` arriving later finds nothing left to remove.
         case let .closeTab(tab):
-            return [.tabClosed(tab)]
+            guard let workspaceID = model.tabs.first(where: { $0.value.contains { $0.tabID == tab } })?.key,
+                  (model.tabs[workspaceID]?.count ?? 0) <= 1
+            else { return [.tabClosed(tab)] }
+            return [.tabClosed(tab), .workspaceClosed(workspaceID)]
 
-        // Only the close that takes its tab: one among siblings reflows the
-        // layout, which only herdr's `layout.updated` can say.
+        // A pane among siblings hands its space to its sibling; the last pane
+        // of a tab takes the tab, and of a workspace's last tab, the
+        // workspace too.
         case let .closePane(pane):
-            guard let record = model.panes[pane],
-                  !model.panes.values.contains(where: { $0.tabID == record.tabID && $0.paneID != pane }),
-                  (model.tabs[record.workspaceID]?.count ?? 0) > 1
-            else { return [] }
-            return [.paneClosed(pane), .tabClosed(record.tabID)]
+            guard let record = model.panes[pane] else { return [] }
+            let hasSiblings = model.panes.values.contains { $0.tabID == record.tabID && $0.paneID != pane }
+            if hasSiblings {
+                guard let layout = predictedLayout(removing: pane, model: model) else { return [] }
+                return [.paneClosed(pane), .layoutUpdated(layout)]
+            }
+            let lastTab = (model.tabs[record.workspaceID]?.count ?? 0) <= 1
+            return [.paneClosed(pane), .tabClosed(record.tabID)] + (lastTab ? [.workspaceClosed(record.workspaceID)] : [])
 
         case .movePaneToNewTab, .movePaneToNewWorkspace, .swapPanes, .closeWorkspace:
             return []
         }
+    }
+
+    /// `pane`'s tab once herdr has closed it: the split holding the pane goes,
+    /// and the pane's sibling, leaf or subtree, takes that split's whole rect,
+    /// each split under it keeping its ratio and moving up one level of the
+    /// tree. Splits are found by path, as in `predictedLayout(forSplitRatio:)`;
+    /// a split id in herdr's `split_<tab>_<path>` shape is renamed for its new
+    /// path, since the id IS the path. Declines (`nil`) for a zoomed tab, whose
+    /// unzoom herdr decides, and for any layout whose tree will not resolve.
+    static func predictedLayout(removing pane: PaneID, model: SessionModel) -> LayoutSnapshot? {
+        guard let record = model.panes[pane], let layout = model.layouts[record.tabID], !layout.zoomed,
+              let closing = layout.panes.first(where: { $0.paneID == pane })?.rect
+        else { return nil }
+        let pathBySplitID = CanvasGeometry.splitPaths(splits: layout.splits, area: layout.area)
+        var splitByPath: [[Bool]: SplitInfo] = [:]
+        for split in layout.splits {
+            guard let path = pathBySplitID[split.id], splitByPath[path] == nil else { return nil }
+            splitByPath[path] = split
+        }
+        guard let root = splitByPath[[]] else { return nil }
+
+        func leaf(at path: [Bool], rect: CellRect) -> [Bool]? {
+            guard let split = splitByPath[path] else { return rect == closing ? path : nil }
+            let (first, second) = childRegions(of: split.rect, direction: split.direction, ratio: split.ratio)
+            return leaf(at: path + [false], rect: first) ?? leaf(at: path + [true], rect: second)
+        }
+        guard let leafPath = leaf(at: [], rect: root.rect), let side = leafPath.last else { return nil }
+        let parentPath = Array(leafPath.dropLast())
+        guard let parent = splitByPath[parentPath] else { return nil }
+        let (first, second) = childRegions(of: parent.rect, direction: parent.direction, ratio: parent.ratio)
+
+        var splits = layout.splits.filter { split in
+            guard let path = pathBySplitID[split.id] else { return true }
+            return !path.starts(with: parentPath)
+        }
+        var paneRects: [PaneID: CellRect] = [:]
+        func reflow(from oldPath: [Bool], to newPath: [Bool], original: CellRect, placed: CellRect) {
+            if let split = splitByPath[oldPath] {
+                splits.append(SplitInfo(id: Self.splitID(split.id, at: newPath), direction: split.direction, ratio: split.ratio, rect: placed))
+                let (oldFirst, oldSecond) = childRegions(of: original, direction: split.direction, ratio: split.ratio)
+                let (newFirst, newSecond) = childRegions(of: placed, direction: split.direction, ratio: split.ratio)
+                reflow(from: oldPath + [false], to: newPath + [false], original: oldFirst, placed: newFirst)
+                reflow(from: oldPath + [true], to: newPath + [true], original: oldSecond, placed: newSecond)
+            } else if let sibling = layout.panes.first(where: { $0.rect == original && $0.paneID != pane }) {
+                paneRects[sibling.paneID] = placed
+            }
+        }
+        reflow(from: parentPath + [!side], to: parentPath, original: side ? first : second, placed: parent.rect)
+
+        let panes = layout.panes.compactMap { rect -> PaneRect? in
+            guard rect.paneID != pane else { return nil }
+            guard let placed = paneRects[rect.paneID] else { return rect }
+            return PaneRect(paneID: rect.paneID, focused: rect.focused, rect: placed)
+        }
+        return LayoutSnapshot(
+            workspaceID: layout.workspaceID, tabID: layout.tabID, zoomed: false, area: layout.area,
+            focusedPaneID: layout.focusedPaneID == pane ? nil : layout.focusedPaneID, panes: panes, splits: splits
+        )
+    }
+
+    /// herdr names a split for its place in the tree; any other id is kept.
+    private static func splitID(_ id: String, at path: [Bool]) -> String {
+        let parts = id.split(separator: "_", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "split", !parts[1].isEmpty else { return id }
+        let place = path.isEmpty ? "root" : path.map { $0 ? "1" : "0" }.joined()
+        return "split_\(parts[1])_\(place)"
     }
 
     /// Rebuilds `tab`'s own `LayoutSnapshot` for a `setSplitRatio` at `path`:

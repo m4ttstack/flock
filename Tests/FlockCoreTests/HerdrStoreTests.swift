@@ -430,6 +430,56 @@ final class HerdrStoreTests: XCTestCase {
         XCTAssertFalse(store.model?.tabs.values.contains { $0.contains { $0.tabID == tab } } == true)
     }
 
+    /// A workspace's last tab takes the workspace with it, and the rail drops
+    /// it as soon as the tab goes.
+    @MainActor
+    func testClosingAWorkspacesLastTabDropsTheWorkspaceBeforeHerdrAnswers() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "tab.close", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let workspace = WorkspaceID(rawValue: "w2")
+        let hold = fake.holdNext(method: "tab.close")
+        let task = Task { await store.execute(OpPlan(ops: [.closeTab(TabID(rawValue: "w2:t1"))], label: "Close tab")) }
+
+        try await waitUntil { store.model?.workspaces.contains { $0.workspaceID == workspace } == false }
+        XCTAssertFalse(store.model?.panes.values.contains { $0.workspaceID == workspace } == true)
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
+    /// A pane among siblings hands its space over before herdr answers.
+    @MainActor
+    func testClosingAPaneAmongSiblingsReflowsBeforeHerdrAnswers() async throws {
+        let fake = FakeHerdrServer(); try fake.start(); defer { fake.stop() }
+        fake.respond(to: "ping", withResultJSON: pongJSON(protocolVersion: 22))
+        fake.respond(to: "session.snapshot", withResultJSON: twoWorkspaceSnapshotResultJSON())
+        fake.respond(to: "pane.close", withResultJSON: "{}")
+
+        let store = HerdrStore(socketPath: fake.socketPath)
+        await store.start()
+        defer { store.stop() }
+        try await waitUntil { store.connection == .live }
+
+        let tab = TabID(rawValue: "w1:t1")
+        let hold = fake.holdNext(method: "pane.close")
+        let task = Task { await store.execute(OpPlan(ops: [.closePane(PaneID(rawValue: "w1:p1"))], label: "Close pane")) }
+
+        try await waitUntil { store.model?.layouts[tab]?.panes.map(\.paneID) == [PaneID(rawValue: "w1:p2")] }
+        XCTAssertEqual(store.model?.layouts[tab]?.panes.first?.rect, store.model?.layouts[tab]?.area)
+        XCTAssertEqual(store.model?.layouts[tab]?.splits, [])
+
+        hold()
+        guard case .success = await task.value else { return XCTFail("expected the plan to succeed") }
+    }
+
     /// A move re-keys the pane but keeps its PTY, so the predicted record
     /// must keep the terminal too, which rt's links key on, the folder rt
     /// opens at, and the agent the chat button needs.
