@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The close warning, drawn in the window rather than as a sheet: a sheet's
 /// slide in and out is what made every warned close feel slow. A close made
-/// with the mouse puts the card by the pointer; one made with a key centres it
+/// with the mouse centres the card on the pointer; one made with a key centres it
 /// over the tab's canvas. Return confirms and Esc cancels whatever holds the
 /// keyboard.
 struct CloseWarningCard: ViewModifier {
@@ -44,11 +44,10 @@ struct CloseWarningCard: ViewModifier {
                                     .modifier(CardMotion(isIn: isIn, anchor: UnitPoint(x: hung.arrowX / M.width, y: 0)))
                                     .offset(x: hung.origin.x, y: hung.origin.y)
                             } else if let pointer {
-                                let origin = origin(near: pointer, in: proxy.size)
                                 card(shown)
                                     .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-                                    .modifier(CardMotion(isIn: isIn, anchor: .topLeading))
-                                    .offset(x: origin.x, y: origin.y)
+                                    .modifier(CardMotion(isIn: isIn, anchor: .center))
+                                    .position(centre(on: pointer, in: proxy.size))
                             } else {
                                 let canvas = canvas(in: proxy.size, tabArea: tabArea.map { proxy[$0] })
                                 card(shown)
@@ -91,14 +90,17 @@ struct CloseWarningCard: ViewModifier {
             }
     }
 
-    /// Kept inside the window, clear of the title bar. Until the card has been
-    /// measured once it clamps as if it had no size.
-    private func origin(near pointer: CGPoint, in bounds: CGSize) -> CGPoint {
+    /// On the pointer, kept inside the window and clear of the title bar,
+    /// however near an edge the pointer was. The width is fixed; until the
+    /// card has been measured its height is estimated, so even its first
+    /// frame stays inside.
+    private func centre(on pointer: CGPoint, in bounds: CGSize) -> CGPoint {
+        let height = cardSize.height > 0 ? cardSize.height : M.estimatedHeight
+        let half = CGSize(width: M.width / 2, height: height / 2)
         let top = ChromeMetrics.TitleBar.height + M.edgeMargin
-        let x = pointer.x + M.pointerOffset, y = pointer.y + M.pointerOffset
         return CGPoint(
-            x: min(max(x, M.edgeMargin), max(M.edgeMargin, bounds.width - cardSize.width - M.edgeMargin)),
-            y: min(max(y, top), max(top, bounds.height - cardSize.height - M.edgeMargin))
+            x: min(max(pointer.x, M.edgeMargin + half.width), max(M.edgeMargin + half.width, bounds.width - half.width - M.edgeMargin)),
+            y: min(max(pointer.y, top + half.height), max(top + half.height, bounds.height - half.height - M.edgeMargin))
         )
     }
 

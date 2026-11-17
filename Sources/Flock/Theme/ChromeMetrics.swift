@@ -881,9 +881,8 @@ enum ChromeMetrics {
         static let ringOpacity: Double = 0.6
         static let toggleRingInset = CGSize(width: 6, height: 3)
         static let cornerRadius: CGFloat = ChromeRadius.container
-        /// From the pointer to the card's top-leading corner, so the card
-        /// never sits under the pointer that raised it.
-        static let pointerOffset: CGFloat = 8
+        /// A card with the suppression box, before it has measured itself.
+        static let estimatedHeight: CGFloat = 170
         /// The least gap kept between the card and the window's edges.
         static let edgeMargin: CGFloat = 8
         static let enterDuration: Double = 0.1
