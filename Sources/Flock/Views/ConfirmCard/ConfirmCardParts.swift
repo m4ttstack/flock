@@ -37,9 +37,12 @@ final class ConfirmInputTracker {
 
     /// How a card about to show in `window` was raised, in the window's
     /// content space, top-left, which is the space the card is laid out in.
+    /// The point is the press that opened the menu, not where the pointer
+    /// went to pick Close from it.
     func origin(in window: NSWindow?) -> ConfirmOrigin {
         guard lastWasPointer, let window, let content = window.contentView else { return .keyboard }
-        let point = Self.topLeft(window.mouseLocationOutsideOfEventStream, in: window)
+        let press = lastPress.flatMap { $0.window === window ? $0.point : nil }
+        let point = press ?? Self.topLeft(window.mouseLocationOutsideOfEventStream, in: window)
         let inside = CGRect(origin: .zero, size: content.bounds.size).contains(point)
         let onTitleBar = lastPress.map { $0.window === window && $0.point.y < ChromeMetrics.TitleBar.height } ?? false
         return .pointer(inside ? point : nil, pressOnTitleBar: onTitleBar)
