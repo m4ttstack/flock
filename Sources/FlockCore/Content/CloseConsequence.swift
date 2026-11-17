@@ -78,13 +78,19 @@ public enum CloseConsequence: Equatable, Sendable {
             "This is its last \(subject.noun), so closing the \(subject.noun) closes \(taken(by: subject))."
         }
         let interruption = busy.sentence
+        let points = [
+            casualty.map { _ in "Also closes \(alsoTaken(by: subject))" },
+            busy.sentence.map { String($0.dropLast()) },
+            agents.phrase,
+        ].compactMap { $0 }
         return CloseConfirmation(
             subject: subject,
             title: casualty.map { "Close \($0.description)?" } ?? "Close this \(subject.noun)?",
             message: ([escalation, interruption, agents.sentence].compactMap { $0 } + ["A close cannot be undone."])
                 .joined(separator: " "),
             confirmButtonTitle: casualty?.buttonTitle ?? "Close \(subject.noun.capitalized)",
-            warnsOfAgents: !agents.isEmpty
+            warnsOfAgents: !agents.isEmpty,
+            points: points
         )
     }
 
@@ -102,6 +108,14 @@ public enum CloseConsequence: Equatable, Sendable {
     private func taken(by subject: CloseSubject) -> String {
         switch (self, subject) {
         case (.closesWorkspace, .pane): return "the tab and the workspace with it"
+        case (.closesWorkspace, .tab): return "the workspace"
+        default: return "the tab"
+        }
+    }
+
+    private func alsoTaken(by subject: CloseSubject) -> String {
+        switch (self, subject) {
+        case (.closesWorkspace, .pane): return "the tab and its workspace"
         case (.closesWorkspace, .tab): return "the workspace"
         default: return "the tab"
         }
@@ -152,14 +166,21 @@ public struct CloseConfirmation: Equatable, Identifiable, Sendable {
     /// The prompt offers "Don't warn me next time", which turns off this
     /// reason alone.
     public let warnsOfAgents: Bool
+    /// The same consequences as `message`, one short line each, for a prompt
+    /// that lists rather than narrates.
+    public let points: [String]
 
     public var id: CloseSubject { subject }
 
-    public init(subject: CloseSubject, title: String, message: String, confirmButtonTitle: String, warnsOfAgents: Bool = false) {
+    public init(
+        subject: CloseSubject, title: String, message: String, confirmButtonTitle: String,
+        warnsOfAgents: Bool = false, points: [String] = []
+    ) {
         self.subject = subject
         self.title = title
         self.message = message
         self.confirmButtonTitle = confirmButtonTitle
         self.warnsOfAgents = warnsOfAgents
+        self.points = points
     }
 }

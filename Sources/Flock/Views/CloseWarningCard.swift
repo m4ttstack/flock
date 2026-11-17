@@ -97,14 +97,25 @@ struct CloseWarningCard: ViewModifier {
     private var colors: ChromeMetrics.CloseCard.Colors { cardIsLight ? .light : .dark }
 
     private func card(_ pending: CloseConfirmation) -> some View {
-        VStack(alignment: .leading, spacing: M.gap) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(pending.title)
                 .font(ChromeType.closeCardTitle)
                 .foregroundStyle(Color(colors.title))
-            Text(pending.message)
-                .font(ChromeType.closeCardMessage)
-                .foregroundStyle(Color(colors.body))
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: M.pointGap) {
+                ForEach(pending.points.isEmpty ? [pending.message] : pending.points, id: \.self) { point in
+                    HStack(alignment: .firstTextBaseline, spacing: M.markerGap) {
+                        Circle()
+                            .fill(Color(colors.body).opacity(M.markerOpacity))
+                            .frame(width: M.markerSize, height: M.markerSize)
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + M.markerBaselineLift }
+                        Text(point)
+                            .font(ChromeType.closeCardMessage)
+                            .foregroundStyle(Color(colors.body))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(.top, M.titleGap)
             if pending.warnsOfAgents {
                 Toggle(isOn: $dontWarnAgain) {
                     Text("Don't warn me next time")
@@ -112,15 +123,16 @@ struct CloseWarningCard: ViewModifier {
                         .foregroundStyle(Color(colors.body))
                 }
                 .toggleStyle(.checkbox)
+                .padding(.top, M.toggleTop)
                 .accessibilityIdentifier("flock.close.dontWarn")
             }
             HStack(spacing: M.buttonGap) {
                 Spacer(minLength: 0)
                 Button("Cancel") { cancel(pending) }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(CloseCardButtonStyle(fill: Color(colors.edge).opacity(M.quietFillOpacity), ink: Color(colors.title)))
                     .accessibilityIdentifier("flock.close.cancel")
                 Button(pending.confirmButtonTitle) { confirm(pending) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(CloseCardButtonStyle(fill: theme.accent, ink: theme.chrome))
                     .accessibilityIdentifier("flock.close.confirm")
             }
             .padding(.top, M.buttonsTop)
@@ -242,5 +254,29 @@ private struct CardMotion: ViewModifier {
         content
             .scaleEffect(isIn ? 1 : ChromeMetrics.CloseCard.enterScale, anchor: anchor)
             .opacity(isIn ? 1 : 0)
+    }
+}
+
+/// Flock's own button rather than the system's: a bordered or prominent
+/// button greys out in a window that is not key, and its system blue belongs
+/// to no theme.
+private struct CloseCardButtonStyle: ButtonStyle {
+    let fill: Color
+    let ink: Color
+
+    private typealias M = ChromeMetrics.CloseCard
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(ChromeType.closeCardButton)
+            .foregroundStyle(ink)
+            .padding(.horizontal, M.buttonHorizontalPadding)
+            .frame(height: M.buttonHeight)
+            .background(
+                RoundedRectangle(cornerRadius: M.buttonCornerRadius)
+                    .fill(fill)
+                    .brightness(configuration.isPressed ? -0.08 : 0)
+            )
+            .contentShape(Rectangle())
     }
 }

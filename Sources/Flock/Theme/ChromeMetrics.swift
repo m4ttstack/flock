@@ -864,11 +864,22 @@ enum ChromeMetrics {
     /// A modal over an area: a card of one hosted pane, a title row above it
     /// and, optionally, a footer below it.
     enum CloseCard {
-        static let width: CGFloat = 300
-        static let padding: CGFloat = 14
-        static let gap: CGFloat = 6
+        static let width: CGFloat = 320
+        static let padding: CGFloat = 18
+        static let titleGap: CGFloat = 10
+        static let pointGap: CGFloat = 5
+        static let markerSize: CGFloat = 4
+        static let markerGap: CGFloat = 8
+        static let markerOpacity: Double = 0.55
+        /// Lifts the marker's centre onto the line's x-height middle.
+        static let markerBaselineLift: CGFloat = 4
+        static let toggleTop: CGFloat = 14
+        static let buttonsTop: CGFloat = 18
         static let buttonGap: CGFloat = 8
-        static let buttonsTop: CGFloat = 6
+        static let buttonHeight: CGFloat = 28
+        static let buttonHorizontalPadding: CGFloat = 14
+        static let buttonCornerRadius: CGFloat = ChromeRadius.control
+        static let quietFillOpacity: Double = 0.07
         static let cornerRadius: CGFloat = ChromeRadius.container
         /// From the pointer to the card's top-leading corner, so the card
         /// never sits under the pointer that raised it.
