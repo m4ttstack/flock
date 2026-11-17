@@ -12,4 +12,7 @@ public enum ChromeRadius {
     public static let surface: CGFloat = 7
     /// Lanes, groups, islands, popovers, palettes and modals.
     public static let container: CGFloat = 10
+    /// macOS 26's own window corner, which no public API reports: what a
+    /// shape sitting in a window corner runs parallel to.
+    public static let window: CGFloat = 16
 }
