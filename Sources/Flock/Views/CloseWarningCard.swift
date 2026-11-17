@@ -19,6 +19,7 @@ struct CloseWarningCard: ViewModifier {
     /// alone, so an answered card takes no second answer while it fades.
     @State private var shown: CloseConfirmation?
     @State private var isIn = false
+    @State private var selection = CloseCardItem.confirm
 
     private typealias M = ChromeMetrics.CloseCard
 
@@ -55,6 +56,7 @@ struct CloseWarningCard: ViewModifier {
             .onChange(of: viewModel.pendingClose) { _, pending in
                 if let pending {
                     pointer = input.pointer()
+                    selection = .confirm
                     shown = pending
                     isIn = false
                     // A turn later, so the card first lays out at its starting
@@ -123,6 +125,7 @@ struct CloseWarningCard: ViewModifier {
                         .foregroundStyle(Color(colors.body))
                 }
                 .toggleStyle(.checkbox)
+                .modifier(SelectionRing(isSelected: selection == .dontWarn, color: theme.accent))
                 .padding(.top, M.toggleTop)
                 .accessibilityIdentifier("flock.close.dontWarn")
             }
@@ -130,9 +133,11 @@ struct CloseWarningCard: ViewModifier {
                 Spacer(minLength: 0)
                 Button("Cancel") { cancel(pending) }
                     .buttonStyle(CloseCardButtonStyle(fill: Color(colors.edge).opacity(M.quietFillOpacity), ink: Color(colors.title)))
+                    .modifier(SelectionRing(isSelected: selection == .cancel, color: theme.accent))
                     .accessibilityIdentifier("flock.close.cancel")
                 Button(pending.confirmButtonTitle) { confirm(pending) }
                     .buttonStyle(CloseCardButtonStyle(fill: theme.accent, ink: theme.chrome))
+                    .modifier(SelectionRing(isSelected: selection == .confirm, color: theme.accent))
                     .accessibilityIdentifier("flock.close.confirm")
             }
             .padding(.top, M.buttonsTop)
@@ -157,11 +162,27 @@ struct CloseWarningCard: ViewModifier {
     /// Every key goes to the card while it is up, so none reaches a terminal.
     private func handle(_ event: NSEvent) {
         guard let pending = viewModel.pendingClose else { return }
+        let items: [CloseCardItem] = pending.warnsOfAgents ? [.dontWarn, .cancel, .confirm] : [.cancel, .confirm]
+        let backward = event.modifierFlags.contains(.shift)
         switch event.keyCode {
-        case 36, 76: confirm(pending)
+        case 36, 76, 49:
+            switch selection {
+            case .dontWarn: dontWarnAgain.toggle()
+            case .cancel: cancel(pending)
+            case .confirm: confirm(pending)
+            }
         case 53: cancel(pending)
+        case 48: selection = Self.step(selection, in: items, by: backward ? -1 : 1)
+        case 123, 126: selection = Self.step(selection, in: items, by: -1)
+        case 124, 125: selection = Self.step(selection, in: items, by: 1)
         default: break
         }
+    }
+
+    /// Wraps at both ends, as Tab does through a dialog's controls.
+    private static func step(_ item: CloseCardItem, in items: [CloseCardItem], by delta: Int) -> CloseCardItem {
+        guard let index = items.firstIndex(of: item) else { return items.last ?? item }
+        return items[(index + delta + items.count) % items.count]
     }
 
     private func confirm(_ pending: CloseConfirmation) { answer(pending, confirm: true) }
@@ -278,5 +299,29 @@ private struct CloseCardButtonStyle: ButtonStyle {
                     .brightness(configuration.isPressed ? -0.08 : 0)
             )
             .contentShape(Rectangle())
+    }
+}
+
+private enum CloseCardItem {
+    case dontWarn, cancel, confirm
+}
+
+/// The keyboard's place on the card, drawn the way macOS draws a focus ring:
+/// an accent outline standing just off the control.
+private struct SelectionRing: ViewModifier {
+    let isSelected: Bool
+    let color: Color
+
+    private typealias M = ChromeMetrics.CloseCard
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: M.buttonCornerRadius + M.ringOffset)
+                    .strokeBorder(color.opacity(M.ringOpacity), lineWidth: M.ringWidth)
+                    .padding(-M.ringOffset)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }

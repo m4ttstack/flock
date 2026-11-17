@@ -880,6 +880,10 @@ enum ChromeMetrics {
         static let buttonHorizontalPadding: CGFloat = 14
         static let buttonCornerRadius: CGFloat = ChromeRadius.control
         static let quietFillOpacity: Double = 0.07
+        static let ringWidth: CGFloat = 2
+        /// From the control's edge to the ring's outer edge.
+        static let ringOffset: CGFloat = 3
+        static let ringOpacity: Double = 0.6
         static let cornerRadius: CGFloat = ChromeRadius.container
         /// From the pointer to the card's top-leading corner, so the card
         /// never sits under the pointer that raised it.
