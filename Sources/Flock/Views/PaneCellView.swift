@@ -274,14 +274,14 @@ struct PaneCellView: View {
             // `DragGestureMachine` starts a drag from `.idle` only.
             .contentShape(Rectangle())
             .simultaneousGesture(paneDrag, including: role == .canvas && rearrangeMode.active && !isRenaming ? .all : .subviews)
-        // One task per pane identity, never keyed on the grid or focus: the
-        // pane gets exactly one surface for its whole visible life, created
-        // here on first visibility. Every box change resizes the surface
+        // Keyed on the pane and its surface generation, never on the grid or
+        // focus: the pane keeps one surface until its bridge ends, and only
+        // then gets a fresh one. Every box change resizes the surface
         // through its frame, so nothing here ever restarts the attach.
         // `attachPane` is chained through the view model's own `paneWork`, so
         // this body always reads back the single surface for this pane
         // whatever else was queued.
-        .task(id: pane.paneID) {
+        .task(id: SurfaceAttachKey(pane: pane.paneID, generation: viewModel.surfaceGeneration(for: pane.paneID))) {
             ghosttySurface = await viewModel.attachPane(pane.paneID)
         }
         // Keyed on availability rather than the pane: this cancels and

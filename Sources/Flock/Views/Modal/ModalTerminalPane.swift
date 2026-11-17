@@ -78,7 +78,9 @@ struct ModalTerminalPane: View {
             }
         }
         .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: covered)
-        .task(id: paneID) { surface = await viewModel.attachPane(paneID) }
+        .task(id: SurfaceAttachKey(pane: paneID, generation: viewModel.surfaceGeneration(for: paneID))) {
+            surface = await viewModel.attachPane(paneID)
+        }
         // Keyed on the start, which usually lands after the view appeared:
         // the deadline does not exist until then.
         .task(id: command?.startedAt) {

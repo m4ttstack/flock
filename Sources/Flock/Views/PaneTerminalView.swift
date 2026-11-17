@@ -109,6 +109,9 @@ struct GhosttyPaneTerminalView: View {
                 onPrimaryClick: onPrimaryClick, menuProvider: menuProvider, linkFolder: linkFolder,
                 onBodyDragBegan: onBodyDragBegan
             )
+            // `updateNSView` drives the view's own session, so a surface that
+            // replaced one whose bridge ended needs a view of its own.
+            .id(ObjectIdentifier(surface))
             if let session, let search, findBarOpen {
                 TerminalFindBar(
                     theme: theme, search: search,

@@ -231,4 +231,8 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     func rekey(to pane: PaneID) {
         session.paneID = pane
     }
+
+    func onBridgeEnded(_ handler: @escaping () -> Void) {
+        session.onBridgeEnded = handler
+    }
 }

@@ -278,6 +278,15 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
         rekeys.append(pane)
     }
 
+    private(set) var bridgeEndedHandler: (() -> Void)?
+
+    func onBridgeEnded(_ handler: @escaping () -> Void) {
+        bridgeEndedHandler = handler
+    }
+
+    func endBridge() {
+        bridgeEndedHandler?()
+    }
 }
 
 /// A fake `GhosttyPaneFactory` for `SessionViewModelTests`' ghostty attach
@@ -1974,6 +1983,87 @@ final class SessionViewModelTests: XCTestCase {
     /// The core of the pool: `detachPane` PARKS rather than tearing down --
     /// the surface stays alive and reachable, never `detach()`-ed, and gets
     /// told to park (observe mode, occluded).
+    @MainActor
+    func testABridgeThatEndsIsReplacedWithAFreshSurface() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, bridgeRespawnBackoff: [.zero])
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane)
+        let dead = try XCTUnwrap(factory.surfaces[pane])
+
+        dead.endBridge()
+        await viewModel.waitForBridgeRespawn(pane)
+
+        XCTAssertEqual(dead.detachCallCount, 1, "a surface whose bridge ended is torn down")
+        XCTAssertNil(viewModel.ghosttySurface(for: pane))
+        XCTAssertEqual(viewModel.surfaceGeneration(for: pane), 1, "the bump is what makes the pane's cell attach again")
+        let fresh = await viewModel.attachPane(pane)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2)
+        XCTAssertFalse(fresh === dead)
+    }
+
+    @MainActor
+    func testAParkedPaneWhoseBridgeEndsWaitsForItsNextAttach() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, bridgeRespawnBackoff: [.zero])
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane)
+        await viewModel.detachPane(pane)
+        let dead = try XCTUnwrap(factory.surfaces[pane])
+
+        dead.endBridge()
+        await viewModel.waitForBridgeRespawn(pane)
+
+        XCTAssertEqual(dead.detachCallCount, 1)
+        XCTAssertEqual(viewModel.surfaceGeneration(for: pane), 0, "nothing shows a parked pane, so nothing needs telling")
+        _ = await viewModel.attachPane(pane)
+        XCTAssertEqual(factory.makeSurfaceCalls.count, 2, "the next attach builds a fresh surface")
+    }
+
+    @MainActor
+    func testAReplacedSurfacesLateBridgeEndChangesNothing() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory, bridgeRespawnBackoff: [.zero])
+        let pane = PaneID(rawValue: "w1:p1")
+        _ = await viewModel.attachPane(pane)
+        let dead = try XCTUnwrap(factory.surfaces[pane])
+        dead.endBridge()
+        await viewModel.waitForBridgeRespawn(pane)
+        _ = await viewModel.attachPane(pane)
+        let fresh = try XCTUnwrap(factory.surfaces[pane])
+
+        dead.endBridge()
+        await viewModel.waitForBridgeRespawn(pane)
+
+        XCTAssertEqual(fresh.detachCallCount, 0)
+        XCTAssertEqual(viewModel.surfaceGeneration(for: pane), 1)
+    }
+
+    @MainActor
+    func testRespawnsBackOffWhileBridgesKeepDyingYoungAndStartOverAfterOneLasts() async throws {
+        var clock = Date(timeIntervalSince1970: 0)
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(
+            client: RecordingCommandClient(), ghosttyFactory: factory, now: { clock },
+            bridgeRespawnBackoff: [.zero, .milliseconds(1), .milliseconds(2)]
+        )
+        let pane = PaneID(rawValue: "w1:p1")
+        var delays: [Duration] = []
+        for _ in 0..<4 {
+            _ = await viewModel.attachPane(pane)
+            factory.surfaces[pane]?.endBridge()
+            delays.append(try XCTUnwrap(viewModel.pendingBridgeRespawnDelay(pane)))
+            await viewModel.waitForBridgeRespawn(pane)
+        }
+        XCTAssertEqual(delays, [.zero, .milliseconds(1), .milliseconds(2), .milliseconds(2)], "escalates, then holds at the last step")
+
+        _ = await viewModel.attachPane(pane)
+        clock += SessionViewModel.stableBridgeLifetime + 1
+        factory.surfaces[pane]?.endBridge()
+        XCTAssertEqual(viewModel.pendingBridgeRespawnDelay(pane), .zero, "a bridge that lasted resets the backoff")
+        await viewModel.waitForBridgeRespawn(pane)
+    }
+
     @MainActor
     func testDetachParksTheSurfaceRatherThanTearingItDown() async throws {
         let factory = FakeGhosttyPaneFactory()

@@ -138,12 +138,28 @@ public final class SessionViewModel {
     private final class SurfaceIdentity {
         var pane: PaneID
         var terminal: TerminalID?
+        let startedAt: Date
 
-        init(pane: PaneID, terminal: TerminalID?) {
+        init(pane: PaneID, terminal: TerminalID?, startedAt: Date) {
             self.pane = pane
             self.terminal = terminal
+            self.startedAt = startedAt
         }
     }
+
+    /// Bumped each time a pane's dead surface is ready to be replaced. A
+    /// pane's cell keys its attach on this, since its own surface handle
+    /// outlives the teardown.
+    private var surfaceGenerations: [PaneID: Int] = [:]
+    @ObservationIgnored private var bridgeFailures: [PaneID: Int] = [:]
+    @ObservationIgnored private var bridgeRespawns: [PaneID: (delay: Duration, task: Task<Void, Never>)] = [:]
+    @ObservationIgnored private let bridgeRespawnBackoff: [Duration]
+    /// A bridge that ran this long before ending was attached and working, so
+    /// its end starts the backoff over. One that dies sooner is most often
+    /// herdr refusing the attach (a server still restoring its panes after a
+    /// restart), which a later try gets past.
+    public static let stableBridgeLifetime: TimeInterval = 30
+    public static let defaultBridgeRespawnBackoff: [Duration] = [.milliseconds(500), .seconds(2), .seconds(5), .seconds(10)]
 
     @ObservationIgnored
     private var surfaceIdentities: [PaneID: SurfaceIdentity] = [:]
@@ -275,8 +291,11 @@ public final class SessionViewModel {
         identity: WorkspaceIdentityStore? = nil,
         folderExists: @escaping @Sendable (String) -> Bool = SessionViewModel.directoryExists,
         cswapAccounts: @escaping @Sendable () async -> [CswapAccount]? = { nil },
-        isRemoteMachine: Bool = false
+        isRemoteMachine: Bool = false,
+        bridgeRespawnBackoff: [Duration] = SessionViewModel.defaultBridgeRespawnBackoff
     ) {
+        precondition(!bridgeRespawnBackoff.isEmpty)
+        self.bridgeRespawnBackoff = bridgeRespawnBackoff
         self.isRemoteMachine = isRemoteMachine
         self.repoBranches = repoBranches
         self.client = client
@@ -1307,6 +1326,46 @@ public final class SessionViewModel {
         ghosttySurfaces[pane]
     }
 
+    public func surfaceGeneration(for pane: PaneID) -> Int {
+        surfaceGenerations[pane] ?? 0
+    }
+
+    /// Lets a test await the respawn a bridge's end scheduled. Production
+    /// never calls this.
+    public func waitForBridgeRespawn(_ pane: PaneID) async {
+        await bridgeRespawns[pane]?.task.value
+    }
+
+    public func pendingBridgeRespawnDelay(_ pane: PaneID) -> Duration? {
+        bridgeRespawns[pane]?.delay
+    }
+
+    /// Tears down a surface whose bridge ended and, when the pane is on
+    /// screen, has its cell build a fresh one after the backoff. A parked
+    /// pane needs no prompt: with no surface left, its next attach builds one.
+    private func bridgeEnded(_ identity: SurfaceIdentity) {
+        let pane = identity.pane
+        guard !isShutDown, surfaceIdentities[pane] === identity else { return }
+        let lasted = now().timeIntervalSince(identity.startedAt) >= Self.stableBridgeLifetime
+        let failures = lasted ? 1 : (bridgeFailures[pane] ?? 0) + 1
+        bridgeFailures[pane] = failures
+        let delay = bridgeRespawnBackoff[min(failures, bridgeRespawnBackoff.count) - 1]
+        let wasParked = parkedPanes.contains(pane)
+        Self.bridgeLog.log("bridge ended pane=\(pane.rawValue, privacy: .public) failures=\(failures) parked=\(wasParked)")
+        bridgeRespawns[pane]?.task.cancel()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.teardownSurface(pane, forgetLauncherState: false)
+            guard !wasParked else { return }
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, !self.isShutDown, self.ghosttySurfaces[pane] == nil else { return }
+            self.surfaceGenerations[pane, default: 0] += 1
+        }
+        bridgeRespawns[pane] = (delay, task)
+    }
+
+    private static let bridgeLog = Logger(subsystem: "dev.mattstack.flock", category: "bridge")
+
     /// Whether `attachPane` can ever hand back a surface. `false` only when
     /// the app has no ghostty host, which leaves every pane on its status card.
     public var attachesSurfaces: Bool { ghosttyFactory != nil }
@@ -1379,7 +1438,7 @@ public final class SessionViewModel {
         // A surface can deliver a tick it queued before its teardown; a pane
         // with no surface must not be re-created in the registry and polled.
         let terminal = fullModel?.panes[pane]?.terminalID
-        let identity = SurfaceIdentity(pane: pane, terminal: terminal)
+        let identity = SurfaceIdentity(pane: pane, terminal: terminal, startedAt: now())
         let surface = await factory.makeSurface(
             for: pane,
             bridgeTarget: terminal?.rawValue ?? pane.rawValue,
@@ -1398,6 +1457,9 @@ public final class SessionViewModel {
         )
         ghosttySurfaces[pane] = surface
         surfaceIdentities[pane] = identity
+        surface.onBridgeEnded { [weak self] in
+            self?.bridgeEnded(identity)
+        }
         // Only the release is asserted here: a bridge spawns holding, so a
         // take at registration would be a command every cold attach sends for
         // nothing.
@@ -1459,6 +1521,7 @@ public final class SessionViewModel {
         if forgetLauncherState {
             paneLauncherRegistry.forget(pane)
             launcherRegistryVersion += 1
+            bridgeFailures[pane] = nil
         }
         await surface.detach()
     }

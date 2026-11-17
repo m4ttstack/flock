@@ -964,7 +964,8 @@ private struct SessionSurfaceFactory: GhosttyPaneFactory {
         GhosttySessionSurfaceHandle(session: host.makeSession(
             paneID: pane,
             configuration: GhosttySession.Launch(
-                commandArgv: ["/usr/bin/true"], themeColors: Theme.tokyoNight.ghosttyThemeColors()
+                // A child that exits is a dead bridge, and the view model replaces its surface.
+                commandArgv: ["/bin/cat"], themeColors: Theme.tokyoNight.ghosttyThemeColors()
             )
         ))
     }

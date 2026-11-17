@@ -70,9 +70,12 @@ final class GhosttySession {
     /// see `FirstFrameLatch`'s own doc comment.
     let firstFrameLatch = FirstFrameLatch()
     var hasFirstFrame: Bool { firstFrameLatch.received }
-    /// The surface's process went away. `processAlive` is true when libghostty
-    /// is asking to close rather than reporting a child that already exited.
-    var closeHandler: ((Bool) -> Void)?
+    /// The bridge, this surface's only child, exited. Called at most once.
+    var onBridgeEnded: (() -> Void)? {
+        didSet { if bridgeHasEnded { reportBridgeEnded() } }
+    }
+    private var bridgeHasEnded = false
+    private var bridgeEndReported = false
     /// Fired by `GhosttySurfaceView.keyDown` for real user key input (never
     /// from `flagsChanged`, and never for a bare Command combo -- see that
     /// call site). Set by `GhosttyControlSurfaceFactory.makeSurface` at
@@ -888,9 +891,26 @@ final class GhosttySession {
     /// that will now never arrive. Latching here reveals whatever the
     /// surface actually shows (even blank) instead; idempotent past the
     /// first call, same as every other path into `markFirstFrameReceived()`.
+    /// `processAlive` true is libghostty asking to close a surface whose
+    /// child still runs, which only the shell decides here.
     func handleCloseRequest(processAlive: Bool) {
         markFirstFrameReceived()
-        closeHandler?(processAlive)
+        if !processAlive { bridgeExited() }
+    }
+
+    /// libghostty reports a child's exit through `show_child_exited` first
+    /// and, because the action callback claims every action, takes that as
+    /// the exit having been shown: it writes no message, and an exit it reads
+    /// as abnormal never reaches `close_surface_cb` at all.
+    private func bridgeExited() {
+        bridgeHasEnded = true
+        reportBridgeEnded()
+    }
+
+    private func reportBridgeEnded() {
+        guard !bridgeEndReported, let onBridgeEnded else { return }
+        bridgeEndReported = true
+        onBridgeEnded()
     }
 
     /// Surface-targeted actions. The window/tab/split ones are the shell's to
@@ -900,6 +920,9 @@ final class GhosttySession {
         switch action.tag {
         case GHOSTTY_ACTION_RENDER:
             requestRender()
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            markFirstFrameReceived()
+            bridgeExited()
         case GHOSTTY_ACTION_SET_TITLE:
             state.title = text
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:

@@ -145,10 +145,28 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// stays attached to the same terminal, so only the id it reports under
     /// changes.
     func rekey(to pane: PaneID)
+
+    /// `handler` runs once if the bridge process ends on its own. The surface
+    /// is then a dead terminal: nothing feeds it and nothing it is sent
+    /// reaches herdr.
+    func onBridgeEnded(_ handler: @escaping () -> Void)
 }
 
 public extension GhosttyPaneSurface {
     func rekey(to pane: PaneID) {}
+    func onBridgeEnded(_ handler: @escaping () -> Void) {}
+}
+
+/// What a pane's cell keys its attach on: a new generation means the pane's
+/// old surface is gone and a fresh one is wanted.
+public struct SurfaceAttachKey: Hashable, Sendable {
+    public let pane: PaneID
+    public let generation: Int
+
+    public init(pane: PaneID, generation: Int) {
+        self.pane = pane
+        self.generation = generation
+    }
 }
 
 /// Creates a `GhosttyPaneSurface` for one pane. Implemented in the app
