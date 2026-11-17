@@ -891,6 +891,10 @@ enum ChromeMetrics {
         static let enterScale: CGFloat = 0.97
         /// How far down the canvas a keyboard-raised card's centre sits.
         static let restHeightFraction: CGFloat = 0.4
+        /// From the tab's bottom edge to the tip of the arrow pointing at it.
+        static let tabGap: CGFloat = 2
+        static let arrowWidth: CGFloat = 18
+        static let arrowHeight: CGFloat = 8
         static let contactShadowOpacity: Double = 0.14
         static let contactShadowRadius: CGFloat = 1.5
         static let contactShadowY: CGFloat = 1

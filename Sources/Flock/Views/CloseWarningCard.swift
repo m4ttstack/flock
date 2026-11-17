@@ -13,6 +13,9 @@ struct CloseWarningCard: ViewModifier {
 
     @State private var input = CloseInputSource()
     @State private var pointer: CGPoint?
+    /// The tab a close made on the strip itself hangs the card from.
+    @State private var anchorTab: TabID?
+    @Environment(DragCoordinator.self) private var drag
     @State private var cardSize: CGSize = .zero
     @State private var dontWarnAgain = false
     /// Outlives `pendingClose` by the exit fade. Input follows `pendingClose`
@@ -35,7 +38,12 @@ struct CloseWarningCard: ViewModifier {
                                     .contentShape(Rectangle())
                                     .onTapGesture { if let pending = viewModel.pendingClose { cancel(pending) } }
                             }
-                            if let pointer {
+                            if let anchorTab, let tab = frame(of: anchorTab, in: proxy) {
+                                let hung = hang(below: tab, in: proxy.size)
+                                card(shown, arrowX: hung.arrowX)
+                                    .modifier(CardMotion(isIn: isIn, anchor: UnitPoint(x: hung.arrowX / M.width, y: 0)))
+                                    .offset(x: hung.origin.x, y: hung.origin.y)
+                            } else if let pointer {
                                 let origin = origin(near: pointer, in: proxy.size)
                                 card(shown)
                                     .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
@@ -60,6 +68,11 @@ struct CloseWarningCard: ViewModifier {
             .onChange(of: viewModel.pendingClose) { _, pending in
                 if let pending {
                     pointer = input.pointer()
+                    if case .tab(let tab) = pending.subject, input.lastPressWasOnStrip() {
+                        anchorTab = tab
+                    } else {
+                        anchorTab = nil
+                    }
                     selection = .confirm
                     shown = pending
                     isIn = false
@@ -89,6 +102,21 @@ struct CloseWarningCard: ViewModifier {
         )
     }
 
+    /// The tab's frame in this overlay's space, while the strip shows it.
+    private func frame(of tab: TabID, in proxy: GeometryProxy) -> CGRect? {
+        let origin = proxy.frame(in: DragSpace.coordinateSpace).origin
+        return drag.tabFrames.first { $0.id == tab }?.frame.offsetBy(dx: -origin.x, dy: -origin.y)
+    }
+
+    /// Centred under the tab where the window allows, its arrow on the tab's
+    /// middle wherever the card itself had to shift.
+    private func hang(below tab: CGRect, in bounds: CGSize) -> (origin: CGPoint, arrowX: CGFloat) {
+        let x = min(max(tab.midX - M.width / 2, M.edgeMargin), max(M.edgeMargin, bounds.width - M.width - M.edgeMargin))
+        let reach = M.cornerRadius + M.arrowWidth / 2
+        let arrowX = min(max(tab.midX - x, reach), M.width - reach)
+        return (CGPoint(x: x, y: tab.maxY + M.tabGap), arrowX)
+    }
+
     /// The tab strip shares the title bar's row, so the canvas starts below it.
     private func canvas(in bounds: CGSize, tabArea: CGRect?) -> CGRect {
         let area = tabArea ?? CGRect(origin: .zero, size: bounds)
@@ -102,8 +130,9 @@ struct CloseWarningCard: ViewModifier {
 
     private var colors: ChromeMetrics.CloseCard.Colors { cardIsLight ? .light : .dark }
 
-    private func card(_ pending: CloseConfirmation) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private func card(_ pending: CloseConfirmation, arrowX: CGFloat? = nil) -> some View {
+        let shape = CalloutShape(cornerRadius: M.cornerRadius, arrowX: arrowX, arrowWidth: M.arrowWidth, arrowHeight: M.arrowHeight)
+        return VStack(alignment: .leading, spacing: 0) {
             Text(pending.title)
                 .font(ChromeType.closeCardTitle)
                 .foregroundStyle(Color(colors.title))
@@ -138,18 +167,19 @@ struct CloseWarningCard: ViewModifier {
             .padding(.top, M.buttonsTop)
         }
         .padding(M.padding)
+        .padding(.top, arrowX == nil ? 0 : M.arrowHeight)
         .frame(width: M.width, alignment: .leading)
         .environment(\.colorScheme, cardIsLight ? .light : .dark)
         // On the ground alone: a shadow over the whole card haloes its text.
         // A tight contact shadow under a wide soft one lifts the card off the
         // chrome instead of pressing it flat.
         .background {
-            RoundedRectangle(cornerRadius: M.cornerRadius)
+            shape
                 .fill(Color(colors.ground))
                 .shadow(color: .black.opacity(M.contactShadowOpacity), radius: M.contactShadowRadius, y: M.contactShadowY)
                 .shadow(color: .black.opacity(M.liftShadowOpacity), radius: M.liftShadowRadius, y: M.liftShadowY)
         }
-        .overlay(RoundedRectangle(cornerRadius: M.cornerRadius).strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth))
+        .overlay(shape.strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("flock.close.card")
     }
@@ -197,6 +227,14 @@ struct CloseWarningCard: ViewModifier {
 final class CloseInputSource {
     fileprivate weak var view: NSView?
     fileprivate var lastWasPointer = false
+    fileprivate var lastPress: CGPoint?
+
+    /// The latest input was a press in the title bar's row, where the tab
+    /// strip lives: a tab's close button, or its menu.
+    func lastPressWasOnStrip() -> Bool {
+        guard lastWasPointer, let lastPress else { return false }
+        return lastPress.y < ChromeMetrics.TitleBar.height
+    }
 
     /// Nil unless the latest input was the mouse and the pointer is inside the view.
     func pointer() -> CGPoint? {
@@ -252,7 +290,9 @@ private struct CloseInputMonitor: NSViewRepresentable {
                 return nil
             }
             let mouse = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-                self?.source?.lastWasPointer = true
+                guard let self else { return event }
+                self.source?.lastWasPointer = true
+                self.source?.lastPress = event.window === window ? self.convert(event.locationInWindow, from: nil) : nil
                 return event
             }
             monitors = [keys, mouse].compactMap { $0 }
@@ -339,4 +379,36 @@ private extension VerticalAlignment {
     }
 
     static let closeCardRest = VerticalAlignment(CloseCardRest.self)
+}
+
+/// A rounded card, with an arrow on its top edge at `arrowX` pointing up at
+/// whatever it hangs from. One outline, so the stroke runs unbroken round the
+/// arrow and the card alike.
+private struct CalloutShape: InsettableShape {
+    let cornerRadius: CGFloat
+    let arrowX: CGFloat?
+    let arrowWidth: CGFloat
+    let arrowHeight: CGFloat
+    var inset: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let outer = rect.insetBy(dx: inset, dy: inset)
+        let radius = max(0, cornerRadius - inset)
+        guard let arrowX else { return Path(roundedRect: outer, cornerRadius: radius) }
+        let body = CGRect(x: outer.minX, y: outer.minY + arrowHeight, width: outer.width, height: outer.height - arrowHeight)
+        let tipX = rect.minX + arrowX
+        let half = max(0, arrowWidth / 2 - inset)
+        var arrow = Path()
+        arrow.move(to: CGPoint(x: tipX - half, y: body.minY + 1))
+        arrow.addLine(to: CGPoint(x: tipX, y: outer.minY))
+        arrow.addLine(to: CGPoint(x: tipX + half, y: body.minY + 1))
+        arrow.closeSubpath()
+        return Path(roundedRect: body, cornerRadius: radius).union(arrow)
+    }
+
+    func inset(by amount: CGFloat) -> CalloutShape {
+        var copy = self
+        copy.inset += amount
+        return copy
+    }
 }
