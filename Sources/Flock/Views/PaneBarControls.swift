@@ -83,6 +83,72 @@ struct PaneWindowButton: View {
     }
 }
 
+/// Closes the pane through the same verb as every other close, so the same
+/// warnings apply. It notes where it sits, for a warning to hang from it as
+/// one hangs from a tab's close button.
+struct PaneCloseButton: View {
+    let theme: Theme
+    let paneID: PaneID
+    let action: () -> Void
+
+    @State private var frame: CGRect = .zero
+
+    private typealias M = ChromeMetrics.PaneBar
+
+    var body: some View {
+        Button {
+            CloseButtonAnchors.shared.note(paneID, frame: frame)
+            action()
+        } label: {
+            PaneCrossGlyph()
+                .stroke(style: StrokeStyle(lineWidth: M.glyphStroke, lineCap: .round))
+                .frame(width: M.glyphSize, height: M.glyphSize)
+        }
+        .buttonStyle(PaneBarKeyStyle(style: LauncherStripStyle(theme: theme)))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: DragSpace.coordinateSpace) } action: { frame = $0 }
+        .delayedTip(
+            "Close Pane",
+            shortcut: ShortcutLabel.text(key: KeyEquivalent(FocusedPaneCommand.closePane.key), modifiers: FocusedPaneCommand.closePane.modifiers),
+            theme: theme, edge: .leading
+        )
+        .accessibilityLabel("Close Pane")
+        .accessibilityIdentifier("flock.pane.close.\(paneID.rawValue)")
+    }
+}
+
+/// A cross on the same 24-unit grid as the corners beside it.
+struct PaneCrossGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let scale = min(rect.width, rect.height) / 24
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * scale, y: rect.minY + y * scale) }
+        path.move(to: point(6, 6))
+        path.addLine(to: point(18, 18))
+        path.move(to: point(18, 6))
+        path.addLine(to: point(6, 18))
+        return path
+    }
+}
+
+/// Where each pane's close button was when it was last pressed, in the drag
+/// space, so the warning it raises can hang from it.
+@MainActor
+final class CloseButtonAnchors {
+    static let shared = CloseButtonAnchors()
+
+    private var frames: [PaneID: CGRect] = [:]
+
+    private init() {}
+
+    func note(_ pane: PaneID, frame: CGRect) {
+        frames[pane] = frame
+    }
+
+    func frame(for pane: PaneID) -> CGRect? {
+        frames[pane]
+    }
+}
+
 /// Four corners on a 24-unit grid, the ends turned inward for restore.
 struct PaneCornersGlyph: Shape {
     let pointsIn: Bool

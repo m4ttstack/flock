@@ -612,6 +612,11 @@ struct PaneCellView: View {
             .padding(.leading, PaneChrome.horizontalPadding)
         } else {
             HStack(spacing: ChromeMetrics.PaneBar.leadingGap) {
+                if role == .canvas {
+                    PaneCloseButton(theme: theme, paneID: pane.paneID) {
+                        Task { await viewModel.closePane(pane.paneID) }
+                    }
+                }
                 if showsWindowButton { windowButton }
                 titleLabel
             }

@@ -33,6 +33,11 @@ struct CloseWarningCard: ViewModifier {
                     guard onTitleBar else { return nil }
                     return frame(of: tab, in: proxy).map { .hang(below: $0) }
                 case .pane(let pane):
+                    // Pressed from the pane's own close button: the pointer is
+                    // still on it, and the card hangs from it as from a tab's.
+                    if let point, let button = buttonFrame(of: pane, in: proxy), button.insetBy(dx: -2, dy: -2).contains(point) {
+                        return .hang(below: button)
+                    }
                     let frame = frame(of: pane, in: proxy)
                     // The menu item can sit outside the pane; the card still
                     // pops from it, toward the pane's middle.
@@ -52,6 +57,12 @@ struct CloseWarningCard: ViewModifier {
         if action.hasPrefix("Close Workspace") { return "square.stack" }
         if action.hasPrefix("Close Tab") { return ChromeType.tabPaneGlyphName }
         return "terminal"
+    }
+
+    /// The pane's close button in the overlay's space, where it was last pressed.
+    private func buttonFrame(of pane: PaneID, in proxy: GeometryProxy) -> CGRect? {
+        let origin = proxy.frame(in: DragSpace.coordinateSpace).origin
+        return CloseButtonAnchors.shared.frame(for: pane)?.offsetBy(dx: -origin.x, dy: -origin.y)
     }
 
     /// The pane's frame in the overlay's space, while the canvas shows it.
