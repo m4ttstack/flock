@@ -114,9 +114,8 @@ public enum CloseConsequence: Equatable, Sendable {
     private func summary(closing subject: CloseSubject, noun: String, busy: BusyPanes, agents: AgentSessions) -> String {
         if !agents.isEmpty {
             let count = agents.agents.count
-            let state = busy.working > 0 ? "working" : "running"
-            return "There \(count == 1 ? "is" : "are") currently **\(count) \(count == 1 ? "agent" : "agents")** \(state). "
-                + "Closing this \(noun) will kill \(count == 1 ? "that session" : "those sessions")."
+            let stops = "Stops **\(count) running \(count == 1 ? "agent" : "agents")**"
+            return agents.panes > 1 ? "\(stops) in \(agents.panes) panes" : stops
         }
         if !busy.isEmpty {
             let count = busy.count

@@ -7,17 +7,21 @@ import Observation
 public struct AgentSessions: Equatable, Sendable {
     /// herdr's agent name, one per pane.
     public let agents: [String]
+    /// Every pane the close destroys, agent or not.
+    public let panes: Int
 
     public static let none = AgentSessions(agents: [])
 
     public var isEmpty: Bool { agents.isEmpty }
 
-    public init(agents: [String]) {
+    public init(agents: [String], panes: Int? = nil) {
         self.agents = agents
+        self.panes = panes ?? agents.count
     }
 
     public init(closing subject: CloseSubject, consequence: CloseConsequence, model: SessionModel) {
-        self.init(agents: BusyPanes.destroyed(by: subject, consequence: consequence, model: model).compactMap(\.agent))
+        let destroyed = BusyPanes.destroyed(by: subject, consequence: consequence, model: model)
+        self.init(agents: destroyed.compactMap(\.agent), panes: destroyed.count)
     }
 }
 

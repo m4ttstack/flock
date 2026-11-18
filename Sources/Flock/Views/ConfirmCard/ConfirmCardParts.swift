@@ -37,15 +37,17 @@ final class ConfirmInputTracker {
 
     /// How a card about to show in `window` was raised, in the window's
     /// content space, top-left, which is the space the card is laid out in.
-    /// The point is the press that opened the menu, not where the pointer
-    /// went to pick Close from it.
+    /// The point is where the pointer is as the card appears: on the menu
+    /// item that raised it, not where the menu was opened.
     func origin(in window: NSWindow?) -> ConfirmOrigin {
         guard lastWasPointer, let window, let content = window.contentView else { return .keyboard }
-        let press = lastPress.flatMap { $0.window === window ? $0.point : nil }
-        let point = press ?? Self.topLeft(window.mouseLocationOutsideOfEventStream, in: window)
-        let inside = CGRect(origin: .zero, size: content.bounds.size).contains(point)
+        let point = Self.topLeft(window.mouseLocationOutsideOfEventStream, in: window)
+        // A menu can run past the window's edge; the nearest point on that
+        // edge stands in for a pointer that has left it.
+        let size = content.bounds.size
+        let nearest = CGPoint(x: min(max(point.x, 0), size.width), y: min(max(point.y, 0), size.height))
         let onTitleBar = lastPress.map { $0.window === window && $0.point.y < ChromeMetrics.TitleBar.height } ?? false
-        return .pointer(inside ? point : nil, pressOnTitleBar: onTitleBar)
+        return .pointer(nearest, pressOnTitleBar: onTitleBar)
     }
 
     /// The newest card takes its window's keys. Held weakly, so a window
@@ -80,12 +82,34 @@ final class ConfirmInputTracker {
 /// sits, so it arrives without a sheet's long slide.
 struct CardMotion: ViewModifier {
     let isIn: Bool
+    /// Leaving shrinks less than arriving grows, so the exit reads as a fade.
+    let isLeaving: Bool
+    /// The point the card grows out of: the pointer's corner for a pinned
+    /// card, the arrow's tip for a hung one, the middle otherwise.
     let anchor: UnitPoint
+
+    private typealias M = ChromeMetrics.ConfirmCard
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isIn ? 1 : ChromeMetrics.ConfirmCard.enterScale, anchor: anchor)
+            .scaleEffect(isIn ? 1 : (isLeaving ? exitScale : M.enterScale), anchor: anchor)
+            .offset(isIn ? .zero : drift)
             .opacity(isIn ? 1 : 0)
+    }
+
+    /// Shrinking round the middle pulls in every edge, where shrinking toward
+    /// a corner holds two still, so the same scale reads twice as strong.
+    private var exitScale: CGFloat {
+        anchor == .center ? 1 - (1 - M.exitScale) / 2 : M.exitScale
+    }
+
+    /// A few points toward the anchor, so the card travels the line it grows
+    /// along; none from the middle, which has no direction.
+    private var drift: CGSize {
+        let dx = anchor.x - 0.5, dy = anchor.y - 0.5
+        let length = (dx * dx + dy * dy).squareRoot()
+        guard length > 0 else { return .zero }
+        return CGSize(width: dx / length * M.drift, height: dy / length * M.drift)
     }
 }
 

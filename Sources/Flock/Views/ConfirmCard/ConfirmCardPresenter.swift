@@ -6,8 +6,10 @@ import SwiftUI
 /// figure it turns on without every caller's text being read as markdown.
 struct ConfirmCardContent: Equatable {
     var action: String
-    /// Shown apart from `action`, in a chip of its own.
+    /// Shown apart from `action`, on a line of its own.
     var name: String?
+    /// An SF Symbol before `name`, saying what kind of thing it names.
+    var nameSymbol: String?
     var message: AttributedString
     /// A checkbox's label, such as "Don't warn me next time".
     var suppression: String?
@@ -19,10 +21,21 @@ struct ConfirmCardContent: Equatable {
     var identifier: String
 }
 
+/// Where a card sits, when not where the presenter would put it.
+enum ConfirmAnchor: Equatable {
+    /// Hung under this frame, an arrow pointing up at it.
+    case hang(below: CGRect)
+    /// The card's edge or corner facing away from `within`'s centre, placed
+    /// on `point`, so the card pops out of the point toward that centre: down
+    /// and left of it pins the bottom-left corner, due left the left edge's
+    /// middle, and every direction between slides along the edge.
+    case pinned(CGPoint, within: CGRect)
+}
+
 /// How a card was raised, read once as it shows.
 enum ConfirmOrigin: Equatable {
     case keyboard
-    /// `point` is nil when the pointer has left the window.
+    /// `point` is held to the window: past its edge, the nearest point on it.
     case pointer(CGPoint?, pressOnTitleBar: Bool)
 }
 
@@ -43,8 +56,9 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     let theme: Theme
     let item: Item?
     let content: (Item) -> ConfirmCardContent
-    /// A frame in the overlay's own space for the card to hang from.
-    var anchor: (Item, ConfirmOrigin, GeometryProxy) -> CGRect? = { _, _, _ in nil }
+    /// Where the card sits, in the overlay's own space; nil leaves it to the
+    /// presenter.
+    var anchor: (Item, ConfirmOrigin, GeometryProxy) -> ConfirmAnchor? = { _, _, _ in nil }
     /// Called once per showing. The card goes when `item` clears.
     let answer: (Item, ConfirmAnswer) -> Void
 
@@ -57,6 +71,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     /// answered card takes no second answer while it fades.
     @State private var shown: Item?
     @State private var isIn = false
+    @State private var isLeaving = false
     @State private var selection = ConfirmCardItem.confirm
     /// An answer can clear `item` a turn late; this keeps it to one.
     @State private var isAnswered = false
@@ -80,6 +95,9 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
                         }
                         .allowsHitTesting(item != nil && !isAnswered)
                     }
+                    // The pointer is read in the window's own space, top-left;
+                    // the layer must start there too, not below the title bar.
+                    .ignoresSafeArea()
                 }
             }
             .onChange(of: item) { _, item in
@@ -91,6 +109,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
                     suppressed = false
                     isAnswered = false
                     shown = item
+                    isLeaving = false
                     isIn = false
                     // A turn later, so the card first lays out at its starting
                     // scale and the entrance has somewhere to come from.
@@ -99,6 +118,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
                     }
                 } else {
                     ConfirmInputTracker.shared.releaseKeys(keyClaim)
+                    isLeaving = true
                     withAnimation(.easeIn(duration: M.exitDuration)) {
                         isIn = false
                     } completion: {
@@ -111,20 +131,34 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     @ViewBuilder
     private func placed(_ shown: Item, in proxy: GeometryProxy, tabArea: CGRect?) -> some View {
         let text = content(shown)
-        if let frame = anchor(shown, origin, proxy) {
+        switch anchor(shown, origin, proxy) {
+        case .hang(let frame):
             let hung = hang(below: frame, in: proxy.size)
             card(text, arrowX: hung.arrowX)
-                .modifier(CardMotion(isIn: isIn, anchor: UnitPoint(x: hung.arrowX / M.width, y: 0)))
+                .modifier(CardMotion(isIn: isIn, isLeaving: isLeaving, anchor: UnitPoint(x: hung.arrowX / M.width, y: 0)))
                 .offset(x: hung.origin.x, y: hung.origin.y)
-        } else if case .pointer(let point?, _) = origin {
+        case .pinned(let point, let within):
+            let pin = pin(at: point, within: within, in: proxy.size)
             card(text)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-                .modifier(CardMotion(isIn: isIn, anchor: .center))
+                .modifier(CardMotion(isIn: isIn, isLeaving: isLeaving, anchor: pin.unit))
+                .offset(x: pin.origin.x, y: pin.origin.y)
+        case nil:
+            unanchored(text, in: proxy, tabArea: tabArea)
+        }
+    }
+
+    @ViewBuilder
+    private func unanchored(_ text: ConfirmCardContent, in proxy: GeometryProxy, tabArea: CGRect?) -> some View {
+        if case .pointer(let point?, _) = origin {
+            card(text)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+                .modifier(CardMotion(isIn: isIn, isLeaving: isLeaving, anchor: .center))
                 .position(centre(on: point, in: proxy.size))
         } else {
             let canvas = canvas(in: proxy.size, tabArea: tabArea)
             card(text)
-                .modifier(CardMotion(isIn: isIn, anchor: .center))
+                .modifier(CardMotion(isIn: isIn, isLeaving: isLeaving, anchor: .center))
                 .alignmentGuide(.confirmCardRest) { $0[VerticalAlignment.center] }
                 .frame(width: canvas.width, height: canvas.height, alignment: Alignment(horizontal: .center, vertical: .confirmCardRest))
                 .offset(x: canvas.minX, y: canvas.minY)
@@ -143,6 +177,31 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
             x: min(max(pointer.x, M.edgeMargin + half.width), max(M.edgeMargin + half.width, bounds.width - half.width - M.edgeMargin)),
             y: min(max(pointer.y, top + half.height), max(top + half.height, bounds.height - half.height - M.edgeMargin))
         )
+    }
+
+    /// The card's point that sits on `point`, and the card's origin for it,
+    /// kept inside the window. Until the card has been measured its height is
+    /// estimated.
+    private func pin(at point: CGPoint, within frame: CGRect, in bounds: CGSize) -> (origin: CGPoint, unit: UnitPoint) {
+        // From the point toward the frame's centre, in half-extents, so the
+        // frame's corners read as diagonals whatever its shape. Stretched to
+        // the unit square's edge, that direction names the card's point
+        // furthest from the centre: the corner or edge it pops out of.
+        let toward = CGVector(
+            dx: frame.width > 0 ? (frame.midX - point.x) / (frame.width / 2) : 0,
+            dy: frame.height > 0 ? (frame.midY - point.y) / (frame.height / 2) : 0
+        )
+        let reach = max(abs(toward.dx), abs(toward.dy))
+        let unit = reach > 0
+            ? UnitPoint(x: 0.5 - 0.5 * toward.dx / reach, y: 0.5 - 0.5 * toward.dy / reach)
+            : .center
+        let size = CGSize(width: M.width, height: cardSize.height > 0 ? cardSize.height : M.estimatedHeight)
+        let top = ChromeMetrics.TitleBar.height + M.edgeMargin
+        let x = point.x - unit.x * size.width, y = point.y - unit.y * size.height
+        return (CGPoint(
+            x: min(max(x, M.edgeMargin), max(M.edgeMargin, bounds.width - size.width - M.edgeMargin)),
+            y: min(max(y, top), max(top, bounds.height - size.height - M.edgeMargin))
+        ), unit)
     }
 
     /// Centred under the frame where the window allows, its arrow on the
@@ -174,19 +233,20 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
                 .font(ChromeType.confirmCardTitle)
                 .foregroundStyle(Color(colors.title))
             if let name = text.name {
-                Text(name)
-                    .font(ChromeType.confirmCardName)
-                    .foregroundStyle(Color(colors.title))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, M.nameChipHorizontalPadding)
-                    .padding(.vertical, M.nameChipVerticalPadding)
-                    .background(Color(colors.edge).opacity(M.nameChipFillOpacity), in: RoundedRectangle(cornerRadius: M.buttonCornerRadius))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: M.buttonCornerRadius)
-                            .strokeBorder(Color(colors.edge).opacity(M.nameChipEdgeOpacity), lineWidth: ChromeMetrics.ruleWidth)
-                    )
-                    .padding(.top, M.nameChipTop)
+                // No container: a filled shape beside the buttons reads as one.
+                HStack(spacing: M.nameGap) {
+                    if let symbol = text.nameSymbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: M.nameSymbolSize, weight: .medium))
+                            .foregroundStyle(Color(colors.body))
+                    }
+                    Text(name)
+                        .font(ChromeType.confirmCardName)
+                        .foregroundStyle(Color(colors.title))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .padding(.top, M.nameChipTop)
             }
             Text(text.message)
                 .font(ChromeType.confirmCardMessage)

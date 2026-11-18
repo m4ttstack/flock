@@ -260,6 +260,7 @@ private struct GroupCloseCard: ViewModifier {
                 ConfirmCardContent(
                     action: "Close Workspace and Worktrees",
                     name: pending.label,
+                    nameSymbol: "square.stack",
                     // The busy sentence is absent when nothing is, so a quiet
                     // workspace reads as it always did.
                     message: AttributedString(

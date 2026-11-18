@@ -51,14 +51,15 @@ final class AgentSessionsTests: XCTestCase {
         )
     }
 
-    /// Idle, so "running": the session is open even with nothing in flight.
+    /// A tab names the panes it takes with it; the agent counts whether busy
+    /// or idle, since the conversation is the loss.
     func testClosingATabWithAnIdleClaudeAsks() throws {
         let model = twoTabModel("claude", nil)
 
         let prompt = try XCTUnwrap(confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model))
 
         XCTAssertTrue(prompt.warnsOfAgents)
-        XCTAssertEqual(prompt.message, "There is currently **1 agent** running. Closing this tab will kill that session.")
+        XCTAssertEqual(prompt.message, "Stops **1 running agent** in 2 panes")
     }
 
     func testABareTerminalClosesWithoutAsking() {
@@ -75,7 +76,7 @@ final class AgentSessionsTests: XCTestCase {
         XCTAssertNil(confirmation(closing: .pane(PaneID(rawValue: "w1:p1")), in: model))
         XCTAssertEqual(
             confirmation(closing: .pane(PaneID(rawValue: "w1:p2")), in: model)?.message,
-            "There is currently **1 agent** running. Closing this pane will kill that session."
+            "Stops **1 running agent**"
         )
     }
 
@@ -86,7 +87,7 @@ final class AgentSessionsTests: XCTestCase {
 
             XCTAssertEqual(
                 confirmation(closing: .tab(TabID(rawValue: "w1:t1")), in: model)?.message,
-                "There are currently **2 agents** running. Closing this tab will kill those sessions.",
+                "Stops **2 running agents** in 2 panes",
                 "\(agents)"
             )
         }
@@ -100,7 +101,7 @@ final class AgentSessionsTests: XCTestCase {
 
         XCTAssertTrue(prompt.warnsOfAgents)
         XCTAssertEqual(prompt.confirmButtonTitle, "Close Workspace")
-        XCTAssertEqual(prompt.message, "There is currently **1 agent** running. Closing this workspace will kill that session.")
+        XCTAssertEqual(prompt.message, "Stops **1 running agent**")
     }
 
     func testAnEscalationWithoutAnAgentCarriesNoWarning() throws {

@@ -867,10 +867,8 @@ enum ChromeMetrics {
         static let padding: CGFloat = 18
         static let titleGap: CGFloat = 12
         static let nameChipTop: CGFloat = 8
-        static let nameChipHorizontalPadding: CGFloat = 8
-        static let nameChipVerticalPadding: CGFloat = 4
-        static let nameChipFillOpacity: Double = 0.11
-        static let nameChipEdgeOpacity: Double = 0.18
+        static let nameGap: CGFloat = 6
+        static let nameSymbolSize: CGFloat = 11
         static let lineSpacing: CGFloat = 2
         static let toggleTop: CGFloat = 14
         static let buttonsTop: CGFloat = 18
@@ -890,9 +888,12 @@ enum ChromeMetrics {
         static let estimatedHeight: CGFloat = 170
         /// The least gap kept between the card and the window's edges.
         static let edgeMargin: CGFloat = 8
-        static let enterDuration: Double = 0.1
-        static let exitDuration: Double = 0.07
-        static let enterScale: CGFloat = 0.97
+        static let enterDuration: Double = 0.14
+        static let exitDuration: Double = 0.1
+        static let enterScale: CGFloat = 0.65
+        static let exitScale: CGFloat = 0.85
+        /// How far the card travels along the line it grows on.
+        static let drift: CGFloat = 6
         /// How far down the canvas a keyboard-raised card's centre sits.
         static let restHeightFraction: CGFloat = 0.4
         /// From the tab's bottom edge to the tip of the arrow pointing at it.
