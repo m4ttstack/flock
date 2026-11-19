@@ -122,7 +122,8 @@ public enum HerdrMousePatchCatalog {
             x86_64: "57cd047ccca88d4224677f309583b4252e862f492ee95fa96cb0fdf5144e6805", changesServer: true
         ),
         HerdrMousePatchRelease(
-            version: "0.9.5", revision: 4, arm64: awaitingPublication, x86_64: awaitingPublication, changesServer: true
+            version: "0.9.5", revision: 4, arm64: "2ae1848280ef0773425c054cccd3aba3fc1d990d9379c48e4d2224d95ad01494",
+            x86_64: "3849f9af31396f1d7926e5a823227730fbd37faced05918d8668ccaf890f9cf0", changesServer: true
         ),
     ]
 
