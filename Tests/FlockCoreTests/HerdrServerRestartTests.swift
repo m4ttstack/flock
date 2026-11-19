@@ -25,12 +25,12 @@ final class HerdrServerRestartTests: XCTestCase {
         }
     }
 
-    /// Revision 3 is listed before its builds are published, and stays
-    /// unoffered until both pins are filled.
-    func testOnlyTheHostThemeRevisionsChangeTheServer() throws {
+    func testOnlyTheServerSideRevisionsChangeTheServer() throws {
         let current = try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.5", arch: .arm64))
-        XCTAssertEqual(current.revision, 3)
+        XCTAssertEqual(current.revision, 4)
         XCTAssertTrue(current.changesServer)
+        let third = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 3 })
+        XCTAssertTrue(third.changesServer)
         let second = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 2 })
         XCTAssertTrue(second.changesServer)
         XCTAssertFalse(try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.4", arch: .arm64)).changesServer)

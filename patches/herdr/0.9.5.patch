@@ -370,6 +370,274 @@ index 323af2f8..0433ca48 100644
 +        [ClientMessage::Detach]
 +    ));
 +}
+diff --git a/src/kitty_graphics.rs b/src/kitty_graphics.rs
+index f26cd8d9..ba0d7f90 100644
+--- a/src/kitty_graphics.rs
++++ b/src/kitty_graphics.rs
+@@ -371,6 +371,82 @@ fn collect_visible_placements(
+     placements
+ }
+ 
++/// The client draws only this terminal, in a host surface of its own, so
++/// image ids need no pane to keep them apart.
++const DIRECT_TERMINAL_PANE: PaneId = PaneId::from_raw(0);
++
++/// Kitty bytes that show one terminal's images on a client that draws only
++/// that terminal at its origin. Placements replay on every call because a
++/// full ANSI frame clears the client's screen, and its placements with it.
++pub(crate) fn encode_direct_terminal_graphics(
++    runtime: &crate::terminal::TerminalRuntime,
++    area: Rect,
++    cell_size: HostCellSize,
++    cache: &mut HostGraphicsCache,
++) -> Vec<u8> {
++    if !cell_size.is_known() {
++        return encode_direct_placements(Vec::new(), 0, area, cell_size, cache);
++    }
++    let mut requested = HashSet::new();
++    let placements = runtime.kitty_image_placements_with_data_filter(|descriptor| {
++        !descriptor.source_file && direct_image_needs_data(cache, descriptor, &mut requested)
++    });
++    let scrollback_offset = runtime
++        .scroll_metrics()
++        .map(|metrics| metrics.offset_from_bottom as u32)
++        .unwrap_or(0);
++    encode_direct_placements(placements, scrollback_offset, area, cell_size, cache)
++}
++
++fn direct_image_needs_data(
++    cache: &HostGraphicsCache,
++    descriptor: KittyImageDescriptor,
++    requested: &mut HashSet<u32>,
++) -> bool {
++    let signature = image_signature_from_descriptor(descriptor, kitty_format_code(descriptor.format));
++    let host_id = host_image_id_for_signature(DIRECT_TERMINAL_PANE, signature);
++    cache.images.get(&host_id) != Some(&signature) && requested.insert(host_id)
++}
++
++fn encode_direct_placements(
++    placements: Vec<KittyImagePlacement>,
++    scrollback_offset: u32,
++    area: Rect,
++    cell_size: HostCellSize,
++    cache: &mut HostGraphicsCache,
++) -> Vec<u8> {
++    let body = if cell_size.is_known() {
++        let placements = placements
++            .into_iter()
++            .map(|placement| HostPlacement {
++                raw_data: None,
++                pane_id: DIRECT_TERMINAL_PANE,
++                host_image_id: None,
++                area,
++                cell_size,
++                source_key: HostSourceKey::Terminal {
++                    pane_id: DIRECT_TERMINAL_PANE,
++                    image_id: placement.image_id,
++                },
++                placement,
++                scrollback_offset,
++            })
++            .collect::<Vec<_>>();
++        cache.request_placement_replay();
++        encode_graphics_output(cache, &placements).into_inline_bytes()
++    } else {
++        cache.clear_bytes()
++    };
++    if body.is_empty() {
++        return body;
++    }
++    let mut bytes = Vec::with_capacity(body.len() + 4);
++    bytes.extend_from_slice(b"\x1b7");
++    bytes.extend_from_slice(&body);
++    bytes.extend_from_slice(b"\x1b8");
++    bytes
++}
++
+ fn terminal_image_needs_data(
+     pane_id: PaneId,
+     descriptor: KittyImageDescriptor,
+@@ -721,6 +797,109 @@ pub(crate) fn write_kitty_data(
+ mod tests {
+     use super::*;
+ 
++    fn direct_placement(viewport_col: i32, viewport_row: i32) -> KittyImagePlacement {
++        test_placement(viewport_col, viewport_row).placement
++    }
++
++    fn direct_cell() -> HostCellSize {
++        HostCellSize {
++            width_px: 10,
++            height_px: 10,
++        }
++    }
++
++    #[test]
++    fn direct_terminal_graphics_uploads_once_and_replays_placement_inside_saved_cursor() {
++        let mut cache = HostGraphicsCache::default();
++        let area = Rect::new(0, 0, 20, 10);
++        let first = String::from_utf8(encode_direct_placements(
++            vec![direct_placement(2, 1)],
++            0,
++            area,
++            direct_cell(),
++            &mut cache,
++        ))
++        .unwrap();
++        assert!(first.starts_with("\x1b7"));
++        assert!(first.ends_with("\x1b8"));
++        assert!(first.contains("a=t,"), "{first:?}");
++        assert!(first.contains("\x1b[2;3H\x1b_Ga=p,"), "{first:?}");
++
++        let mut again = direct_placement(2, 1);
++        again.data.clear();
++        let second = String::from_utf8(encode_direct_placements(
++            vec![again],
++            0,
++            area,
++            direct_cell(),
++            &mut cache,
++        ))
++        .unwrap();
++        assert!(!second.contains("a=t,"), "{second:?}");
++        assert!(second.contains("a=p,"), "{second:?}");
++    }
++
++    #[test]
++    fn direct_terminal_graphics_needs_data_only_for_images_the_client_lacks() {
++        let mut cache = HostGraphicsCache::default();
++        let placement = direct_placement(0, 0);
++        let descriptor = KittyImageDescriptor {
++            image_id: placement.image_id,
++            placement_id: placement.placement_id,
++            image_width: placement.image_width,
++            image_height: placement.image_height,
++            format: placement.format,
++            data_len: placement.data_len,
++            data_fingerprint: placement.data_fingerprint,
++            source_file: false,
++        };
++        let mut requested = HashSet::new();
++        assert!(direct_image_needs_data(&cache, descriptor, &mut requested));
++        assert!(!direct_image_needs_data(&cache, descriptor, &mut requested));
++        encode_direct_placements(
++            vec![placement],
++            0,
++            Rect::new(0, 0, 20, 10),
++            direct_cell(),
++            &mut cache,
++        );
++        assert!(!direct_image_needs_data(&cache, descriptor, &mut HashSet::new()));
++    }
++
++    #[test]
++    fn direct_terminal_graphics_deletes_images_once_placements_go() {
++        let mut cache = HostGraphicsCache::default();
++        let area = Rect::new(0, 0, 20, 10);
++        encode_direct_placements(vec![direct_placement(0, 0)], 0, area, direct_cell(), &mut cache);
++        let gone = String::from_utf8(encode_direct_placements(
++            Vec::new(),
++            0,
++            area,
++            direct_cell(),
++            &mut cache,
++        ))
++        .unwrap();
++        assert!(gone.contains("a=d,"), "{gone:?}");
++        assert!(encode_direct_placements(Vec::new(), 0, area, direct_cell(), &mut cache).is_empty());
++    }
++
++    #[test]
++    fn direct_terminal_graphics_clears_without_a_cell_size() {
++        let mut cache = HostGraphicsCache::default();
++        let area = Rect::new(0, 0, 20, 10);
++        encode_direct_placements(vec![direct_placement(0, 0)], 0, area, direct_cell(), &mut cache);
++        let cleared = String::from_utf8(encode_direct_placements(
++            vec![direct_placement(0, 0)],
++            0,
++            area,
++            HostCellSize::default(),
++            &mut cache,
++        ))
++        .unwrap();
++        assert!(cleared.contains("a=d,d=I,"), "{cleared:?}");
++        assert!(!cleared.contains("a=p,"), "{cleared:?}");
++    }
++
+     #[test]
+     fn deferred_updates_match_inline_for_rgb_and_rgba() {
+         for format in [KittyImageFormat::Rgb, KittyImageFormat::Rgba] {
+diff --git a/src/kitty_graphics/output.rs b/src/kitty_graphics/output.rs
+index 134a1f08..2f2b7b6f 100644
+--- a/src/kitty_graphics/output.rs
++++ b/src/kitty_graphics/output.rs
+@@ -35,7 +35,6 @@ impl GraphicsOutput {
+         self.operations.extend(other.operations);
+     }
+ 
+-    #[cfg(test)]
+     pub(crate) fn into_inline_bytes(self) -> Vec<u8> {
+         let mut bytes = Vec::new();
+         for operation in self.operations {
+diff --git a/src/layout.rs b/src/layout.rs
+index aaa207ae..ca133a8c 100644
+--- a/src/layout.rs
++++ b/src/layout.rs
+@@ -24,7 +24,7 @@ impl PaneId {
+     }
+ 
+     /// Reconstruct from a saved u32 (persistence only).
+-    pub fn from_raw(id: u32) -> Self {
++    pub const fn from_raw(id: u32) -> Self {
+         Self(id)
+     }
+ }
+diff --git a/src/pane.rs b/src/pane.rs
+index f80baeb8..92c5003a 100644
+--- a/src/pane.rs
++++ b/src/pane.rs
+@@ -106,6 +106,9 @@ fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
+     cmd.env("COLORTERM", PANE_COLORTERM);
+     cmd.env("TERM_PROGRAM", "herdr");
+     cmd.env("TERM_PROGRAM_VERSION", crate::build_info::version());
++    // Marks a server that sends session-control clients their kitty images;
++    // the version string cannot tell this build from upstream.
++    cmd.env("HERDR_SESSION_CONTROL_IMAGES", "1");
+     // fish only skips its own resize repaint for terminals it recognizes as
+     // reflowing. Herdr reflows too, and the competing repaint glues prompt copies.
+     // Match the exact casing: Windows env keys are case-insensitive here, but
+@@ -4399,6 +4402,10 @@ mod tests {
+             cmd.get_env("TERM_PROGRAM_VERSION"),
+             Some(OsStr::new(&crate::build_info::version()))
+         );
++        assert_eq!(
++            cmd.get_env("HERDR_SESSION_CONTROL_IMAGES"),
++            Some(OsStr::new("1"))
++        );
+     }
+ 
+     #[test]
+diff --git a/src/server/clients.rs b/src/server/clients.rs
+index 65e875b8..9ef811f0 100644
+--- a/src/server/clients.rs
++++ b/src/server/clients.rs
+@@ -143,6 +143,8 @@ pub(crate) struct ClientConnection {
+     pub(crate) render_state: ClientRenderState,
+     /// Image assets already included in the selected ClientShell scene.
+     pub(crate) shell_graphics_delivery: crate::kitty_graphics::surface::DeliveryCache,
++    /// Images already on a direct terminal client's host surface.
++    pub(crate) direct_terminal_graphics: crate::kitty_graphics::HostGraphicsCache,
+     /// Passive eligibility for audited local Kitty regular-file graphics.
+     pub(crate) direct_graphics: bool,
+     /// Whether this frontend preserves exact SGR pixel reports.
+@@ -230,6 +232,7 @@ impl ClientConnection {
+             last_activity,
+             render_state: ClientRenderState::new(render_encoding),
+             shell_graphics_delivery: crate::kitty_graphics::surface::DeliveryCache::default(),
++            direct_terminal_graphics: crate::kitty_graphics::HostGraphicsCache::default(),
+             direct_graphics: false,
+             pixel_mouse: false,
+             host_terminal_theme: crate::terminal_theme::TerminalTheme::default(),
 diff --git a/src/server/handoff.rs b/src/server/handoff.rs
 index efe554e6..e196932e 100644
 --- a/src/server/handoff.rs
@@ -801,6 +1069,49 @@ index 8c6587ff..f401e6dd 100644
          let mut import_child = match crate::server::handoff::spawn_handoff_import(
              import_exe.as_deref(),
              &socket_path,
+diff --git a/src/server/headless/render.rs b/src/server/headless/render.rs
+index aa075a95..402454af 100644
+--- a/src/server/headless/render.rs
++++ b/src/server/headless/render.rs
+@@ -759,7 +759,10 @@ impl HeadlessServer {
+                 ClientConnectionMode::TerminalPending => continue,
+                 ClientConnectionMode::TerminalAttach { terminal_id }
+                 | ClientConnectionMode::TerminalObserve { terminal_id } => {
+-                    let Some(runtime) = self.runtime_for_terminal_id_string(&terminal_id) else {
++                    let runtime = self
++                        .terminal_id_by_string(&terminal_id)
++                        .and_then(|id| self.app.terminal_runtimes.get(&id));
++                    let Some(runtime) = runtime else {
+                         self.send_to_client(
+                             client_id,
+                             ServerMessage::ServerShutdown {
+@@ -802,12 +805,25 @@ impl HeadlessServer {
+                         continue;
+                     }
+                     let frame_started = crate::render_prof::timer();
+-                    let frame = FrameData::from_ratatui_buffer_with_hyperlinks(
++                    let mut frame = FrameData::from_ratatui_buffer_with_hyperlinks(
+                         &buffer,
+                         cursor,
+                         &hyperlinks,
+                     );
+                     crate::render_prof::duration_since("full_render.frame_build", frame_started);
++                    if let Some(client) = self.clients.get_mut(&client_id) {
++                        let cell_size = if self.app.state.kitty_graphics_enabled {
++                            client.cell_size
++                        } else {
++                            crate::kitty_graphics::HostCellSize::default()
++                        };
++                        frame.graphics = crate::kitty_graphics::encode_direct_terminal_graphics(
++                            runtime,
++                            area,
++                            cell_size,
++                            &mut client.direct_terminal_graphics,
++                        );
++                    }
+                     frame
+                 }
+             };
 diff --git a/src/server/headless/tests/mod.rs b/src/server/headless/tests/mod.rs
 index 3ab7ec0f..6e04c495 100644
 --- a/src/server/headless/tests/mod.rs
