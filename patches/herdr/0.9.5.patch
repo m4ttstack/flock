@@ -592,6 +592,31 @@ index aaa207ae..ca133a8c 100644
          Self(id)
      }
  }
+diff --git a/src/pane.rs b/src/pane.rs
+index f80baeb8..92c5003a 100644
+--- a/src/pane.rs
++++ b/src/pane.rs
+@@ -106,6 +106,9 @@ fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
+     cmd.env("COLORTERM", PANE_COLORTERM);
+     cmd.env("TERM_PROGRAM", "herdr");
+     cmd.env("TERM_PROGRAM_VERSION", crate::build_info::version());
++    // Marks a server that sends session-control clients their kitty images;
++    // the version string cannot tell this build from upstream.
++    cmd.env("HERDR_SESSION_CONTROL_IMAGES", "1");
+     // fish only skips its own resize repaint for terminals it recognizes as
+     // reflowing. Herdr reflows too, and the competing repaint glues prompt copies.
+     // Match the exact casing: Windows env keys are case-insensitive here, but
+@@ -4399,6 +4402,10 @@ mod tests {
+             cmd.get_env("TERM_PROGRAM_VERSION"),
+             Some(OsStr::new(&crate::build_info::version()))
+         );
++        assert_eq!(
++            cmd.get_env("HERDR_SESSION_CONTROL_IMAGES"),
++            Some(OsStr::new("1"))
++        );
+     }
+ 
+     #[test]
 diff --git a/src/server/clients.rs b/src/server/clients.rs
 index 65e875b8..9ef811f0 100644
 --- a/src/server/clients.rs
