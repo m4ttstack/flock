@@ -82,10 +82,24 @@ public struct BridgeOptions: Equatable, Sendable {
 public struct PTYSize: Equatable, Sendable {
     public var cols: Int
     public var rows: Int
+    /// Zero when unknown. herdr needs both to size kitty images in cells.
+    public var cellWidthPx: Int
+    public var cellHeightPx: Int
 
-    public init(cols: Int, rows: Int) {
+    public init(cols: Int, rows: Int, cellWidthPx: Int = 0, cellHeightPx: Int = 0) {
         self.cols = cols
         self.rows = rows
+        self.cellWidthPx = cellWidthPx
+        self.cellHeightPx = cellHeightPx
+    }
+
+    /// A `winsize`'s pixels cover the whole grid.
+    init(winsizeCols cols: Int, rows: Int, xPixels: Int, yPixels: Int) {
+        guard cols > 0, rows > 0, xPixels > 0, yPixels > 0 else {
+            self.init(cols: cols, rows: rows)
+            return
+        }
+        self.init(cols: cols, rows: rows, cellWidthPx: xPixels / cols, cellHeightPx: yPixels / rows)
     }
 }
 
@@ -262,6 +276,15 @@ public enum ControlBridge {
               !bytes.isEmpty
         else { return nil }
         return HerdrFrame(bytes: bytes, full: frame["full"] as? Bool ?? false)
+    }
+
+    static func resizeCommand(_ size: PTYSize) -> [String: Any] {
+        var command: [String: Any] = ["type": "terminal.resize", "cols": size.cols, "rows": size.rows]
+        if size.cellWidthPx > 0, size.cellHeightPx > 0 {
+            command["cell_width_px"] = size.cellWidthPx
+            command["cell_height_px"] = size.cellHeightPx
+        }
+        return command
     }
 
     /// The `terminal.input` object for a chunk of raw PTY bytes.
@@ -952,7 +975,7 @@ private func enterRawMode() -> termios? {
 private func currentWinSize(fd: Int32) -> PTYSize {
     var ws = winsize()
     _ = ioctl(fd, TIOCGWINSZ, &ws)
-    return PTYSize(cols: Int(ws.ws_col), rows: Int(ws.ws_row))
+    return PTYSize(winsizeCols: Int(ws.ws_col), rows: Int(ws.ws_row), xPixels: Int(ws.ws_xpixel), yPixels: Int(ws.ws_ypixel))
 }
 
 /// `herdrBinary` explicit (from `--herdr-bin`/`HERDR_BIN`, already resolved
@@ -1267,7 +1290,7 @@ final class BridgeIO: @unchecked Sendable {
         guard let size = resizeRelay.pending(ptySize()) else { return }
         resizeSequence += 1
         let sequence = resizeSequence
-        let outcome = send(["type": "terminal.resize", "cols": size.cols, "rows": size.rows]) { [weak self] in
+        let outcome = send(ControlBridge.resizeCommand(size)) { [weak self] in
             self?.recordResizeDelivered(size, sequence: sequence)
         }
         switch outcome {

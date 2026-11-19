@@ -103,6 +103,33 @@ final class ControlBridgeTests: XCTestCase {
         XCTAssertEqual(relay.pending(PTYSize(cols: 30, rows: 40)), PTYSize(cols: 30, rows: 40), "back to the spawn size is a change too")
     }
 
+    /// herdr sizes images from the cell's pixels, and hears them only in a
+    /// resize: a child spawned at the PTY's grid still needs one.
+    func testRelaySendsTheCellPixelsTheSpawnSizeLacked() {
+        let relay = PTYResizeRelay(spawned: PTYSize(cols: 60, rows: 41))
+        let measured = PTYSize(cols: 60, rows: 41, cellWidthPx: 16, cellHeightPx: 34)
+        XCTAssertEqual(relay.pending(measured), measured)
+    }
+
+    func testResizeCommandCarriesCellPixelsOnlyWhenKnown() {
+        let measured = ControlBridge.resizeCommand(PTYSize(cols: 60, rows: 41, cellWidthPx: 16, cellHeightPx: 34))
+        XCTAssertEqual(measured["cell_width_px"] as? Int, 16)
+        XCTAssertEqual(measured["cell_height_px"] as? Int, 34)
+        XCTAssertEqual(measured["cols"] as? Int, 60)
+        let unmeasured = ControlBridge.resizeCommand(PTYSize(cols: 60, rows: 41))
+        XCTAssertNil(unmeasured["cell_width_px"])
+        XCTAssertEqual(unmeasured["type"] as? String, "terminal.resize")
+    }
+
+    func testWinsizeCellPixelsDivideTheGridsPixels() {
+        XCTAssertEqual(
+            PTYSize(winsizeCols: 60, rows: 41, xPixels: 960, yPixels: 1394),
+            PTYSize(cols: 60, rows: 41, cellWidthPx: 16, cellHeightPx: 34)
+        )
+        XCTAssertEqual(PTYSize(winsizeCols: 60, rows: 41, xPixels: 0, yPixels: 0), PTYSize(cols: 60, rows: 41))
+        XCTAssertEqual(PTYSize(winsizeCols: 0, rows: 0, xPixels: 960, yPixels: 1394), PTYSize(cols: 0, rows: 0))
+    }
+
     func testRelayDropsAnUnchangedOrUnreadableWinsize() {
         var relay = PTYResizeRelay(spawned: PTYSize(cols: 30, rows: 40))
         XCTAssertNil(relay.pending(PTYSize(cols: 30, rows: 40)), "herdr was spawned at this size")
