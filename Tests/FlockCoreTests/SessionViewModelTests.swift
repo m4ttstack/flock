@@ -2175,6 +2175,27 @@ final class SessionViewModelTests: XCTestCase {
         }
     }
 
+    /// A taken-over pane is never evicted: a fresh bridge would take it back.
+    /// The next oldest evictable pane goes instead.
+    @MainActor
+    func testTheWarmCapNeverEvictsATakenOverPane() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let panes = (1...14).map { PaneID(rawValue: "w1:p\($0)") }
+        for pane in panes {
+            _ = await viewModel.attachPane(pane)
+        }
+        try XCTUnwrap(factory.surfaces[panes[0]]).holdLoss = .takenOver
+        for pane in panes {
+            await viewModel.detachPane(pane)
+        }
+
+        XCTAssertNotNil(viewModel.ghosttySurface(for: panes[0]), "the taken-over pane was evicted")
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[panes[0]]).detachCallCount, 0)
+        XCTAssertNil(viewModel.ghosttySurface(for: panes[1]), "the oldest evictable pane stayed")
+        XCTAssertNotNil(viewModel.ghosttySurface(for: panes[2]))
+    }
+
     /// The evicted pane has nothing left in the pool: a later reattach under
     /// the SAME id creates a brand new surface, never reuses the torn-down
     /// one.
