@@ -149,6 +149,19 @@ final class HerdrHoldTests: XCTestCase {
         XCTAssertNil(latch.holdLoss, "a live frame still shows the screen")
     }
 
+    /// The cold-start timeout is no frame: a takeover inside it keeps its screen.
+    @MainActor
+    func testTheStartupTimeoutLeavesAHoldLossInPlace() {
+        let latch = FirstFrameLatch()
+        latch.markHoldLost(.takenOver)
+        latch.markReceivedByTimeout()
+        XCTAssertEqual(latch.holdLoss, .takenOver)
+        XCTAssertFalse(latch.received)
+        let fresh = FirstFrameLatch()
+        fresh.markReceivedByTimeout()
+        XCTAssertTrue(fresh.received, "the timeout no longer stands in for a frame")
+    }
+
     /// Pins the constant, not a behavior: the measurement it has to outlast
     /// (twelve panes, 204ms from the take to their last full frame) cannot be
     /// taken in a unit test, so the bound is asserted rather than derived.

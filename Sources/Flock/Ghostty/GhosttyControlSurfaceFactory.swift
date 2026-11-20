@@ -129,7 +129,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         // close callback) already latched it well before 3s.
         Task { @MainActor [weak session] in
             try? await Task.sleep(for: .seconds(3))
-            session?.markFirstFrameReceived()
+            session?.firstFrameLatch.markReceivedByTimeout()
         }
         // Read on the main queue and apply synchronously: a capture line's
         // effect lands in the order the bridge wrote it, so an app toggling

@@ -604,8 +604,10 @@ final class GhosttySession {
     /// on this side is torn down or rebuilt: the surface, its PTY and its
     /// scrollback are untouched either way.
     func sendHold(_ command: HoldCommand) {
-        if command == .take { firstFrameLatch.markRetaking() }
-        controlChannel?.hold(command)
+        // The taken-over screen stays unless the take actually went out:
+        // nothing else would bring it back.
+        let delivered = controlChannel?.hold(command) ?? false
+        if command == .take, delivered { firstFrameLatch.markRetaking() }
     }
 
     /// The surface's live grid and cell, read from libghostty

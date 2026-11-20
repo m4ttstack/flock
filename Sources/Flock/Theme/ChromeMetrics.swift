@@ -1039,10 +1039,10 @@ enum ChromeMetrics {
         static let actionLeadingPadding: CGFloat = 12
         static let actionTrailingPadding: CGFloat = 8
         static let actionVerticalPadding: CGFloat = 6
-        static let actionCornerRadius: CGFloat = 6
+        static let actionCornerRadius: CGFloat = ChromeRadius.control
         static let keycapHorizontalPadding: CGFloat = 5
         static let keycapVerticalPadding: CGFloat = 1
-        static let keycapCornerRadius: CGFloat = 4
+        static let keycapCornerRadius: CGFloat = ChromeRadius.tiny
     }
 
     enum Launcher {

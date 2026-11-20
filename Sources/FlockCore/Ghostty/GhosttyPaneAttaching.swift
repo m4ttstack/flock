@@ -38,6 +38,13 @@ public final class FirstFrameLatch {
         received = false
     }
 
+    /// The cold-start timeout standing in for a first frame. It is no frame,
+    /// so it leaves a hold loss in place.
+    public func markReceivedByTimeout() {
+        guard holdLoss == nil else { return }
+        markReceived()
+    }
+
     /// A take went out: the pane waits on its frame again, under the loader.
     public func markRetaking() {
         holdLoss = nil
