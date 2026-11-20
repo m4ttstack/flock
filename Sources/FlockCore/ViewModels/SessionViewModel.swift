@@ -1412,7 +1412,9 @@ public final class SessionViewModel {
     /// later edge to correct it. A bridge that already holds ignores a repeat.
     public func takeHerdrHold() {
         herdrHoldIntent = .take
-        for surface in ghosttySurfaces.values { surface.takeHerdrHold() }
+        // A pane another client took over stays with it until the user takes
+        // it back from the pane itself.
+        for surface in ghosttySurfaces.values where surface.holdLoss != .takenOver { surface.takeHerdrHold() }
         Self.holdLog.log("hold taken panes=\(self.ghosttySurfaces.count)")
     }
 
@@ -1483,11 +1485,15 @@ public final class SessionViewModel {
     /// Tears down whichever parked panes now exceed `maxWarmPanes`, oldest
     /// park first -- each through `teardownSurface`, so an eviction can
     /// never race an attach/park already in flight for that SAME pane.
+    ///
+    /// A pane another client took over is never evicted: its surface holds the
+    /// only record of the takeover, and a fresh bridge would take the pane
+    /// back on attach. It costs no herdr client while it waits.
     private func evictWarmPanesIfNeeded() async {
-        guard parkedPanes.count > Self.maxWarmPanes else { return }
-        let overflow = parkedPanes.count - Self.maxWarmPanes
-        let stale = Array(parkedPanes.prefix(overflow))
-        parkedPanes.removeFirst(overflow)
+        let evictable = parkedPanes.filter { ghosttySurfaces[$0]?.holdLoss != .takenOver }
+        guard evictable.count > Self.maxWarmPanes else { return }
+        let stale = Array(evictable.prefix(evictable.count - Self.maxWarmPanes))
+        parkedPanes.removeAll { stale.contains($0) }
         for pane in stale {
             // The pane is still in herdr: what was typed into it and the
             // prompt height it taught still hold when it comes back.

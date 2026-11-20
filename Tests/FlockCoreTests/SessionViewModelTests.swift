@@ -249,6 +249,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     var hasClaimedMouse = false
     var programHasMouse = false
     var isOnScreen = false
+    var holdLoss: HoldLossReason?
 
     init(pane: PaneID) {
         self.pane = pane
@@ -1914,6 +1915,25 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedWorkspaceID, selectedBefore)
     }
 
+    @MainActor
+    func testTakingEveryHoldLeavesATakenOverPaneWithItsClient() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let takenOver = PaneID(rawValue: "w1:p1")
+        let refused = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(takenOver)
+        _ = await viewModel.attachPane(refused)
+        let takenOverSurface = try XCTUnwrap(factory.surfaces[takenOver])
+        let refusedSurface = try XCTUnwrap(factory.surfaces[refused])
+        takenOverSurface.holdLoss = .takenOver
+        refusedSurface.holdLoss = .refused
+
+        viewModel.takeHerdrHold()
+
+        XCTAssertFalse(takenOverSurface.holdCalls.contains(.take), "coming back to flock stole the pane back")
+        XCTAssertTrue(refusedSurface.holdCalls.contains(.take), "a refused pane was not retried")
+    }
+
     /// The release is deliberately not on the `paneWork` chain, so a surface
     /// whose attach lands after it was sent never sees it. A bridge spawns
     /// HOLDING, so that one pane would take its lock while flock is supposed
@@ -2153,6 +2173,27 @@ final class SessionViewModelTests: XCTestCase {
             let surface = try XCTUnwrap(factory.surfaces[pane])
             XCTAssertEqual(surface.detachCallCount, 0, "every pane but the first-parked one stays warm")
         }
+    }
+
+    /// A taken-over pane is never evicted: a fresh bridge would take it back.
+    /// The next oldest evictable pane goes instead.
+    @MainActor
+    func testTheWarmCapNeverEvictsATakenOverPane() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let panes = (1...14).map { PaneID(rawValue: "w1:p\($0)") }
+        for pane in panes {
+            _ = await viewModel.attachPane(pane)
+        }
+        try XCTUnwrap(factory.surfaces[panes[0]]).holdLoss = .takenOver
+        for pane in panes {
+            await viewModel.detachPane(pane)
+        }
+
+        XCTAssertNotNil(viewModel.ghosttySurface(for: panes[0]), "the taken-over pane was evicted")
+        XCTAssertEqual(try XCTUnwrap(factory.surfaces[panes[0]]).detachCallCount, 0)
+        XCTAssertNil(viewModel.ghosttySurface(for: panes[1]), "the oldest evictable pane stayed")
+        XCTAssertNotNil(viewModel.ghosttySurface(for: panes[2]))
     }
 
     /// The evicted pane has nothing left in the pool: a later reattach under

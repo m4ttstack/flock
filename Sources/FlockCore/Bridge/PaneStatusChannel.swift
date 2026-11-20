@@ -64,7 +64,7 @@ public final class PaneStatusChannel {
     public func start(
         queue: DispatchQueue,
         onFirstFrame: @escaping @Sendable () -> Void = {},
-        onHoldLost: @escaping @Sendable () -> Void = {},
+        onHoldLost: @escaping @Sendable (HoldLossReason) -> Void = { _ in },
         onCapture: @escaping @Sendable (Bool, Bool) -> Void
     ) {
         guard fd >= 0, source == nil else { return }
@@ -84,8 +84,8 @@ public final class PaneStatusChannel {
                     onFirstFrame()
                     continue
                 }
-                if PaneStatusChannel.parseHoldLost(line) {
-                    onHoldLost()
+                if let reason = PaneStatusChannel.parseHoldLossReason(line) {
+                    onHoldLost(reason)
                 }
             }
         }
@@ -119,6 +119,17 @@ public final class PaneStatusChannel {
     public static func parseHoldLost(_ line: Data) -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
         return object["type"] as? String == HoldStatus.lost.rawValue
+    }
+
+    /// The reason on a `flock.hold_lost` line, nil for any other line. A line
+    /// without a known reason reads as `.refused`, the case that names no
+    /// other client.
+    public static func parseHoldLossReason(_ line: Data) -> HoldLossReason? {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+            object["type"] as? String == HoldStatus.lost.rawValue
+        else { return nil }
+        return (object["reason"] as? String).flatMap(HoldLossReason.init(rawValue:)) ?? .refused
     }
 
     /// Once started, the fd belongs to the source's cancel handler (see

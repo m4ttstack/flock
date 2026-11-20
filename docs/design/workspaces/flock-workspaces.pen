@@ -57417,7 +57417,8 @@
                               "fill": "$textLabel",
                               "content": "~/Documents/GitHub/flock",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57426,7 +57427,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57435,7 +57437,8 @@
                               "fill": "$textStrong",
                               "content": "> Can we mock some UI refinements to flock?",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57444,7 +57447,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57453,7 +57457,8 @@
                               "fill": "$textDim",
                               "content": "● I'm working through flock's theme code, then I'll build",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57462,7 +57467,8 @@
                               "fill": "$textDim",
                               "content": "  the mocks in pen.dev as you asked.",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57471,7 +57477,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57480,7 +57487,8 @@
                               "fill": "$textDim",
                               "content": "● Building today vs proposed Workspaces windows",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57489,7 +57497,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -57498,7 +57507,8 @@
                               "fill": "$working",
                               "content": "✳ Creating… (32s · ↓ 1.9k tokens)",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -57589,7 +57599,8 @@
                               "fill": "$textDim",
                               "content": "flock at  main ↑4",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -58958,7 +58969,8 @@
                               "fill": "$textLabel",
                               "content": "~/Documents/GitHub/flock",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -58967,7 +58979,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -58976,7 +58989,8 @@
                               "fill": "$textStrong",
                               "content": "> Can we mock some UI refinements to flock?",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -58985,7 +58999,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -58994,7 +59009,8 @@
                               "fill": "$textDim",
                               "content": "● I'm working through flock's theme code, then I'll build",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -59003,7 +59019,8 @@
                               "fill": "$textDim",
                               "content": "  the mocks in pen.dev as you asked.",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -59012,7 +59029,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -59021,7 +59039,8 @@
                               "fill": "$textDim",
                               "content": "● Building today vs proposed Workspaces windows",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -59030,7 +59049,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -59039,7 +59059,8 @@
                               "fill": "$working",
                               "content": "✳ Creating… (32s · ↓ 1.9k tokens)",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -59130,7 +59151,8 @@
                               "fill": "$textDim",
                               "content": "flock at  main ↑4",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60499,7 +60521,8 @@
                               "fill": "$textLabel",
                               "content": "~/Documents/GitHub/flock",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60508,7 +60531,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60517,7 +60541,8 @@
                               "fill": "$textStrong",
                               "content": "> Can we mock some UI refinements to flock?",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60526,7 +60551,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60535,7 +60561,8 @@
                               "fill": "$textDim",
                               "content": "● I'm working through flock's theme code, then I'll build",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60544,7 +60571,8 @@
                               "fill": "$textDim",
                               "content": "  the mocks in pen.dev as you asked.",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60553,7 +60581,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60562,7 +60591,8 @@
                               "fill": "$textDim",
                               "content": "● Building today vs proposed Workspaces windows",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60571,7 +60601,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -60580,7 +60611,8 @@
                               "fill": "$working",
                               "content": "✳ Creating… (32s · ↓ 1.9k tokens)",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -60671,7 +60703,8 @@
                               "fill": "$textDim",
                               "content": "flock at  main ↑4",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70752,7 +70785,8 @@
                               "fill": "$textLabel",
                               "content": "~/Documents/GitHub/flock",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70761,7 +70795,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70770,7 +70805,8 @@
                               "fill": "$textStrong",
                               "content": "> Can we mock some UI refinements to flock?",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70779,7 +70815,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70788,7 +70825,8 @@
                               "fill": "$textDim",
                               "content": "● I'm working through flock's theme code, then I'll build",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70797,7 +70835,8 @@
                               "fill": "$textDim",
                               "content": "  the mocks in pen.dev as you asked.",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70806,7 +70845,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70815,7 +70855,8 @@
                               "fill": "$textDim",
                               "content": "● Building today vs proposed Workspaces windows",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70824,7 +70865,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -70833,7 +70875,8 @@
                               "fill": "$working",
                               "content": "✳ Creating… (32s · ↓ 1.9k tokens)",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -70924,7 +70967,8 @@
                               "fill": "$textDim",
                               "content": "flock at  main ↑4",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72288,7 +72332,8 @@
                               "fill": "$textLabel",
                               "content": "~/Documents/GitHub/flock",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72297,7 +72342,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72306,7 +72352,8 @@
                               "fill": "$textStrong",
                               "content": "> Can we mock some UI refinements to flock?",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72315,7 +72362,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72324,7 +72372,8 @@
                               "fill": "$textDim",
                               "content": "● I'm working through flock's theme code, then I'll build",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72333,7 +72382,8 @@
                               "fill": "$textDim",
                               "content": "  the mocks in pen.dev as you asked.",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72342,7 +72392,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72351,7 +72402,8 @@
                               "fill": "$textDim",
                               "content": "● Building today vs proposed Workspaces windows",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72360,7 +72412,8 @@
                               "fill": "$textDim",
                               "content": " ",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72369,7 +72422,8 @@
                               "fill": "$working",
                               "content": "✳ Creating… (32s · ↓ 1.9k tokens)",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             }
                           ]
                         },
@@ -72460,7 +72514,8 @@
                               "fill": "$textDim",
                               "content": "flock at  main ↑4",
                               "fontFamily": "JetBrains Mono",
-                              "fontSize": 12
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "text",
@@ -72767,7 +72822,8 @@
                           "fill": "#3760BF",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -72802,7 +72858,8 @@
                           "fill": "#8990B3",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -72837,7 +72894,8 @@
                           "fill": "#A8AECB",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -72872,7 +72930,8 @@
                           "fill": "#6172B0",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -72907,7 +72966,8 @@
                           "fill": "#3760BF",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73037,7 +73097,8 @@
                           "fill": "#2B3352",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73072,7 +73133,8 @@
                           "fill": "#4E4F50",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73107,7 +73169,8 @@
                           "fill": "#191A1A",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73142,7 +73205,8 @@
                           "fill": "#4F5E99",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73177,7 +73241,8 @@
                           "fill": "#2B3352",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73327,7 +73392,8 @@
                           "fill": "#3C3836",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73362,7 +73428,8 @@
                           "fill": "#928374",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73397,7 +73464,8 @@
                           "fill": "#D5C4A1",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73432,7 +73500,8 @@
                           "fill": "#504945",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73467,7 +73536,8 @@
                           "fill": "#3C3836",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73597,7 +73667,8 @@
                           "fill": "#3C3836",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73632,7 +73703,8 @@
                           "fill": "#504D3F",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73667,7 +73739,8 @@
                           "fill": "#161511",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73702,7 +73775,8 @@
                           "fill": "#504945",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73737,7 +73811,8 @@
                           "fill": "#3C3836",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73887,7 +73962,8 @@
                           "fill": "#657B83",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73922,7 +73998,8 @@
                           "fill": "#93A1A1",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73957,7 +74034,8 @@
                           "fill": "#93A1A1",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -73992,7 +74070,8 @@
                           "fill": "#839496",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74027,7 +74106,8 @@
                           "fill": "#657B83",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74157,7 +74237,8 @@
                           "fill": "#3F5259",
                           "content": "● The mocks are nearly done.",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74192,7 +74273,8 @@
                           "fill": "#57544E",
                           "content": "  Read 2 files, called pencil",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74227,7 +74309,8 @@
                           "fill": "#1F1E1C",
                           "content": "✔ build ok (black)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74262,7 +74345,8 @@
                           "fill": "#5C6B6D",
                           "content": "$ git status (white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74297,7 +74381,8 @@
                           "fill": "#3F5259",
                           "content": "● bullet (bright white)",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 12
+                          "fontSize": 12,
+                          "fontWeight": "normal"
                         },
                         {
                           "type": "frame",
@@ -74636,7 +74721,8 @@
                                   "fill": "$textDim",
                                   "content": "● Building the header strip mock",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -74645,7 +74731,8 @@
                                   "fill": "$textDim",
                                   "content": "  Read 1 file, called pencil",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -74654,7 +74741,8 @@
                                   "fill": "$working",
                                   "content": "✳ Creating…",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -74765,7 +74853,8 @@
                                   "fill": "$textDim",
                                   "content": "flock at  main ↑4",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -74774,7 +74863,8 @@
                                   "fill": "$textDim",
                                   "content": "❯",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -74967,7 +75057,8 @@
                                   "fill": "$textDim",
                                   "content": "● Building the header strip mock",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -74976,7 +75067,8 @@
                                   "fill": "$textDim",
                                   "content": "  Read 1 file, called pencil",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -74985,7 +75077,8 @@
                                   "fill": "$working",
                                   "content": "✳ Creating…",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -75095,7 +75188,8 @@
                                   "fill": "$textDim",
                                   "content": "flock at  main ↑4",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75104,7 +75198,8 @@
                                   "fill": "$textDim",
                                   "content": "❯",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -75310,7 +75405,8 @@
                                   "fill": "$textDim",
                                   "content": "● Building the header strip mock",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75319,7 +75415,8 @@
                                   "fill": "$textDim",
                                   "content": "  Read 1 file, called pencil",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75328,7 +75425,8 @@
                                   "fill": "$working",
                                   "content": "✳ Creating…",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -75439,7 +75537,8 @@
                                   "fill": "$textDim",
                                   "content": "flock at  main ↑4",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75448,7 +75547,8 @@
                                   "fill": "$textDim",
                                   "content": "❯",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -75618,7 +75718,8 @@
                                   "fill": "$textDim",
                                   "content": "● Building the header strip mock",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75627,7 +75728,8 @@
                                   "fill": "$textDim",
                                   "content": "  Read 1 file, called pencil",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75636,7 +75738,8 @@
                                   "fill": "$working",
                                   "content": "✳ Creating…",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -75746,7 +75849,8 @@
                                   "fill": "$textDim",
                                   "content": "flock at  main ↑4",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -75755,7 +75859,8 @@
                                   "fill": "$textDim",
                                   "content": "❯",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -76437,7 +76542,8 @@
                                       "fill": "$textDim",
                                       "content": "● Building the top-area options",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "type": "text",
@@ -76446,7 +76552,8 @@
                                       "fill": "$textDim",
                                       "content": "  Read 2 files, called pencil",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -76542,7 +76649,8 @@
                                       "fill": "$textDim",
                                       "content": "❯ Brightening the resting tab titles",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -77131,7 +77239,8 @@
                                   "fill": "$textDim",
                                   "content": "● Building the top-area options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 11
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 },
                                 {
                                   "type": "text",
@@ -77140,7 +77249,8 @@
                                   "fill": "$textDim",
                                   "content": "  Read 2 files, called pencil",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 11
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -77235,7 +77345,8 @@
                                   "fill": "$textDim",
                                   "content": "❯ Brightening the resting tab titles",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 11
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -77891,7 +78002,8 @@
                                       "fill": "$textDim",
                                       "content": "● Building the top-area options",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "type": "text",
@@ -77900,7 +78012,8 @@
                                       "fill": "$textDim",
                                       "content": "  Read 2 files, called pencil",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -77995,7 +78108,8 @@
                                       "fill": "$textDim",
                                       "content": "❯ Brightening the resting tab titles",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -78612,7 +78726,8 @@
                                       "fill": "$textDim",
                                       "content": "● Building the top-area options",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     },
                                     {
                                       "type": "text",
@@ -78621,7 +78736,8 @@
                                       "fill": "$textDim",
                                       "content": "  Read 2 files, called pencil",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -78716,7 +78832,8 @@
                                       "fill": "$textDim",
                                       "content": "❯ Brightening the resting tab titles",
                                       "fontFamily": "JetBrains Mono",
-                                      "fontSize": 11
+                                      "fontSize": 11,
+                                      "fontWeight": "normal"
                                     }
                                   ]
                                 }
@@ -79101,7 +79218,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -79244,7 +79362,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -79598,7 +79717,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -79743,7 +79863,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -80092,7 +80213,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -80229,7 +80351,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -80559,7 +80682,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -80695,7 +80819,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -81052,7 +81177,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -81197,7 +81323,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -81574,7 +81701,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -81713,7 +81841,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -82054,7 +82183,8 @@
                                   "fill": "$textDim",
                                   "content": "● Mocking status options",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -82192,7 +82322,8 @@
                                   "fill": "$textDim",
                                   "content": "? Push the release tag now?",
                                   "fontFamily": "JetBrains Mono",
-                                  "fontSize": 10
+                                  "fontSize": 10,
+                                  "fontWeight": "normal"
                                 }
                               ]
                             }
@@ -82423,7 +82554,8 @@
                           "fill": "$textDim",
                           "content": "● Mocking the header status line",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -82563,7 +82695,8 @@
                           "fill": "$textDim",
                           "content": "? Push the release tag now?",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -82751,7 +82884,8 @@
                           "fill": "$textDim",
                           "content": "● Mocking the header status line",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -82891,7 +83025,8 @@
                           "fill": "$textDim",
                           "content": "? Push the release tag now?",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -83079,7 +83214,8 @@
                           "fill": "$textDim",
                           "content": "● Mocking the header status line",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -83219,7 +83355,8 @@
                           "fill": "$textDim",
                           "content": "? Push the release tag now?",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -83408,7 +83545,8 @@
                           "fill": "$textDim",
                           "content": "● Mocking the header status line",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
                         }
                       ]
                     }
@@ -83548,7 +83686,985 @@
                           "fill": "$textDim",
                           "content": "? Push the release tag now?",
                           "fontFamily": "JetBrains Mono",
-                          "fontSize": 11
+                          "fontSize": 11,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "tcB62",
+      "x": 0,
+      "y": 17566,
+      "name": "Pane taken over",
+      "fill": "#16161E",
+      "cornerRadius": 12,
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 40,
+      "children": [
+        {
+          "type": "text",
+          "id": "o1Ijfn",
+          "name": "Pane taken over: another",
+          "fill": "#E6E6E6",
+          "content": "Pane taken over: another client attached with takeover",
+          "fontFamily": "Inter",
+          "fontSize": 18,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "s4kNET",
+          "name": "Today the pane falls bac",
+          "fill": "#9A9A9A",
+          "textGrowth": "fixed-width",
+          "width": 1400,
+          "content": "Today the pane falls back to the attach loader forever. Both variants say what happened and offer the retake (Return or click). A takes the whole pane; B keeps the stale frame dimmed under a bottom strip.",
+          "lineHeight": 1.4,
+          "fontFamily": "Inter",
+          "fontSize": 12,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "frame",
+          "id": "ipob8",
+          "name": "Row dark",
+          "theme": {
+            "mode": "dark"
+          },
+          "fill": "$chrome",
+          "cornerRadius": 10,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "i4Mis",
+              "name": "Dark",
+              "fill": "$textLabel",
+              "content": "Dark",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "700",
+              "letterSpacing": 0.6
+            },
+            {
+              "type": "frame",
+              "id": "vQDVQ",
+              "name": "Variants",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ahSXe",
+                  "name": "A · Whole pane",
+                  "clip": true,
+                  "width": 640,
+                  "height": 380,
+                  "fill": "$pane",
+                  "cornerRadius": 8,
+                  "stroke": "$paneBorder",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "ahOq3",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "height": 32,
+                      "fill": "$band",
+                      "stroke": "$hair",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 10,
+                      "padding": [
+                        0,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "PPG0O",
+                          "name": "close",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$textDim"
+                        },
+                        {
+                          "type": "text",
+                          "id": "pO9hw",
+                          "name": "repo-tools @ vscode-agen",
+                          "fill": "$textDim",
+                          "content": "repo-tools @ vscode-agents-menu",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "K9Yfz",
+                      "name": "Body",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "C8D0B",
+                          "name": "icon",
+                          "width": 28,
+                          "height": 28,
+                          "icon": "monitor-smartphone",
+                          "library": "lucide",
+                          "fill": "$textLabel"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "i7gwD",
+                          "name": "Text",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            4,
+                            0,
+                            8,
+                            0
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "dX7Kg",
+                              "name": "Open in another client",
+                              "fill": "$textStrong",
+                              "content": "Open in another client",
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "lnxOK",
+                              "name": "Another herdr client too",
+                              "fill": "$textLabel",
+                              "textGrowth": "fixed-width",
+                              "width": 300,
+                              "content": "Another herdr client took this pane over. It keeps running there; take it back to see it here.",
+                              "lineHeight": 1.45,
+                              "textAlign": "center",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "vVTDf",
+                          "name": "Take it back",
+                          "fill": "$accent",
+                          "cornerRadius": 6,
+                          "gap": 8,
+                          "padding": [
+                            6,
+                            8,
+                            6,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "exEqh",
+                              "name": "Take it back",
+                              "fill": "$pane",
+                              "content": "Take it back",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "tNIq8",
+                              "name": "Keycap",
+                              "fill": "#00000026",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "u0u60u",
+                                  "name": "↩",
+                                  "fill": "$pane",
+                                  "content": "↩",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "PXXlp",
+                  "name": "B · Strip over stale frame",
+                  "clip": true,
+                  "width": 640,
+                  "height": 380,
+                  "fill": "$pane",
+                  "cornerRadius": 8,
+                  "stroke": "$paneBorder",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "IyFf3",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "height": 32,
+                      "fill": "$band",
+                      "stroke": "$hair",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 10,
+                      "padding": [
+                        0,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "UIQKj",
+                          "name": "close",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$textDim"
+                        },
+                        {
+                          "type": "text",
+                          "id": "Icx7Z",
+                          "name": "repo-tools @ vscode-agen",
+                          "fill": "$textDim",
+                          "content": "repo-tools @ vscode-agents-menu",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "xq3Ju",
+                      "name": "Body",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "layout": "vertical",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "q6nkjI",
+                          "name": "Stale frame",
+                          "opacity": 0.35,
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": 14,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "AYR7s",
+                              "name": "  ⎿  Read Sources/FlockC",
+                              "fill": "$textStrong",
+                              "content": "  ⎿  Read Sources/FlockCore/Bridge/ControlBridge.swift",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KkSY5",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "yR5V8",
+                              "name": "⏺ The takeover path rele",
+                              "fill": "$textStrong",
+                              "content": "⏺ The takeover path releases the hold and",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "P5lAr5",
+                              "name": "  sends flock.hold_lost ",
+                              "fill": "$textStrong",
+                              "content": "  sends flock.hold_lost to the app.",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "K9Sep6",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "BAOdi",
+                              "name": "  ⎿  Edit HerdrHold.swif",
+                              "fill": "$textStrong",
+                              "content": "  ⎿  Edit HerdrHold.swift (+12 -3)",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "FR1dY",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "lsObj",
+                              "name": "> _",
+                              "fill": "$textStrong",
+                              "content": "> _",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "itDJb",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "fill": "$band",
+                          "stroke": "$hair",
+                          "strokeWidth": {
+                            "top": 1
+                          },
+                          "gap": 10,
+                          "padding": [
+                            10,
+                            12,
+                            10,
+                            14
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "AxEqw",
+                              "name": "icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "monitor-smartphone",
+                              "library": "lucide",
+                              "fill": "$textLabel"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "dMC40",
+                              "name": "Text",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 2,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "o39HO",
+                                  "name": "Open in another client",
+                                  "fill": "$textStrong",
+                                  "content": "Open in another client",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "RdNfW",
+                                  "name": "Paused here; still runni",
+                                  "fill": "$textLabel",
+                                  "content": "Paused here; still running there",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "zhqHS",
+                              "name": "Take it back",
+                              "fill": "$accent",
+                              "cornerRadius": 6,
+                              "gap": 8,
+                              "padding": [
+                                6,
+                                8,
+                                6,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "G58J0K",
+                                  "name": "Take it back",
+                                  "fill": "$pane",
+                                  "content": "Take it back",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "ckOF6",
+                                  "name": "Keycap",
+                                  "fill": "#00000026",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "P5Cb6M",
+                                      "name": "↩",
+                                      "fill": "$pane",
+                                      "content": "↩",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "R35ps6",
+          "name": "Row light",
+          "theme": {
+            "mode": "light"
+          },
+          "fill": "$chrome",
+          "cornerRadius": 10,
+          "layout": "vertical",
+          "gap": 12,
+          "padding": 20,
+          "children": [
+            {
+              "type": "text",
+              "id": "H5uN5",
+              "name": "Light",
+              "fill": "$textLabel",
+              "content": "Light",
+              "fontFamily": "Inter",
+              "fontSize": 11,
+              "fontWeight": "700",
+              "letterSpacing": 0.6
+            },
+            {
+              "type": "frame",
+              "id": "uhQFR",
+              "name": "Variants",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "RcEwt",
+                  "name": "A · Whole pane",
+                  "clip": true,
+                  "width": 640,
+                  "height": 380,
+                  "fill": "$pane",
+                  "cornerRadius": 8,
+                  "stroke": "$paneBorder",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "lDjr1",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "height": 32,
+                      "fill": "$band",
+                      "stroke": "$hair",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 10,
+                      "padding": [
+                        0,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "Sw1Ny",
+                          "name": "close",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$textDim"
+                        },
+                        {
+                          "type": "text",
+                          "id": "KZw7u",
+                          "name": "repo-tools @ vscode-agen",
+                          "fill": "$textDim",
+                          "content": "repo-tools @ vscode-agents-menu",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "trojk",
+                      "name": "Body",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "layout": "vertical",
+                      "gap": 10,
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "V5u02J",
+                          "name": "icon",
+                          "width": 28,
+                          "height": 28,
+                          "icon": "monitor-smartphone",
+                          "library": "lucide",
+                          "fill": "$textLabel"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "HkJ2T",
+                          "name": "Text",
+                          "layout": "vertical",
+                          "gap": 6,
+                          "padding": [
+                            4,
+                            0,
+                            8,
+                            0
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "ztVS5",
+                              "name": "Open in another client",
+                              "fill": "$textStrong",
+                              "content": "Open in another client",
+                              "fontFamily": "Inter",
+                              "fontSize": 15,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "text",
+                              "id": "cL008",
+                              "name": "Another herdr client too",
+                              "fill": "$textLabel",
+                              "textGrowth": "fixed-width",
+                              "width": 300,
+                              "content": "Another herdr client took this pane over. It keeps running there; take it back to see it here.",
+                              "lineHeight": 1.45,
+                              "textAlign": "center",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "R6EYC",
+                          "name": "Take it back",
+                          "fill": "$accent",
+                          "cornerRadius": 6,
+                          "gap": 8,
+                          "padding": [
+                            6,
+                            8,
+                            6,
+                            12
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "r3Lbi4",
+                              "name": "Take it back",
+                              "fill": "$pane",
+                              "content": "Take it back",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "600"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "CadNi",
+                              "name": "Keycap",
+                              "fill": "#00000026",
+                              "cornerRadius": 4,
+                              "padding": [
+                                1,
+                                5
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "uzQTq",
+                                  "name": "↩",
+                                  "fill": "$pane",
+                                  "content": "↩",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "600"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "vBbp5",
+                  "name": "B · Strip over stale frame",
+                  "clip": true,
+                  "width": 640,
+                  "height": 380,
+                  "fill": "$pane",
+                  "cornerRadius": 8,
+                  "stroke": "$paneBorder",
+                  "strokeWidth": 1,
+                  "layout": "vertical",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "WtY9W",
+                      "name": "Header",
+                      "width": "fill_container",
+                      "height": 32,
+                      "fill": "$band",
+                      "stroke": "$hair",
+                      "strokeWidth": {
+                        "bottom": 1
+                      },
+                      "gap": 10,
+                      "padding": [
+                        0,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "NxbDU",
+                          "name": "close",
+                          "width": 12,
+                          "height": 12,
+                          "icon": "x",
+                          "library": "lucide",
+                          "fill": "$textDim"
+                        },
+                        {
+                          "type": "text",
+                          "id": "tQ75m",
+                          "name": "repo-tools @ vscode-agen",
+                          "fill": "$textDim",
+                          "content": "repo-tools @ vscode-agents-menu",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 10,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "idlEg",
+                      "name": "Body",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "layout": "vertical",
+                      "justifyContent": "space_between",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "PZfZn",
+                          "name": "Stale frame",
+                          "opacity": 0.35,
+                          "layout": "vertical",
+                          "gap": 2,
+                          "padding": 14,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "PfRCX",
+                              "name": "  ⎿  Read Sources/FlockC",
+                              "fill": "$textStrong",
+                              "content": "  ⎿  Read Sources/FlockCore/Bridge/ControlBridge.swift",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "cragl",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "j4pn62",
+                              "name": "⏺ The takeover path rele",
+                              "fill": "$textStrong",
+                              "content": "⏺ The takeover path releases the hold and",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "U2hiT",
+                              "name": "  sends flock.hold_lost ",
+                              "fill": "$textStrong",
+                              "content": "  sends flock.hold_lost to the app.",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KBRAD",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "r7Z9lK",
+                              "name": "  ⎿  Edit HerdrHold.swif",
+                              "fill": "$textStrong",
+                              "content": "  ⎿  Edit HerdrHold.swift (+12 -3)",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "KmjtN",
+                              "name": " ",
+                              "fill": "$textStrong",
+                              "content": " ",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "text",
+                              "id": "NAA1g",
+                              "name": "> _",
+                              "fill": "$textStrong",
+                              "content": "> _",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 11,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "m5LFCe",
+                          "name": "Strip",
+                          "width": "fill_container",
+                          "fill": "$band",
+                          "stroke": "$hair",
+                          "strokeWidth": {
+                            "top": 1
+                          },
+                          "gap": 10,
+                          "padding": [
+                            10,
+                            12,
+                            10,
+                            14
+                          ],
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "icon",
+                              "id": "vqUbj",
+                              "name": "icon",
+                              "width": 16,
+                              "height": 16,
+                              "icon": "monitor-smartphone",
+                              "library": "lucide",
+                              "fill": "$textLabel"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "TRy5b",
+                              "name": "Text",
+                              "width": "fill_container",
+                              "layout": "vertical",
+                              "gap": 2,
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "V8t6h",
+                                  "name": "Open in another client",
+                                  "fill": "$textStrong",
+                                  "content": "Open in another client",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "text",
+                                  "id": "qM2eD",
+                                  "name": "Paused here; still runni",
+                                  "fill": "$textLabel",
+                                  "content": "Paused here; still running there",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 11,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            },
+                            {
+                              "type": "frame",
+                              "id": "k6YzYg",
+                              "name": "Take it back",
+                              "fill": "$accent",
+                              "cornerRadius": 6,
+                              "gap": 8,
+                              "padding": [
+                                6,
+                                8,
+                                6,
+                                12
+                              ],
+                              "alignItems": "center",
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "cbxkr",
+                                  "name": "Take it back",
+                                  "fill": "$pane",
+                                  "content": "Take it back",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "600"
+                                },
+                                {
+                                  "type": "frame",
+                                  "id": "cAedY",
+                                  "name": "Keycap",
+                                  "fill": "#00000026",
+                                  "cornerRadius": 4,
+                                  "padding": [
+                                    1,
+                                    5
+                                  ],
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "id": "ixset",
+                                      "name": "↩",
+                                      "fill": "$pane",
+                                      "content": "↩",
+                                      "fontFamily": "Inter",
+                                      "fontSize": 11,
+                                      "fontWeight": "600"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
                         }
                       ]
                     }

@@ -74,9 +74,10 @@ public final class PaneControlChannel {
         send(command, waitsForReader: false)
     }
 
-    private func send(_ command: [String: Any], waitsForReader: Bool) {
-        guard fd >= 0, let payload = ControlBridge.encodeLine(command) else { return }
-        writeWholeLine(payload, waitsForReader: waitsForReader)
+    @discardableResult
+    private func send(_ command: [String: Any], waitsForReader: Bool) -> Bool {
+        guard fd >= 0, let payload = ControlBridge.encodeLine(command) else { return false }
+        return writeWholeLine(payload, waitsForReader: waitsForReader)
     }
 
     /// How long a write waits for the bridge to drain the FIFO before giving
@@ -104,12 +105,13 @@ public final class PaneControlChannel {
     /// dropped on a full FIFO, since one wheel gesture sends a command per
     /// cell crossed; a line that may not wait is written only if it is at most
     /// `PIPE_BUF` bytes, which the FIFO takes whole or not at all.
-    private func writeWholeLine(_ payload: Data, waitsForReader: Bool) {
+    @discardableResult
+    private func writeWholeLine(_ payload: Data, waitsForReader: Bool) -> Bool {
         let mayWait = waitsForReader && !stalled
-        guard mayWait || payload.count <= Int(PIPE_BUF) else { return }
+        guard mayWait || payload.count <= Int(PIPE_BUF) else { return false }
         if tornLine {
             var newline: UInt8 = 0x0A
-            guard write(fd, &newline, 1) == 1 else { return }
+            guard write(fd, &newline, 1) == 1 else { return false }
             tornLine = false
         }
         var deadline: Date?
@@ -138,6 +140,7 @@ public final class PaneControlChannel {
             return true
         }
         if delivered { stalled = false }
+        return delivered
     }
 
     /// A `terminal.scroll` line: moves the pane's real, shared herdr
@@ -175,8 +178,10 @@ public final class PaneControlChannel {
     /// A hold command. Unlike everything else on this channel these are acted
     /// on by the bridge itself rather than forwarded to herdr, which is why
     /// they are `flock.`-namespaced (see `HoldCommand`).
-    public func hold(_ command: HoldCommand) {
-        send(command.json)
+    /// Whether the line reached the FIFO whole.
+    @discardableResult
+    public func hold(_ command: HoldCommand) -> Bool {
+        send(command.json, waitsForReader: false)
     }
 
     /// Tells the bridge this pane's surface just took a new grid, so it

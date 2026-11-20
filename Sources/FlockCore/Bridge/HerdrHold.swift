@@ -27,6 +27,19 @@ public enum HoldStatus: String, Equatable, Sendable, CaseIterable {
     case lost = "flock.hold_lost"
 }
 
+/// Why a pane has no herdr client, carried as `reason` on the bridge's
+/// `flock.hold_lost` line.
+public enum HoldLossReason: String, Equatable, Sendable, CaseIterable {
+    /// A client flock already had was dropped: another client attached to the
+    /// pane with takeover.
+    case takenOver = "taken_over"
+    /// Every retake was refused.
+    case refused
+
+    /// The `flock.hold_lost` status line for this reason.
+    public var statusJSON: [String: Any] { ["type": HoldStatus.lost.rawValue, "reason": rawValue] }
+}
+
 /// When flock holds herdr's panes and when it hands them back, from whether
 /// flock is on screen at all.
 ///

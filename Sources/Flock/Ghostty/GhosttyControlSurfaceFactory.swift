@@ -129,7 +129,7 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
         // close callback) already latched it well before 3s.
         Task { @MainActor [weak session] in
             try? await Task.sleep(for: .seconds(3))
-            session?.markFirstFrameReceived()
+            session?.firstFrameLatch.markReceivedByTimeout()
         }
         // Read on the main queue and apply synchronously: a capture line's
         // effect lands in the order the bridge wrote it, so an app toggling
@@ -141,9 +141,9 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
                     session?.markFirstFrameReceived()
                 }
             },
-            onHoldLost: { [weak session] in
+            onHoldLost: { [weak session] reason in
                 MainActor.assumeIsolated {
-                    session?.markHoldLost()
+                    session?.markHoldLost(reason)
                 }
             }
         ) { [weak session] enabled, _ in
@@ -224,6 +224,8 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     }
 
     var hasFirstFrame: Bool { session.hasFirstFrame }
+
+    var holdLoss: HoldLossReason? { session.firstFrameLatch.holdLoss }
 
     var hasClaimedMouse: Bool { session.hasClaimedMouse }
     var programHasMouse: Bool { session.mouseCaptureEnabled }

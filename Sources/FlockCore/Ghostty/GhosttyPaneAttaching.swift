@@ -15,7 +15,12 @@ public final class FirstFrameLatch {
 
     public init() {}
 
+    /// Why the pane has no herdr client, while it has none and no take is
+    /// pending. The pane shows `PaneHoldLostView` instead of the loader.
+    public private(set) var holdLoss: HoldLossReason?
+
     public func markReceived() {
+        if holdLoss != nil { holdLoss = nil }
         guard !received else { return }
         received = true
     }
@@ -27,9 +32,22 @@ public final class FirstFrameLatch {
     /// yet, and a pane with no herdr client at all is in exactly that state.
     /// The bridge re-arms its own first-frame gate at the same moment, so a
     /// later take's full frame sets this again and the card crossfades away.
-    public func markHoldLost() {
+    public func markHoldLost(_ reason: HoldLossReason) {
+        holdLoss = reason
         guard received else { return }
         received = false
+    }
+
+    /// The cold-start timeout standing in for a first frame. It is no frame,
+    /// so it leaves a hold loss in place.
+    public func markReceivedByTimeout() {
+        guard holdLoss == nil else { return }
+        markReceived()
+    }
+
+    /// A take went out: the pane waits on its frame again, under the loader.
+    public func markRetaking() {
+        holdLoss = nil
     }
 }
 
@@ -150,9 +168,14 @@ public protocol GhosttyPaneSurface: AnyObject, Sendable {
     /// is then a dead terminal: nothing feeds it and nothing it is sent
     /// reaches herdr.
     func onBridgeEnded(_ handler: @escaping () -> Void)
+
+    /// Why the pane has no herdr client, while it has none and no take is
+    /// pending.
+    var holdLoss: HoldLossReason? { get }
 }
 
 public extension GhosttyPaneSurface {
+    var holdLoss: HoldLossReason? { nil }
     func rekey(to pane: PaneID) {}
     func onBridgeEnded(_ handler: @escaping () -> Void) {}
 }
