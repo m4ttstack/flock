@@ -124,15 +124,29 @@ final class HerdrHoldTests: XCTestCase {
     func testTheFirstFrameLatchClearsOnlyWhenAHoldIsLostAndCanBeSetAgain() {
         let latch = FirstFrameLatch()
         XCTAssertFalse(latch.received)
-        latch.markHoldLost()
+        latch.markHoldLost(.refused)
         XCTAssertFalse(latch.received, "a pane with no frame yet gained one")
         latch.markReceived()
         latch.markReceived()
         XCTAssertTrue(latch.received)
-        latch.markHoldLost()
+        latch.markHoldLost(.takenOver)
         XCTAssertFalse(latch.received, "the card cannot come back for a dead pane")
         latch.markReceived()
         XCTAssertTrue(latch.received, "a later take could never clear the card again")
+    }
+
+    /// The taken-over screen stays until a take goes out or a frame arrives.
+    @MainActor
+    func testHoldLossShowsUntilARetakeOrAFrame() {
+        let latch = FirstFrameLatch()
+        latch.markReceived()
+        latch.markHoldLost(.takenOver)
+        XCTAssertEqual(latch.holdLoss, .takenOver)
+        latch.markRetaking()
+        XCTAssertNil(latch.holdLoss, "a take still shows the taken-over screen")
+        latch.markHoldLost(.refused)
+        latch.markReceived()
+        XCTAssertNil(latch.holdLoss, "a live frame still shows the screen")
     }
 
     /// Pins the constant, not a behavior: the measurement it has to outlast

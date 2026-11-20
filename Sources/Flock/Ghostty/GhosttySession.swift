@@ -578,10 +578,10 @@ final class GhosttySession {
     }
 
     /// Called from `statusChannel`'s reader when the bridge gives up retaking
-    /// its herdr hold. The pane's status card comes back, because the frame on
+    /// its herdr hold, or another client took the pane over. The frame on
     /// screen is no longer live and nothing further is pending.
-    func markHoldLost() {
-        firstFrameLatch.markHoldLost()
+    func markHoldLost(_ reason: HoldLossReason) {
+        firstFrameLatch.markHoldLost(reason)
     }
 
     /// Sends one structured mouse event to the pane's own program over the
@@ -604,6 +604,7 @@ final class GhosttySession {
     /// on this side is torn down or rebuilt: the surface, its PTY and its
     /// scrollback are untouched either way.
     func sendHold(_ command: HoldCommand) {
+        if command == .take { firstFrameLatch.markRetaking() }
         controlChannel?.hold(command)
     }
 

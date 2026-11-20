@@ -1025,6 +1025,26 @@ enum ChromeMetrics {
         static let markSize: CGFloat = 64
     }
 
+    enum HoldLost {
+        static let spacing: CGFloat = 10
+        static let iconSize: CGFloat = 28
+        static let textSpacing: CGFloat = 6
+        static let textTopPadding: CGFloat = 4
+        static let textBottomPadding: CGFloat = 8
+        static let bodyWidth: CGFloat = 300
+        /// The mock's 1.45 line height at 12pt, over Inter's own.
+        static let bodyLineSpacing: CGFloat = 3
+        static let horizontalPadding: CGFloat = 20
+        static let actionGap: CGFloat = 8
+        static let actionLeadingPadding: CGFloat = 12
+        static let actionTrailingPadding: CGFloat = 8
+        static let actionVerticalPadding: CGFloat = 6
+        static let actionCornerRadius: CGFloat = 6
+        static let keycapHorizontalPadding: CGFloat = 5
+        static let keycapVerticalPadding: CGFloat = 1
+        static let keycapCornerRadius: CGFloat = 4
+    }
+
     enum Launcher {
         static let barPadding: CGFloat = 7
         static let itemSpacing: CGFloat = 4

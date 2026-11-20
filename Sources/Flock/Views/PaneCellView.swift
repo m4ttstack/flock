@@ -879,8 +879,12 @@ struct PaneCellView: View {
     /// attach finishes inside `appearDelay` never sets `loaderShownAt`, so
     /// this is never true for it and the pane simply appears.
     private var showsAttachLoader: Bool {
-        guard loaderShownAt != nil else { return false }
+        guard loaderShownAt != nil, holdLoss == nil else { return false }
         return !hasFirstFrame || !loaderDismissed
+    }
+
+    private var holdLoss: HoldLossReason? {
+        ghosttySurface?.holdLoss
     }
 
     /// `false` until the surface exists, so the wait the badge times starts
@@ -951,12 +955,18 @@ struct PaneCellView: View {
     private func content(editorIsOpen: Bool) -> some View {
         paneBody(editorIsOpen: editorIsOpen)
             .overlay {
-                if showsAttachLoader {
+                if let holdLoss {
+                    PaneHoldLostView(theme: theme, reason: holdLoss) {
+                        ghosttySurface?.takeHerdrHold()
+                    }
+                    .transition(.opacity)
+                } else if showsAttachLoader {
                     PaneLoaderView(theme: theme)
                         .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: showsAttachLoader)
+            .animation(.easeOut(duration: PaneLoaderPolicy.dismissCrossFade), value: holdLoss)
             .onChange(of: hasFirstFrame, initial: true) { _, hasFirstFrame in
                 handleFirstFrameChange(hasFirstFrame)
             }

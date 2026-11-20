@@ -877,6 +877,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// navigation) this view does not control.
     override func keyDown(with event: NSEvent) {
         guard InputSinkDisposition.decide(wantsFocus: wantsFocus) == .deliver else { return }
+        if session.firstFrameLatch.holdLoss != nil {
+            if event.keyCode == 36 || event.keyCode == 76 { session.sendHold(.take) }
+            return
+        }
         session.linkChip.dismiss()
         setOverLink(nil)
         // `keyDown` (never `flagsChanged`) is by construction real key input,

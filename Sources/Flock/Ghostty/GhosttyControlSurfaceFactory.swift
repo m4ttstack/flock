@@ -141,9 +141,9 @@ final class GhosttyControlSurfaceFactory: GhosttyPaneFactory {
                     session?.markFirstFrameReceived()
                 }
             },
-            onHoldLost: { [weak session] in
+            onHoldLost: { [weak session] reason in
                 MainActor.assumeIsolated {
-                    session?.markHoldLost()
+                    session?.markHoldLost(reason)
                 }
             }
         ) { [weak session] enabled, _ in
@@ -224,6 +224,8 @@ final class GhosttySessionSurfaceHandle: GhosttyPaneSurface, @unchecked Sendable
     }
 
     var hasFirstFrame: Bool { session.hasFirstFrame }
+
+    var holdLoss: HoldLossReason? { session.firstFrameLatch.holdLoss }
 
     var hasClaimedMouse: Bool { session.hasClaimedMouse }
     var programHasMouse: Bool { session.mouseCaptureEnabled }

@@ -814,7 +814,7 @@ final class BridgeChildSupervisor: @unchecked Sendable {
         guard let delay else {
             // The next full frame has to be able to clear the card this puts up.
             io?.rearmFirstFrame()
-            io?.sendStatus(["type": HoldStatus.lost.rawValue])
+            io?.sendStatus(HoldLossReason.refused.statusJSON)
             return
         }
         scheduleRetry(delay) { [weak self] in
@@ -908,7 +908,7 @@ final class BridgeChildSupervisor: @unchecked Sendable {
                 // the card this puts up.
                 io?.retireHerdrOutput()
                 io?.rearmFirstFrame()
-                io?.sendStatus(["type": HoldStatus.lost.rawValue])
+                io?.sendStatus(HoldLossReason.takenOver.statusJSON)
                 lock.unlock()
                 afterExitClassified()
             } else {
