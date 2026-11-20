@@ -1412,7 +1412,9 @@ public final class SessionViewModel {
     /// later edge to correct it. A bridge that already holds ignores a repeat.
     public func takeHerdrHold() {
         herdrHoldIntent = .take
-        for surface in ghosttySurfaces.values { surface.takeHerdrHold() }
+        // A pane another client took over stays with it until the user takes
+        // it back from the pane itself.
+        for surface in ghosttySurfaces.values where surface.holdLoss != .takenOver { surface.takeHerdrHold() }
         Self.holdLog.log("hold taken panes=\(self.ghosttySurfaces.count)")
     }
 

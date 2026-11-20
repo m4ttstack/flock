@@ -249,6 +249,7 @@ private final class FakeGhosttyPaneSurface: GhosttyPaneSurface, @unchecked Senda
     var hasClaimedMouse = false
     var programHasMouse = false
     var isOnScreen = false
+    var holdLoss: HoldLossReason?
 
     init(pane: PaneID) {
         self.pane = pane
@@ -1912,6 +1913,25 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.ghosttySurface(for: visible) === visibleSurface)
         XCTAssertTrue(viewModel.ghosttySurface(for: parked) === parkedSurface, "the warm cache lost a pane")
         XCTAssertEqual(viewModel.selectedWorkspaceID, selectedBefore)
+    }
+
+    @MainActor
+    func testTakingEveryHoldLeavesATakenOverPaneWithItsClient() async throws {
+        let factory = FakeGhosttyPaneFactory()
+        let viewModel = SessionViewModel(client: RecordingCommandClient(), ghosttyFactory: factory)
+        let takenOver = PaneID(rawValue: "w1:p1")
+        let refused = PaneID(rawValue: "w1:p2")
+        _ = await viewModel.attachPane(takenOver)
+        _ = await viewModel.attachPane(refused)
+        let takenOverSurface = try XCTUnwrap(factory.surfaces[takenOver])
+        let refusedSurface = try XCTUnwrap(factory.surfaces[refused])
+        takenOverSurface.holdLoss = .takenOver
+        refusedSurface.holdLoss = .refused
+
+        viewModel.takeHerdrHold()
+
+        XCTAssertFalse(takenOverSurface.holdCalls.contains(.take), "coming back to flock stole the pane back")
+        XCTAssertTrue(refusedSurface.holdCalls.contains(.take), "a refused pane was not retried")
     }
 
     /// The release is deliberately not on the `paneWork` chain, so a surface
