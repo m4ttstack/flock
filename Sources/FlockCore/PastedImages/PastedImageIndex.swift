@@ -9,6 +9,9 @@ public struct PastedImageIndex: Codable, Equatable, Sendable {
     private struct Conversation: Codable, Equatable {
         var updated: Date
         var images: [Int: String]
+        /// Dropped files. Optional so an index from before there were any
+        /// still reads.
+        var attachments: [Int: String]?
     }
 
     private var conversations: [String: Conversation] = [:]
@@ -26,6 +29,17 @@ public struct PastedImageIndex: Codable, Equatable, Sendable {
 
     public func images(for conversation: String) -> [Int: String] {
         conversations[conversation]?.images ?? [:]
+    }
+
+    public func files(for conversation: String) -> [Int: String] {
+        conversations[conversation]?.attachments ?? [:]
+    }
+
+    public mutating func set(_ path: String, asFile number: Int, in conversation: String, now: Date) {
+        var entry = conversations[conversation] ?? Conversation(updated: now, images: [:])
+        entry.attachments = (entry.attachments ?? [:]).merging([number: path]) { $1 }
+        entry.updated = now
+        conversations[conversation] = entry
     }
 
     public mutating func set(_ path: String, as number: Int, in conversation: String, now: Date) {

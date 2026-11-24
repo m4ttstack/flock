@@ -1054,7 +1054,8 @@ struct PaneCellView: View {
                         viewModel?.model?.panes[paneID].map { $0.foregroundCwd ?? $0.cwd }
                     },
                     // An agent that has exited leaves its session id behind.
-                    conversation: pane.agent == nil ? nil : pane.agentSessionID, acceptsDrops: !isBehindModal,
+                    conversation: pane.agent == nil ? nil : pane.agentSessionID, agent: pane.agent,
+                    acceptsDrops: !isBehindModal,
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }

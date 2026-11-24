@@ -56,6 +56,7 @@ struct GhosttyPaneTerminalView: View {
     let conversation: String?
     /// False while a modal is over the pane, which a drop would go through.
     let acceptsDrops: Bool
+    let agent: String?
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -75,7 +76,7 @@ struct GhosttyPaneTerminalView: View {
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         linkFolder: @escaping () -> String? = { nil },
-        conversation: String? = nil, acceptsDrops: Bool = true,
+        conversation: String? = nil, agent: String? = nil, acceptsDrops: Bool = true,
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -95,6 +96,7 @@ struct GhosttyPaneTerminalView: View {
         self.linkFolder = linkFolder
         self.conversation = conversation
         self.acceptsDrops = acceptsDrops
+        self.agent = agent
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -166,11 +168,13 @@ struct GhosttyPaneTerminalView: View {
         .onAppear { bind() }
         .onChange(of: conversation) { bind() }
         .onChange(of: acceptsDrops) { bind() }
+        .onChange(of: agent) { bind() }
         .onChange(of: ObjectIdentifier(surface)) { bind() }
     }
 
     private func bind() {
         session?.pastedImages.acceptsDrops = acceptsDrops
+        session?.agent = agent
         session?.pastedImages.bind(conversation: conversation)
     }
 

@@ -61,6 +61,16 @@ final class PastedImageStore {
         index.images(for: conversation)
     }
 
+    func files(for conversation: String) -> [Int: String] {
+        index.files(for: conversation)
+    }
+
+    func keep(_ path: String, asFile number: Int, in conversation: String, now: Date = Date()) {
+        guard ensureDirectory() else { return }
+        index.set(path, asFile: number, in: conversation, now: now)
+        save()
+    }
+
     /// The path the image is kept at from here on.
     func keep(_ path: String, as number: Int, in conversation: String, now: Date = Date()) -> String {
         guard ensureDirectory() else { return path }

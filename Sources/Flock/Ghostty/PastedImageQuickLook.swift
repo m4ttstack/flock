@@ -12,17 +12,22 @@ final class PastedImageQuickLook: NSObject {
 
     final class Item: NSObject, QLPreviewItem {
         let number: Int
+        let title: String
         let url: URL
         let thumbnail: NSImage
+        /// Of what is previewed.
+        let size: CGSize
 
-        init(number: Int, url: URL, thumbnail: NSImage) {
+        init(number: Int, title: String, url: URL, thumbnail: NSImage, size: CGSize? = nil) {
             self.number = number
+            self.title = title
             self.url = url
             self.thumbnail = thumbnail
+            self.size = size ?? thumbnail.size
         }
 
         var previewItemURL: URL? { url }
-        var previewItemTitle: String? { "Image \(number)" }
+        var previewItemTitle: String? { title }
     }
 
     private var items: [Item] = []
@@ -109,7 +114,7 @@ final class PastedImageQuickLook: NSObject {
         guard let window else { return panel.makeKeyAndOrderFront(nil) }
         Responder.install(in: window)
         let target = QuickLookPlacement.frame(
-            image: items[index].thumbnail.size,
+            image: items[index].size,
             anchor: sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0),
             window: window.frame, visibleScreen: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame,
             chrome: panel.frameRect(forContentRect: .zero).height

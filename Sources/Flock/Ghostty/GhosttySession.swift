@@ -675,6 +675,60 @@ final class GhosttySession {
 
     let linkChip = LinkChipModel()
     let pastedImages = PastedImagesModel()
+    /// The agent herdr detected in the pane, nil for a shell.
+    var agent: String?
+
+    /// A drop. An agent that folds pastes is handed each file that is not an
+    /// image as one of its own, after the images: it takes a paste of image
+    /// paths for images only when that is all the paste holds.
+    func drop(_ pasteboard: NSPasteboard) {
+        // A dialog or an editor the agent has up takes a path, not a label.
+        guard !isRemoteMachine, FileMention.isRead(by: agent), pastedImages.promptIsDrawn else {
+            return paste(from: pasteboard)
+        }
+        let contents = pasteboard.pasteContents()
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let others = urls.map(\.path).filter { !contents.imagePaths.contains($0) }
+        // Images alone go at once, unless files are still going out ahead.
+        guard !others.isEmpty || dropsUnderWay > 0 else { return paste(from: pasteboard) }
+        let images = ClipboardPaste.text(joining: contents.imagePaths.map(ClipboardPaste.escape))
+        let earlier = dropping
+        let conversation = pastedImages.conversation
+        dropsUnderWay += 1
+        dropping = Task { [weak self] in
+            await earlier?.value
+            defer { self?.dropsUnderWay -= 1 }
+            if let images, self?.takesDrop(from: conversation) == true {
+                self?.paste(images, images: contents.imagePaths)
+                try? await Task.sleep(for: Self.pasteSpacing)
+            }
+            for path in others {
+                guard let self, takesDrop(from: conversation) else { return }
+                drops += 1
+                if let text = FileMention.paste(for: path, drop: drops) {
+                    pastedImages.willDrop(path)
+                    paste(text)
+                } else {
+                    paste(ClipboardPaste.escape(path) + " ")
+                }
+                try? await Task.sleep(for: Self.pasteSpacing)
+            }
+        }
+    }
+
+    /// Whatever has the pane by the time the rest of a drop goes out, a shell,
+    /// a dialog or another conversation, is not handed it.
+    private func takesDrop(from conversation: String?) -> Bool {
+        FileMention.isRead(by: agent) && pastedImages.promptIsDrawn
+            && (conversation == nil || pastedImages.conversation == conversation)
+    }
+
+    private var dropsUnderWay = 0
+    private var dropping: Task<Void, Never>?
+    private var drops = 0
+    /// Claude Code takes pastes closer together than its own wait for the
+    /// rest of one as a single paste.
+    private static let pasteSpacing: Duration = .milliseconds(300)
 
     /// `images` are the files `text` names, from the same reading of the
     /// pasteboard.
@@ -726,7 +780,8 @@ final class GhosttySession {
         }
         // This runs for every frame, and most screens show no label.
         let count = UInt32(size.rows)
-        let rows = whole || text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
+        let shown = whole ? "" : text(from: 0, to: count - 1)
+        let rows = whole || PastedImageLabels.markers.contains(where: shown.contains)
             ? (0..<count).map { text(from: $0, to: $0) } : []
         return PastedImagesModel.Screen(
             rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),

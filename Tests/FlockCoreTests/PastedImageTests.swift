@@ -56,6 +56,24 @@ final class PastedImageLabelsTests: XCTestCase {
         XCTAssertEqual(PastedImageLabels(rows: ["[Image"]).labels, [])
     }
 
+    func testAPastedTextIsItsOwnKindOfLabel() {
+        let read = PastedImageLabels(rows: ["[Image #1] [Pasted text #2] [Pasted text #3] [Pasted text #4 +12 lines]"])
+        XCTAssertEqual(read.labels.map(\.number), [1])
+        XCTAssertEqual(read.texts.map(\.number), [2, 3])
+        XCTAssertEqual(read.texts.map(\.column), [11, 28])
+        XCTAssertEqual(read.texts.map(\.cells), [16, 16])
+    }
+
+    func testAPastedTextWrappedAtAnySpaceIsOneLabel() {
+        for (first, second) in [("[Pasted", "text #14]"), ("[Pasted text", "#14]")] {
+            let read = PastedImageLabels(rows: [rule, "\u{276F} a \(first)", "  \(second) b", rule])
+            XCTAssertEqual(read.texts, [PastedImageLabel(
+                kind: .text, number: 14, row: 1, column: 4, cells: first.count, inPrompt: true,
+                isAttachmentLine: false, tail: .init(column: 2, cells: second.count))], first)
+            XCTAssertEqual(read.labels, [])
+        }
+    }
+
     func testOtherBracketsAreNotLabels() {
         XCTAssertEqual(PastedImageLabels(rows: ["[Image #] [Image 3] [image #4] [Image #5"]).labels, [])
     }
@@ -151,6 +169,16 @@ final class PastedImageMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.match(screen(prompt: [1, 2]), now: at(4)).map(\.path), ["/slow.png"])
     }
 
+    func testAFileTakesAPastedTextsLabelAndAnImageDoesNot() {
+        var images = PastedImageMatcher(.image)
+        var files = PastedImageMatcher(.text)
+        _ = images.willPaste(["/a.png"], over: screen(prompt: []), now: start)
+        _ = files.willPaste(["/a.js"], over: screen(prompt: []), now: start)
+        let both = PastedImageLabels(rows: [rule, "[Pasted text #4] [Image #5]", rule])
+        XCTAssertEqual(images.match(both, now: at(1)).map(\.number), [5])
+        XCTAssertEqual(files.match(both, now: at(1)).map(\.number), [4])
+    }
+
     func testAPasteFromBeforeAResetCancelsNothingAfterIt() {
         var matcher = PastedImageMatcher()
         let old = matcher.willPaste(["/old.png"], over: screen(prompt: []), held: true, now: start)
@@ -220,6 +248,22 @@ final class PastedImageIndexTests: XCTestCase {
         index.prune(now: now)
         XCTAssertFalse(index.images(for: "one").isEmpty)
         XCTAssertEqual(index.images(for: "one"), [1: "/a.png", 2: "/b.png"])
+    }
+
+    func testFilesAndImagesKeepTheirOwnNumbers() throws {
+        var index = PastedImageIndex()
+        index.set("/a.png", as: 1, in: "one", now: now)
+        index.set("/a.js", asFile: 1, in: "one", now: now)
+        XCTAssertEqual(index.images(for: "one"), [1: "/a.png"])
+        XCTAssertEqual(index.files(for: "one"), [1: "/a.js"])
+        XCTAssertEqual(try JSONDecoder().decode(PastedImageIndex.self, from: JSONEncoder().encode(index)), index)
+    }
+
+    func testAnIndexFromBeforeThereWereFilesStillReads() throws {
+        let old = Data(#"{"one":{"updated":10000000,"images":{"1":"/a.png"}}}"#.utf8)
+        let index = try JSONDecoder().decode(PastedImageIndex.self, from: old)
+        XCTAssertEqual(index.images(for: "one"), [1: "/a.png"])
+        XCTAssertEqual(index.files(for: "one"), [:])
     }
 
     func testAConversationInUseIsKept() {
@@ -316,5 +360,42 @@ final class PaneDropLabelTests: XCTestCase {
         XCTAssertEqual(PaneDropLabel.text(count: 1, allImages: true), "Drop image")
         XCTAssertEqual(PaneDropLabel.text(count: 3, allImages: true), "Drop 3 images")
         XCTAssertEqual(PaneDropLabel.text(count: 2, allImages: false), "Drop 2 files")
+    }
+}
+
+final class FileMentionTests: XCTestCase {
+    private func mention(_ path: String) throws -> String {
+        let paste = try XCTUnwrap(FileMention.paste(for: path, drop: 0))
+        return String(paste[try XCTUnwrap(paste.firstIndex(of: "@"))...])
+    }
+
+    func testAFileIsNamedInFullAndQuoted() throws {
+        XCTAssertEqual(try mention("/Users/acme/app/src/a.swift"), "@\"/Users/acme/app/src/a.swift\"")
+        XCTAssertEqual(try mention("/tmp/my @icons/a.js"), "@\"/tmp/my @icons/a.js\"")
+    }
+
+    func testAPathTheQuotesCannotHoldIsLeftAlone() {
+        XCTAssertNil(FileMention.paste(for: "/tmp/a\"b.js", drop: 0))
+        XCTAssertNil(FileMention.paste(for: "/tmp/a\nb.js", drop: 0))
+    }
+
+    /// What Claude Code folds, and into the label with no line count.
+    func testEveryPasteFoldsIntoTheShortestLabel() throws {
+        for path in ["/a", "/tmp/" + String(repeating: "long/", count: 300) + "a.js"] {
+            let paste = try XCTUnwrap(FileMention.paste(for: path, drop: 0))
+            XCTAssertGreaterThan(paste.count, 800)
+            XCTAssertFalse(paste.contains(where: \.isNewline))
+            XCTAssertEqual(paste, paste.trimmingCharacters(in: .whitespaces))
+        }
+    }
+
+    func testTheSameFileTwiceIsNotTheSamePaste() {
+        XCTAssertNotEqual(FileMention.paste(for: "/a.js", drop: 1), FileMention.paste(for: "/a.js", drop: 2))
+    }
+
+    func testOnlyAnAgentThatReadsMentionsIsHandedOne() {
+        XCTAssertTrue(FileMention.isRead(by: "claude"))
+        XCTAssertFalse(FileMention.isRead(by: "codex"))
+        XCTAssertFalse(FileMention.isRead(by: nil))
     }
 }

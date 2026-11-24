@@ -58,6 +58,22 @@ final class PastedImagesModel {
         let ground: Ground?
     }
 
+    /// A dropped file, by the label its paste was folded into.
+    struct File: Equatable {
+        let number: Int
+        let path: String
+        let icon: NSImage
+        /// The label, which its program may have wrapped onto a second row,
+        /// and the part of it the chip takes.
+        let runs: [CGRect]
+        let chip: CGRect
+        let ground: Ground?
+
+        var url: URL { URL(fileURLWithPath: path) }
+        var link: PaneLink { .file(url) }
+        var name: String { url.lastPathComponent }
+    }
+
     struct Screen {
         /// One string per row, or none where no row holds a label.
         let rows: [String]
@@ -81,6 +97,8 @@ final class PastedImagesModel {
 
     private(set) var labels: [Label] = []
     private(set) var images: [Int: PastedImage] = [:]
+    private(set) var files: [File] = []
+    private(set) var highlightedFile: Int?
     /// The top of the rule over the prompt.
     private(set) var promptTop: CGFloat?
     /// The image the pointer is on, by its label or its thumbnail.
@@ -94,12 +112,14 @@ final class PastedImagesModel {
     @ObservationIgnored var thumbFrames: [Int: CGRect] = [:]
 
     @ObservationIgnored private let store: @MainActor () -> PastedImageStore
-    @ObservationIgnored private var conversation: String?
+    @ObservationIgnored private(set) var conversation: String?
     /// Pasted while no conversation was known.
     @ObservationIgnored private var unfiled: [Int: String] = [:]
+    @ObservationIgnored private var unfiledFiles: [Int: String] = [:]
     /// What a number named just before a paste took it, in case the paste turns
     /// out to be another conversation's.
     @ObservationIgnored private var displaced: [Int: String] = [:]
+    @ObservationIgnored private var displacedFiles: [Int: String] = [:]
     /// The last conversation known, which an agent that exits leaves.
     @ObservationIgnored private var shownConversation: String?
     /// One that arrived while the pane was off screen.
@@ -107,6 +127,9 @@ final class PastedImagesModel {
     /// Every image this conversation has, whether or not it is loaded: one is
     /// loaded once its label is on screen.
     @ObservationIgnored private var paths: [Int: String] = [:]
+    @ObservationIgnored private var filePaths: [Int: String] = [:]
+    @ObservationIgnored private var icons: [String: NSImage] = [:]
+    @ObservationIgnored private var fileMatcher = PastedImageMatcher(.text)
     @ObservationIgnored private var loading: Set<Int> = []
     @ObservationIgnored private var touched = Date.distantPast
     @ObservationIgnored private var matcher = PastedImageMatcher()
@@ -123,6 +146,26 @@ final class PastedImagesModel {
     }
 
     var hasConversation: Bool { conversation != nil }
+
+    /// Whether the pane shows a prompt that a paste would land in.
+    var promptIsDrawn: Bool {
+        pane?.screen(true).map { PastedImageLabels(rows: $0.rows).promptRow != nil } ?? false
+    }
+
+    /// Called before a dropped file's paste is sent, as `willPaste` is.
+    func willDrop(_ path: String) {
+        guard let screen = pane?.screen(true) else { return }
+        _ = fileMatcher.willPaste([path], over: PastedImageLabels(rows: screen.rows), now: Date())
+        watch()
+    }
+
+    func file(at point: CGPoint) -> File? {
+        files.first { $0.chip.contains(point) }
+    }
+
+    func highlightFile(_ number: Int?) {
+        if highlightedFile != number { highlightedFile = number }
+    }
 
     /// The images in the prompt, in the order their numbers run.
     var promptNumbers: [Int] {
@@ -141,6 +184,7 @@ final class PastedImagesModel {
             return
         }
         var shown: [Int] = []
+        var shownFiles: [Int] = []
         if let next, let previous = shownConversation, previous != next {
             // What is on screen says which images are the new one's.
             guard let screen = pane?.screen(true) else {
@@ -148,13 +192,17 @@ final class PastedImagesModel {
                 watch()
                 return
             }
-            shown = PastedImageLabels(rows: screen.rows).labels.map(\.number)
+            let read = PastedImageLabels(rows: screen.rows)
+            shown = read.labels.map(\.number)
+            shownFiles = read.texts.map(\.number)
         }
         deferred = nil
         conversation = next
         guard let next else { return }
         var carried = unfiled
+        var carriedFiles = unfiledFiles
         unfiled = [:]
+        unfiledFiles = [:]
         if let previous = shownConversation, previous != next {
             // A conversation resumed has its own images, which the screen says
             // nothing about; a fresh one has none.
@@ -163,14 +211,23 @@ final class PastedImagesModel {
                 carried[number] = paths[number]
                 if let path = displaced[number] { _ = store().keep(path, as: number, in: previous) }
             }
+            let ownFiles = store().files(for: next)
+            for number in Set(shownFiles) where filePaths[number] != nil && ownFiles[number] == nil {
+                carriedFiles[number] = filePaths[number]
+                if let path = displacedFiles[number] { store().keep(path, asFile: number, in: previous) }
+            }
             matcher.reset()
+            fileMatcher.reset()
             displaced = [:]
+            displacedFiles = [:]
         }
         shownConversation = next
         paths = store().images(for: next)
         images = images.filter { (carried[$0.key] ?? paths[$0.key]) == $0.value.path }
         touched = .distantPast
+        filePaths = store().files(for: next)
         for (number, path) in carried { assign(path, to: number) }
+        for (number, path) in carriedFiles { assignFile(path, to: number) }
         watch()
     }
 
@@ -239,7 +296,7 @@ final class PastedImagesModel {
         let inPrompt = labels.contains { $0.number == number && $0.inPrompt }
         let numbers = Set(labels.filter { $0.inPrompt == inPrompt }.map(\.number)).union([number])
         let items = numbers.sorted().compactMap { number in
-            images[number].map { PastedImageQuickLook.Item(number: number, url: $0.url, thumbnail: $0.thumbnail) }
+            images[number].map { PastedImageQuickLook.Item(number: number, title: "Image \(number)", url: $0.url, thumbnail: $0.thumbnail) }
         }
         PastedImageQuickLook.shared.show(items, startingAt: number, over: pane?.window()) { [weak self] shown in
             guard let self else { return nil }
@@ -251,9 +308,27 @@ final class PastedImagesModel {
             return rect.flatMap { self.pane?.toScreen($0) }
         } isImage: { [weak self] point in
             guard let self, let point = pane?.fromWindow(point) else { return false }
-            return label(at: point) != nil || trayFrame?.contains(point) == true
+            return file(at: point) != nil || label(at: point) != nil || trayFrame?.contains(point) == true
         }
     }
+
+    func quickLook(_ file: File) {
+        let item = PastedImageQuickLook.Item(
+            number: Self.fileItem, title: file.name, url: file.url,
+            thumbnail: file.icon, size: Self.filePreviewSize
+        )
+        PastedImageQuickLook.shared.show([item], startingAt: Self.fileItem, over: pane?.window()) { [weak self] _ in
+            self?.pane?.toScreen(file.chip)
+        } isImage: { [weak self] point in
+            guard let self, let point = pane?.fromWindow(point) else { return false }
+            return self.file(at: point) != nil || label(at: point) != nil || trayFrame?.contains(point) == true
+        }
+    }
+
+    /// No image's number.
+    private static let fileItem = -1
+    /// A file says nothing of its preview's size, and its icon's is tiny.
+    private static let filePreviewSize = CGSize(width: 760, height: 900)
 
     private func visibleThumbFrame(_ number: Int) -> CGRect? {
         guard let tray = trayFrame, let thumb = thumbFrames[number],
@@ -272,7 +347,7 @@ final class PastedImagesModel {
                 try? await Task.sleep(for: Self.pollInterval)
                 guard let self else { return }
                 refresh()
-                if paths.isEmpty, !matcher.isWaiting, deferred == nil { break }
+                if paths.isEmpty, filePaths.isEmpty, !matcher.isWaiting, !fileMatcher.isWaiting, deferred == nil { break }
             }
             self?.poll = nil
             self?.stopWatchingFrames()
@@ -311,8 +386,9 @@ final class PastedImagesModel {
 
     func refresh() {
         // A pane off screen has no labels to show, and its pastes keep waiting.
-        guard let screen = pane?.screen(matcher.isWaiting) else {
+        guard let screen = pane?.screen(matcher.isWaiting || fileMatcher.isWaiting) else {
             show([], promptTop: nil)
+            showFiles([])
             return
         }
         if let deferred { bind(conversation: deferred) }
@@ -337,13 +413,34 @@ final class PastedImagesModel {
             },
             promptTop: read.promptRow.map { CGFloat($0) * screen.cell.height }
         )
+        for match in fileMatcher.match(read, now: Date()) {
+            assignFile(match.path, to: match.number)
+        }
+        showFiles(read.texts.compactMap { label in
+            guard let path = filePaths[label.number] else { return nil }
+            func run(row: Int, column: Int, cells: Int) -> CGRect {
+                CGRect(
+                    x: CGFloat(column) * screen.cell.width, y: CGFloat(row) * screen.cell.height,
+                    width: CGFloat(cells) * screen.cell.width, height: screen.cell.height
+                )
+            }
+            let head = run(row: label.row, column: label.column, cells: label.cells)
+            let tail = label.tail.map { run(row: label.row + 1, column: $0.column, cells: $0.cells) }
+            let widest = tail.map { $0.width > head.width ? $0 : head } ?? head
+            return File(
+                number: label.number, path: path, icon: icon(of: path), runs: [head] + (tail.map { [$0] } ?? []),
+                chip: widest.insetBy(dx: screen.cell.width * ChromeMetrics.PastedImages.fileChipMarginCells, dy: 0),
+                ground: screen.ground(CGPoint(x: head.minX + 0.75, y: head.minY + 0.75))
+            )
+        })
     }
 
-    /// Retention counts from the last time an image was on screen, and once a
+    /// Retention counts from the last time one of its files was on screen, and once a
     /// day is close enough for it.
     private func touchIfInUse(_ read: PastedImageLabels) {
         guard let conversation, Date().timeIntervalSince(touched) > Self.touchInterval,
               read.labels.contains(where: { paths[$0.number] != nil })
+                  || read.texts.contains(where: { filePaths[$0.number] != nil })
         else { return }
         touched = Date()
         store().touch(conversation)
@@ -353,6 +450,30 @@ final class PastedImagesModel {
         if found != labels { labels = found }
         if top != promptTop { promptTop = top }
         if let highlighted, !found.contains(where: { $0.number == highlighted }) { highlight(nil) }
+    }
+
+    /// Once per file: a scan is every frame, and the file may be on a slow
+    /// volume.
+    private func icon(of path: String) -> NSImage {
+        if let icon = icons[path] { return icon }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        icons[path] = icon
+        return icon
+    }
+
+    private func showFiles(_ found: [File]) {
+        if found != files { files = found }
+        if let highlightedFile, !found.contains(where: { $0.number == highlightedFile }) { highlightFile(nil) }
+    }
+
+    private func assignFile(_ path: String, to number: Int) {
+        if let held = filePaths[number], held != path { displacedFiles[number] = held }
+        filePaths[number] = path
+        if let conversation {
+            store().keep(path, asFile: number, in: conversation)
+        } else {
+            unfiledFiles[number] = path
+        }
     }
 
     private func assign(_ path: String, to number: Int) {
