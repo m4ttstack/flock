@@ -10,12 +10,36 @@ import XCTest
 final class NoHerdrScreenTests: XCTestCase {
     private static let size = CGSize(width: 900, height: 560)
 
+    override func setUp() {
+        super.setUp()
+        ChromeType.install()
+    }
+
     /// Pinned so a copy edit is a deliberate change to this test, never a
     /// silent drift.
     func testTheShippedCopy() {
         XCTAssertEqual(NoHerdrScreen.headline, "You can't have a flock without a herdr!")
         XCTAssertEqual(NoHerdrScreen.body, "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.")
         XCTAssertEqual(NoHerdrScreen.hint, "flock can install the mattstack build of herdr for you.")
+    }
+
+    func testAFailedIntegrationOffersItsCommand() {
+        XCTAssertEqual(
+            MissingHerdrScreen.notice(for: HerdrBuildCopy.integrationFailed),
+            NoHerdrScreen.Notice(
+                title: "The Claude integration didn't install",
+                detail: "Run this in a terminal to finish setting it up.",
+                command: "herdr integration install claude"
+            )
+        )
+        XCTAssertTrue(HerdrBuildCopy.integrationFailed.contains(HerdrBuildCopy.integrationCommand))
+    }
+
+    func testOtherFailuresShowTheirReasonAlone() {
+        XCTAssertEqual(
+            MissingHerdrScreen.notice(for: HerdrBuildCopy.checksumMismatch),
+            NoHerdrScreen.Notice(title: HerdrBuildCopy.checksumMismatch)
+        )
     }
 
     func testTheNotRunningCopy() {
@@ -134,7 +158,7 @@ final class NoHerdrScreenTests: XCTestCase {
     }
 
     /// The missing screen's Install button, then the install running, then
-    /// a failed one with its reason under the button, then one that landed
+    /// a failed one with its reason over the button, then one that landed
     /// herdr and not its integration. Each stays inside the window's floor. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
     func testTheMissingScreenInstallsTheBuild() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -186,7 +210,7 @@ final class NoHerdrScreenTests: XCTestCase {
                 XCTAssertEqual(NSHostingView(rootView: screen).fittingSize, Self.size, "\(stage): the screen grew past its floor")
                 let red = count(theme.palette.red.hex, in: image)
                 if stage.hasSuffix("failed") {
-                    XCTAssertGreaterThan(red, 100, "\(stage) \(theme.id): the reason is not drawn in red")
+                    XCTAssertGreaterThan(red, 100, "\(stage) \(theme.id): its mark is not drawn in red")
                 } else {
                     XCTAssertEqual(red, 0, "\(stage) \(theme.id): an error is drawn")
                 }

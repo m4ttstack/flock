@@ -1023,6 +1023,14 @@ enum ChromeMetrics {
         /// trail alongside the ram, so the animal itself is roughly two
         /// thirds of this box rather than all of it.
         static let markSize: CGFloat = 64
+        static let noticeTopPadding: CGFloat = 4
+        static let noticeWidth: CGFloat = 400
+        static let noticePadding: CGFloat = 14
+        static let noticeSymbolGap: CGFloat = 9
+        static let noticeLineSpacing: CGFloat = 6
+        static let noticeCommandTopPadding: CGFloat = 5
+        static let noticeCornerRadius: CGFloat = 10
+        static let commandHorizontalPadding: CGFloat = 10
     }
 
     enum HoldLost {

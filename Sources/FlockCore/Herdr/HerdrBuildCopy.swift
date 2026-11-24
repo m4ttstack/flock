@@ -123,6 +123,9 @@ public enum HerdrBuildCopy {
     public static let herdrChanged = "herdr changed while the new build downloaded. Nothing was changed."
     public static let notWritable = "herdr's install location is not writable."
     public static let renameFailed = "Couldn't move the new build into place. Nothing was changed."
+    public static let integrationFailedTitle = "The Claude integration didn't install"
+    public static let integrationFailedDetail = "Run this in a terminal to finish setting it up."
+    public static let integrationCommand = "herdr integration install claude"
     public static let integrationFailed =
         "herdr is installed, but its Claude integration didn't install. Run herdr integration install claude in a terminal."
 
