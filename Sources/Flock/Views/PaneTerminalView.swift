@@ -133,6 +133,11 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
+            if let session, PastedImageOptions.isAvailable {
+                PastedImagesOverlay(theme: theme, model: session.pastedImages, space: Self.space)
+            }
+        }
+        .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if let session, let chip = session.linkChip.chip {
                     linkChip(chip, in: session)

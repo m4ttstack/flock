@@ -432,6 +432,7 @@ private func ghosttyHostReadClipboard(
     // Resolved above, not inside the hop, for the same lifetime reason as
     // `ghosttyHostAction`.
     Task { @MainActor in
+        session.notePastedImages()
         session.paste(text)
     }
     return true

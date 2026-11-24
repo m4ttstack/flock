@@ -537,6 +537,7 @@ final class GhosttySession {
     /// files and images and pastes their path there; a failed upload pastes
     /// nothing and says so.
     func pasteClipboard() {
+        notePastedImages()
         guard isRemoteMachine else {
             if let text = NSPasteboard.general.pasteText() { paste(text) }
             return
@@ -657,6 +658,37 @@ final class GhosttySession {
     }
 
     let linkChip = LinkChipModel()
+    let pastedImages = PastedImagesModel()
+
+    /// SPIKE: call before the paste goes out.
+    func notePastedImages() {
+        guard PastedImageOptions.isAvailable else { return }
+        pastedImages.readScreen = { [weak self] in self?.screenRows() }
+        pastedImages.willPaste(NSPasteboard.general.pasteImagePaths())
+    }
+
+    /// Row by row: read as one selection, soft-wrapped rows come back joined.
+    private func screenRows() -> PastedImagesModel.Screen? {
+        guard let surface, view?.window != nil, let cell = state.cellSize, cell.width > 0, cell.height > 0
+        else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, size.rows > 0 else { return nil }
+        let rows = (0..<UInt32(size.rows)).map { row -> String in
+            let selection = ghostty_selection_s(
+                top_left: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: row),
+                bottom_right: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                    x: UInt32(size.columns) - 1, y: row),
+                rectangle: false)
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
+            defer { ghostty_surface_free_text(surface, &text) }
+            return text.text_len > 0 ? String(cString: text.text) : ""
+        }
+        return PastedImagesModel.Screen(
+            rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale))
+    }
 
     /// The cell the pointer is over, counted from the surface's top left.
     private var hoverCell: (column: Int, row: Int)?

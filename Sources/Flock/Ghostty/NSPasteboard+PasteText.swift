@@ -1,5 +1,6 @@
 import AppKit
 import FlockCore
+import UniformTypeIdentifiers
 
 extension NSPasteboard {
     /// What the user's own paste gesture puts into a pane, by
@@ -9,6 +10,14 @@ extension NSPasteboard {
     /// nothing a terminal can take.
     func pasteText() -> String? {
         PasteTextMemo.shared.text(
+            for: .init(name: name.rawValue, changeCount: changeCount),
+            build: { self.buildPasteText() }
+        )
+    }
+
+    /// SPIKE: the image files the clipboard's items are or were staged as.
+    func pasteImagePaths() -> [String] {
+        PasteTextMemo.shared.imagePaths(
             for: .init(name: name.rawValue, changeCount: changeCount),
             build: { self.buildPasteText() }
         )
@@ -57,22 +66,28 @@ extension NSPasteboard {
         let items = pasteboardItems ?? []
         var pieces: [String] = []
         var stagedPaths: [String] = []
+        var imagePaths: [String] = []
         for (item, contribution) in zip(items, ClipboardPaste.plan(for: items.map(Self.described))) {
             switch contribution {
             case .text(let text):
                 pieces.append(text)
+                if let path = Self.described(item).fileURLPath,
+                   UTType(filenameExtension: (path as NSString).pathExtension)?.conforms(to: .image) == true {
+                    imagePaths.append(path)
+                }
             case .stageImage(let typeIdentifier, let fileExtension):
                 guard
                     let data = item.data(forType: .init(typeIdentifier)),
                     let path = ClipboardImageStaging.stage(data, fileExtension: fileExtension)
                 else { continue }
                 stagedPaths.append(path)
+                imagePaths.append(path)
                 pieces.append(ClipboardPaste.escape(path))
             case .nothing:
                 continue
             }
         }
-        return BuiltPasteText(text: ClipboardPaste.text(joining: pieces), stagedPaths: stagedPaths)
+        return BuiltPasteText(text: ClipboardPaste.text(joining: pieces), stagedPaths: stagedPaths, imagePaths: imagePaths)
     }
 
     private static func described(_ item: NSPasteboardItem) -> PasteboardItemDescription {
@@ -93,6 +108,7 @@ extension NSPasteboard {
 private struct BuiltPasteText {
     var text: String?
     var stagedPaths: [String]
+    var imagePaths: [String]
 }
 
 /// One staged file per clipboard, not one per read.
@@ -119,6 +135,14 @@ private final class PasteTextMemo: @unchecked Sendable {
     private var key: Key?
     private var text: String?
     private var stagedPaths: [String] = []
+    private var images: [String] = []
+
+    func imagePaths(for key: Key, build: () -> BuiltPasteText) -> [String] {
+        _ = text(for: key, build: build)
+        lock.lock()
+        defer { lock.unlock() }
+        return images
+    }
 
     func text(for key: Key, build: () -> BuiltPasteText) -> String? {
         lock.lock()
@@ -131,6 +155,7 @@ private final class PasteTextMemo: @unchecked Sendable {
         self.key = key
         text = built.text
         stagedPaths = built.stagedPaths
+        images = built.imagePaths
         return built.text
     }
 }

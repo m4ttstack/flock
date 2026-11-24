@@ -274,6 +274,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let local = convert(point, from: superview)
         let topLeft = CGPoint(x: local.x, y: bounds.height - local.y)
         if findBarFrame?.contains(topLeft) == true || session.linkChip.frame?.contains(topLeft) == true { return nil }
+        if session.pastedImages.trayFrame?.contains(topLeft) == true { return nil }
         return super.hitTest(point)
     }
 
@@ -393,6 +394,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // which must keep working during rearrange.
         if !rearrangeActive {
             requestWindowFirstResponder()
+        }
+        if PastedImageOptions.isOn(PastedImageOptions.hoverKey), !rearrangeActive, event.clickCount == 1,
+           event.modifierFlags.isDisjoint(with: [.shift, .control, .option]),
+           let label = session.pastedImages.label(at: topLeftPoint(event)) {
+            session.pastedImages.open(label.number)
+            leftButtonRoute = nil
+            return
         }
         if let link = linkUnderPress(event) {
             pendingLinkClick = PendingLinkClick(link: link, down: event)
@@ -561,6 +569,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func mouseExited(with event: NSEvent) {
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
+        session.pastedImages.hover(nil)
         hoverPoint = nil
         setOverLink(nil)
     }
@@ -622,6 +631,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         else {
             session.linkChip.dismiss()
             setOverLink(nil)
+            return
+        }
+        let image = PastedImageOptions.isOn(PastedImageOptions.hoverKey) ? session.pastedImages.label(at: point) : nil
+        session.pastedImages.hover(image)
+        if let image {
+            session.linkChip.dismiss()
+            setOverLink(CGRect(
+                x: image.rect.minX, y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
+                width: image.rect.width, height: ChromeMetrics.LinkChip.underlineHeight))
             return
         }
         let match = session.hoveredMatch
@@ -882,6 +900,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         session.linkChip.dismiss()
+        session.pastedImages.hover(nil)
+        // Control-V has the program read the clipboard itself.
+        if event.charactersIgnoringModifiers == "v",
+           event.modifierFlags.intersection([.control, .command, .option]) == .control {
+            session.notePastedImages()
+        }
         setOverLink(nil)
         // `keyDown` (never `flagsChanged`) is by construction real key input,
         // not a bare modifier change -- the one exception is a Command combo
