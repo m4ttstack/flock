@@ -32,9 +32,11 @@ final class PastedImageQuickLook: NSObject {
     var hasItems: Bool { !items.isEmpty }
 
     /// `sourceFrame` is where an image is drawn on screen, which the panel
-    /// grows from and shrinks back to; nil fades it instead.
+    /// grows from and shrinks back to; nil fades it instead. `isImage` is
+    /// whether a point in `window` is on something that shows an image.
     func show(
-        _ shown: [Item], startingAt number: Int, over window: NSWindow?, sourceFrame: @escaping (Int) -> NSRect?
+        _ shown: [Item], startingAt number: Int, over window: NSWindow?, sourceFrame: @escaping (Int) -> NSRect?,
+        isImage: @escaping (NSPoint) -> Bool
     ) {
         // A reload while the panel is up or still opening runs its opening
         // animation again.
@@ -50,6 +52,8 @@ final class PastedImageQuickLook: NSObject {
             return
         }
         self.sourceFrame = sourceFrame
+        self.isImage = isImage
+        self.window = window
         startIndex = index
         if panel.isVisible {
             if panel.dataSource !== self { panel.updateController() }
@@ -76,6 +80,14 @@ final class PastedImageQuickLook: NSObject {
         }
     }
 
+    /// The click goes on to what it landed on: the panel is not modal.
+    private func closeIfOutside(_ event: NSEvent) {
+        guard let window, event.window === window, !isImage(event.locationInWindow),
+              let panel = QLPreviewPanel.shared(), panel.isVisible
+        else { return }
+        panel.orderOut(nil)
+    }
+
     /// Centered over what was clicked and clear above it, or below it where
     /// there is more room, kept on the window's screen.
     private static func frame(for item: Item, above source: NSRect?, in window: NSWindow, panel: NSPanel) -> NSRect {
@@ -97,6 +109,9 @@ final class PastedImageQuickLook: NSObject {
         ).integral
     }
 
+    private var isImage: (NSPoint) -> Bool = { _ in false }
+    private weak var window: NSWindow?
+    private var clickOut: Any?
     private var startIndex = 0
     private var openedAt = Date.distantPast
     private static let openingTime: TimeInterval = 0.6
@@ -107,10 +122,17 @@ final class PastedImageQuickLook: NSObject {
         panel.delegate = self
         panel.reloadData()
         panel.currentPreviewItemIndex = min(startIndex, max(0, items.count - 1))
+        guard clickOut == nil else { return }
+        clickOut = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+            MainActor.assumeIsolated { PastedImageQuickLook.shared.closeIfOutside(event) }
+            return event
+        }
     }
 
     func end() {
         guard let panel = QLPreviewPanel.shared() else { return }
+        if let clickOut { NSEvent.removeMonitor(clickOut) }
+        clickOut = nil
         if panel.dataSource === self { panel.dataSource = nil }
         if panel.delegate === self { panel.delegate = nil }
     }

@@ -682,6 +682,11 @@ final class GhosttySession {
     private func readScreenForImages() {
         pastedImages.readScreen = { [weak self] in self?.screenRows() }
         pastedImages.window = { [weak self] in self?.view?.window }
+        pastedImages.fromWindow = { [weak self] point in
+            guard let view = self?.view else { return nil }
+            let local = view.convert(point, from: nil)
+            return CGPoint(x: local.x, y: view.bounds.height - local.y)
+        }
         pastedImages.onScreen = { [weak self] rect in
             guard let view = self?.view, let window = view.window else { return nil }
             let flipped = NSRect(

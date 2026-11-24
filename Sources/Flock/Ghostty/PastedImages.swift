@@ -84,6 +84,8 @@ final class PastedImagesModel {
     /// The pane's window, and a rect of the pane's on screen.
     @ObservationIgnored var window: (() -> NSWindow?)?
     @ObservationIgnored var onScreen: ((CGRect) -> NSRect?)?
+    /// A point of the window's, in the pane's top-left space.
+    @ObservationIgnored var fromWindow: ((NSPoint) -> CGPoint?)?
     @ObservationIgnored var readScreen: (() -> Screen?)?
     /// Kept from an earlier launch, and loaded once its label is on screen.
     @ObservationIgnored private var kept: [Int: String] = [:]
@@ -164,7 +166,7 @@ final class PastedImagesModel {
                 PastedImageQuickLook.Item(number: number, url: URL(fileURLWithPath: $0.path), thumbnail: $0.thumbnail)
             }
         }
-        PastedImageQuickLook.shared.show(items, startingAt: number, over: window?()) { [weak self] number in
+        PastedImageQuickLook.shared.show(items, startingAt: number, over: window?()) { [weak self] number -> NSRect? in
             guard let self else { return nil }
             let rect: CGRect?
             switch origin {
@@ -175,6 +177,9 @@ final class PastedImagesModel {
                     : labels.first { $0.number == number && $0.inPrompt == inPrompt }?.rect
             }
             return rect.flatMap { self.onScreen?($0) }
+        } isImage: { [weak self] point in
+            guard let self, let point = fromWindow?(point) else { return false }
+            return label(at: point) != nil || trayFrame?.contains(point) == true
         }
     }
 
