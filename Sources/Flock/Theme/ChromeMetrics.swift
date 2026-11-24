@@ -1029,7 +1029,7 @@ enum ChromeMetrics {
         static let noticeSymbolGap: CGFloat = 9
         static let noticeLineSpacing: CGFloat = 6
         static let noticeCommandTopPadding: CGFloat = 5
-        static let noticeCornerRadius: CGFloat = 10
+        static let noticeCornerRadius: CGFloat = ChromeRadius.container
         static let commandHorizontalPadding: CGFloat = 10
     }
 
