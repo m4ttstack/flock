@@ -35,16 +35,21 @@ final class PastedImageStore {
             return
         }
         let before = index
-        let unused = index.prune(now: now)
-        guard index != before else { return }
-        save()
-        for path in unused { removeCopy(path) }
+        index.prune(now: now)
+        if index != before { save() }
+        removeUnusedCopies()
     }
 
-    /// Only a copy made here: every other path is the user's own file.
-    private func removeCopy(_ path: String) {
-        guard path.hasPrefix(directory.path + "/") else { return }
-        try? FileManager.default.removeItem(atPath: path)
+    /// Everything in this directory is a copy made here. At launch alone: a
+    /// copy whose label was just taken over may still be wanted back.
+    private func removeUnusedCopies() {
+        let live = Set(index.livePaths.map { URL(fileURLWithPath: $0).lastPathComponent })
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        for file in files where file.lastPathComponent != indexFile.lastPathComponent
+            && !live.contains(file.lastPathComponent) {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     /// A conversation still on screen keeps its images.
@@ -60,9 +65,8 @@ final class PastedImageStore {
     func keep(_ path: String, as number: Int, in conversation: String, now: Date = Date()) -> String {
         guard ensureDirectory() else { return path }
         let kept = path.hasPrefix(stagingDirectory.path + "/") ? copy(path) ?? path : path
-        let replaced = index.set(kept, as: number, in: conversation, now: now)
+        index.set(kept, as: number, in: conversation, now: now)
         save()
-        if let replaced { removeCopy(replaced) }
         return kept
     }
 

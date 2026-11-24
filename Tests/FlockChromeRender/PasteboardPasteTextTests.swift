@@ -42,7 +42,7 @@ final class PasteboardPasteTextTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.writeObjects([
             URL(fileURLWithPath: "/tmp/one.png") as NSURL, URL(fileURLWithPath: "/tmp/notes.txt") as NSURL,
-            URL(fileURLWithPath: "/tmp/two.JPG") as NSURL,
+            URL(fileURLWithPath: "/tmp/two.JPG") as NSURL, URL(fileURLWithPath: "/tmp/three.svg") as NSURL,
         ])
         XCTAssertEqual(pasteboard.pasteContents().imagePaths, ["/tmp/one.png", "/tmp/two.JPG"])
     }

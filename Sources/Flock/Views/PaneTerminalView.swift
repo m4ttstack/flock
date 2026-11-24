@@ -54,6 +54,8 @@ struct GhosttyPaneTerminalView: View {
     let linkFolder: () -> String?
     /// The agent's conversation, which its pasted images are kept under.
     let conversation: String?
+    /// False while a modal is over the pane, which a drop would go through.
+    let acceptsDrops: Bool
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -73,7 +75,7 @@ struct GhosttyPaneTerminalView: View {
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         linkFolder: @escaping () -> String? = { nil },
-        conversation: String? = nil,
+        conversation: String? = nil, acceptsDrops: Bool = true,
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -92,6 +94,7 @@ struct GhosttyPaneTerminalView: View {
         self.menuProvider = menuProvider
         self.linkFolder = linkFolder
         self.conversation = conversation
+        self.acceptsDrops = acceptsDrops
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -160,9 +163,15 @@ struct GhosttyPaneTerminalView: View {
             )
         }
         .coordinateSpace(name: Self.space)
-        .onAppear { session?.pastedImages.bind(conversation: conversation) }
-        .onChange(of: conversation) { _, next in session?.pastedImages.bind(conversation: next) }
-        .onChange(of: ObjectIdentifier(surface)) { session?.pastedImages.bind(conversation: conversation) }
+        .onAppear { bind() }
+        .onChange(of: conversation) { bind() }
+        .onChange(of: acceptsDrops) { bind() }
+        .onChange(of: ObjectIdentifier(surface)) { bind() }
+    }
+
+    private func bind() {
+        session?.pastedImages.acceptsDrops = acceptsDrops
+        session?.pastedImages.bind(conversation: conversation)
     }
 
     /// Measured before it is placed: where the chip goes depends on its own

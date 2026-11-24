@@ -45,9 +45,10 @@ final class PastedImagesTests: XCTestCase {
     private func model(on pane: FakePane, store: PastedImageStore) -> PastedImagesModel {
         let model = PastedImagesModel(store: { store })
         model.pane = PastedImagesModel.Pane(
-            screen: {
+            screen: { whole in
                 guard pane.isOnScreen else { return nil }
-                return PastedImagesModel.Screen(rows: pane.rows, cell: Self.cell) { point in
+                let held = pane.rows.contains { $0.contains(PastedImageLabels.marker) }
+                return PastedImagesModel.Screen(rows: whole || held ? pane.rows : [], cell: Self.cell) { point in
                     let row = Int(point.y / Self.cell.height)
                     return pane.rows.indices.contains(row) && pane.rows[row].hasPrefix("> ") ? Self.sentGround : nil
                 }
@@ -149,10 +150,56 @@ final class PastedImagesTests: XCTestCase {
         let model = model(on: pane, store: store())
         model.bind(conversation: Self.conversation)
         try await paste(try pictures(1), into: model, on: pane)
+        pane.rows = []
+        model.refresh()
         model.bind(conversation: "acme-after-clear")
+        pane.rows = screen(prompt: "\u{276F} [Image #1]")
         model.refresh()
         XCTAssertTrue(model.images.isEmpty)
         XCTAssertTrue(model.promptNumbers.isEmpty)
+    }
+
+    func testAPasteBeforeANewConversationsIdArrivesMovesToItAndGivesTheOldOneBack() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        let old = try picture("old.png", width: 40, height: 40, hue: 0.2)
+        _ = store.keep(old, as: 1, in: Self.conversation)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(1)
+        try await paste(paths, into: model, on: pane)
+        for _ in 0..<50 where model.images[1]?.path != paths[0] { try await Task.sleep(for: .milliseconds(20)) }
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[0]])
+        XCTAssertEqual(store.images(for: Self.conversation), [1: old])
+        XCTAssertEqual(model.images[1]?.path, paths[0])
+    }
+
+    func testAnAgentThatExitsLeavesItsImagesWithItsOwnConversation() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        try await paste(try pictures(1), into: model, on: pane)
+        pane.rows = []
+        model.refresh()
+        model.bind(conversation: nil)
+        XCTAssertFalse(model.hasConversation)
+        model.bind(conversation: "acme-next")
+        XCTAssertEqual(store.images(for: "acme-next"), [:])
+        XCTAssertEqual(store.images(for: Self.conversation).count, 1)
+    }
+
+    func testScrollingWhileAFirstPasteWaitsTakesNoOldLabel() throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        pane.rows = [Self.rule, "\u{276F} ", Self.rule]
+        _ = model.willPaste(try pictures(1))
+        pane.rows = ["> [Image #1] an old one", "  \u{23BF}  [Image #1]"]
+        model.refresh()
+        XCTAssertEqual(store.images(for: Self.conversation), [:])
     }
 
     func testAPasteWaitingWhenTheConversationChangesIsDropped() async throws {
@@ -224,29 +271,26 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(mode, 0o600)
     }
 
-    func testPruningDeletesOnlyItsOwnCopies() throws {
+    func testALaunchDeletesOnlyCopiesNothingUses() throws {
         let old = Date().addingTimeInterval(-PastedImageIndex.maximumAge - 60)
         let first = store()
-        let staged = try picture("clipboard-2.png", width: 20, height: 20, hue: 0, in: staging)
+        func staged(_ name: String) throws -> String {
+            try picture(name, width: 20, height: 20, hue: 0, in: staging)
+        }
+        let stale = first.keep(try staged("clipboard-2.png"), as: 1, in: "acme-old", now: old)
+        let replaced = first.keep(try staged("clipboard-3.png"), as: 1, in: Self.conversation)
+        let kept = first.keep(try staged("clipboard-4.png"), as: 1, in: Self.conversation)
         let own = try picture("own.png", width: 20, height: 20, hue: 0)
-        let kept = first.keep(staged, as: 1, in: Self.conversation, now: old)
-        _ = first.keep(own, as: 2, in: Self.conversation, now: old)
-        XCTAssertEqual(store().images(for: Self.conversation), [:])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: kept))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: own))
-    }
+        _ = first.keep(own, as: 2, in: "acme-old", now: old)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replaced), "deleted while its label may come back")
 
-    func testAReplacedCopyIsDeletedAndTheUsersOwnFileIsNot() throws {
-        let store = store()
-        let first = store.keep(
-            try picture("clipboard-3.png", width: 20, height: 20, hue: 0, in: staging), as: 1, in: Self.conversation)
-        let own = try picture("own.png", width: 20, height: 20, hue: 0)
-        _ = store.keep(own, as: 1, in: Self.conversation)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: first))
-        let last = store.keep(
-            try picture("clipboard-4.png", width: 20, height: 20, hue: 0, in: staging), as: 1, in: Self.conversation)
+        let second = store()
+        XCTAssertEqual(second.images(for: "acme-old"), [:])
+        XCTAssertEqual(second.images(for: Self.conversation), [1: kept])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: replaced))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept))
         XCTAssertTrue(FileManager.default.fileExists(atPath: own))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: last))
     }
 
     func testShowingAnOldConversationsImagesKeepsThem() async throws {

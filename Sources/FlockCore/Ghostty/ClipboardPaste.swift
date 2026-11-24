@@ -71,6 +71,12 @@ public enum ClipboardPaste {
         ("org.webmproject.webp", "webp"),
     ]
 
+    /// Whether an agent takes a pasted path for an image and draws a label
+    /// for it. Any other paste leaves no label to wait for.
+    public static func becomesImageLabel(_ path: String) -> Bool {
+        ["png", "jpg", "jpeg", "gif", "webp"].contains((path as NSString).pathExtension.lowercased())
+    }
+
     public static func decide(_ item: PasteboardItemDescription) -> PasteboardItemPaste {
         if let path = item.fileURLPath, !path.isEmpty {
             return .text(escape(path))

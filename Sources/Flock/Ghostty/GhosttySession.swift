@@ -551,10 +551,12 @@ final class GhosttySession {
             return
         }
         guard let remote = remotePaste, pasteboard.offersPasteText else { return }
-        let images = pastedImages.willPaste(contents.imagePaths)
+        let images = pastedImages.willPaste(contents.imagePaths, held: true)
         Task { [weak self] in
             switch await pasteboard.remotePasteText(uploader: remote.uploader) {
-            case .text(let text): self?.paste(text)
+            case .text(let text):
+                self?.pastedImages.pasteWasSent(images)
+                self?.paste(text)
             case .failed(let message):
                 self?.pastedImages.cancelPaste(images)
                 remote.notify(message)
@@ -680,7 +682,7 @@ final class GhosttySession {
 
     private func connectPastedImages() {
         pastedImages.pane = PastedImagesModel.Pane(
-            screen: { [weak self] in self?.screenRows() },
+            screen: { [weak self] in self?.screenRows(whole: $0) },
             frame: { [weak self] in
                 guard let view = self?.view, view.window != nil else { return nil }
                 return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
@@ -701,7 +703,7 @@ final class GhosttySession {
     }
 
     /// Row by row: read as one selection, soft-wrapped rows come back joined.
-    private func screenRows() -> PastedImagesModel.Screen? {
+    private func screenRows(whole: Bool) -> PastedImagesModel.Screen? {
         guard let surface, view?.window != nil, let cell = state.cellSize, cell.width > 0, cell.height > 0
         else { return nil }
         let size = ghostty_surface_size(surface)
@@ -721,7 +723,7 @@ final class GhosttySession {
         }
         // This runs for every frame, and most screens show no label.
         let count = UInt32(size.rows)
-        let rows = text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
+        let rows = whole || text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
             ? (0..<count).map { text(from: $0, to: $0) } : []
         return PastedImagesModel.Screen(
             rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),

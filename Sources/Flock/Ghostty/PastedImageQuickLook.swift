@@ -31,7 +31,7 @@ final class PastedImageQuickLook: NSObject {
     private var clickOut: Any?
     private var startIndex = 0
     private var openedAt = Date.distantPast
-    private var openingNumber: Int?
+    private var openingURL: URL?
     private var queued: Task<Void, Never>?
     private static let openingTime: TimeInterval = 0.6
 
@@ -48,8 +48,8 @@ final class PastedImageQuickLook: NSObject {
         // animation again, so another image waits that out.
         queued?.cancel()
         let remaining = Self.openingTime - Date().timeIntervalSince(openedAt)
-        guard remaining <= 0 else {
-            guard number != openingNumber else { return }
+        guard remaining <= 0 || QLPreviewPanel.shared()?.isVisible != true else {
+            guard shown.first(where: { $0.number == number })?.url != openingURL else { return }
             queued = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(remaining))
                 guard !Task.isCancelled, QLPreviewPanel.shared()?.isVisible == true else { return }
@@ -78,8 +78,11 @@ final class PastedImageQuickLook: NSObject {
             return
         }
         openedAt = Date()
-        openingNumber = number
+        openingURL = items[index].url
         panel.makeKeyAndOrderFront(nil)
+        // Opening asks the responder chain, and a click on the tray leaves the
+        // keyboard where it was: a find field accepts no control of the panel.
+        if panel.dataSource !== self { begin() }
         // After it opens, never before: opening centers it on the screen.
         guard let window else { return }
         let anchor = sourceFrame(number)
@@ -96,9 +99,8 @@ final class PastedImageQuickLook: NSObject {
 
     /// The click goes on to what it landed on: the panel is not modal.
     private func closeIfOutside(_ event: NSEvent) {
-        guard let window, event.window === window, !isImage(event.locationInWindow),
-              let panel = QLPreviewPanel.shared(), panel.isVisible
-        else { return }
+        guard let panel = QLPreviewPanel.shared(), panel.isVisible else { return end() }
+        guard let window, event.window === window, !isImage(event.locationInWindow) else { return }
         panel.orderOut(nil)
     }
 

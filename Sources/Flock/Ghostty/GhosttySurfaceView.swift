@@ -219,6 +219,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private struct PendingLinkClick {
         let link: PaneLink
         let down: NSEvent
+        /// The label pressed, kept since the text may move before the up.
+        let image: PastedImagesModel.Label?
     }
     private var pendingLinkClick: PendingLinkClick?
     private var overLink = false
@@ -303,7 +305,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private var dropIsOffered = false
 
     private var takesDrop: Bool {
-        dropIsOffered && !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
+        dropIsOffered && session.pastedImages.acceptsDrops && !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
             && session.firstFrameLatch.holdLoss == nil
     }
 
@@ -471,7 +473,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         if let link = linkUnderPress(event) {
-            pendingLinkClick = PendingLinkClick(link: link, down: event)
+            pendingLinkClick = PendingLinkClick(link: link, down: event, image: imageLabel(at: topLeftPoint(event)))
             leftButtonRoute = nil
             return
         }
@@ -506,7 +508,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         if let press = pendingLinkClick {
             pendingLinkClick = nil
-            if let label = imageLabel(at: topLeftPoint(press.down)) {
+            if let label = press.image {
                 session.linkChip.dismiss()
                 session.pastedImages.quickLook(label.number, from: .text(label.rect))
                 return
@@ -665,6 +667,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // The tray is SwiftUI above this view, whose tracking area hears the
         // pointer there all the same.
         if session.pastedImages.trayFrame?.contains(topLeftPoint(event)) == true {
+            if hoverPoint != nil {
+                session.linkChip.pointerLeftPane()
+                session.pastedImages.highlight(nil)
+            }
             hoverPoint = nil
             setOverLink(nil)
             return
@@ -987,7 +993,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         session.linkChip.dismiss()
         session.pastedImages.highlight(nil)
         // Control-V has an agent read the clipboard itself.
-        if session.pastedImages.hasConversation, event.charactersIgnoringModifiers == "v",
+        if session.pastedImages.hasConversation, !session.isRemoteMachine, !event.isARepeat, event.charactersIgnoringModifiers == "v",
            event.modifierFlags.intersection([.control, .command, .option]) == .control {
             _ = session.pastedImages.willPaste(NSPasteboard.general.pasteContents().imagePaths)
         }

@@ -27,6 +27,8 @@ public struct PastedImageLabels: Equatable, Sendable {
         labels.filter { promptRow == nil || $0.inPrompt }.map(\.number)
     }
 
+    private nonisolated(unsafe) static let pattern = /\[Image #(\d+)\]/
+
     /// `rows` is one string per screen row: a label broken by a wrap is not
     /// found.
     public init(rows: [String]) {
@@ -35,7 +37,7 @@ public struct PastedImageLabels: Equatable, Sendable {
         let prompt = rules.count >= 2 ? rules[rules.count - 2]..<rules[rules.count - 1] : nil
         promptRow = prompt?.lowerBound
         labels = rows.enumerated().flatMap { row, line in
-            line.matches(of: /\[Image #(\d+)\]/).compactMap { match in
+            (line.contains(Self.marker) ? line.matches(of: Self.pattern) : []).compactMap { match in
                 Int(match.output.1).map { number in
                     PastedImageLabel(
                         number: number, row: row,
@@ -53,13 +55,11 @@ public struct PastedImageLabels: Equatable, Sendable {
 /// Gives each pasted image its number. The program picks the number and says
 /// so only on screen, so a paste takes the label that appears after it.
 public struct PastedImageMatcher: Sendable {
-    /// How long a paste waits for its label: one into a pane on another
-    /// machine uploads first.
+    /// How long a paste waits for its label, from when it is sent.
     public static let window: TimeInterval = 15
 
-    private var waiting: [(paste: Int, path: String)] = []
+    private var waiting: [(paste: Int, path: String, deadline: Date)] = []
     private var pastes = 0
-    private var deadline = Date.distantPast
     /// The most of each number ever on screen at once since waiting began: a
     /// label that scrolls off and back is not another.
     private var seen: [Int: Int] = [:]
@@ -71,17 +71,26 @@ public struct PastedImageMatcher: Sendable {
 
     public var isWaiting: Bool { !waiting.isEmpty }
 
-    /// `screen` is the one before the paste. The answer cancels it.
-    public mutating func willPaste(_ paths: [String], over screen: PastedImageLabels, now: Date) -> Int {
+    /// `screen` is the one before the paste, which a paste that is `held`
+    /// has yet to be sent after. The answer is for `sent` and `cancel`.
+    public mutating func willPaste(
+        _ paths: [String], over screen: PastedImageLabels, held: Bool = false, now: Date
+    ) -> Int {
         expire(now)
         if waiting.isEmpty {
             seen = Self.counts(screen.pasteTargets)
             expectsPrompt = screen.promptRow != nil
         }
         pastes += 1
-        waiting += paths.map { (pastes, $0) }
-        deadline = now.addingTimeInterval(Self.window)
+        let deadline = held ? .distantFuture : now.addingTimeInterval(Self.window)
+        waiting += paths.map { (pastes, $0, deadline) }
         return pastes
+    }
+
+    public mutating func sent(_ paste: Int, now: Date) {
+        for index in waiting.indices where waiting[index].paste == paste {
+            waiting[index].deadline = now.addingTimeInterval(Self.window)
+        }
     }
 
     /// A paste that never reached the program leaves no label to wait for.
@@ -104,7 +113,7 @@ public struct PastedImageMatcher: Sendable {
     }
 
     private mutating func expire(_ now: Date) {
-        if now > deadline { waiting = [] }
+        waiting.removeAll { now > $0.deadline }
     }
 
     private static func counts(_ numbers: [Int]) -> [Int: Int] {

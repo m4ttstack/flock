@@ -1047,7 +1047,7 @@ struct PaneCellView: View {
                     linkFolder: { [weak viewModel, paneID = pane.paneID] in
                         viewModel?.model?.panes[paneID].map { $0.foregroundCwd ?? $0.cwd }
                     },
-                    conversation: pane.agentSessionID,
+                    conversation: pane.agentSessionID, acceptsDrops: !viewModel.modalIsUp,
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }

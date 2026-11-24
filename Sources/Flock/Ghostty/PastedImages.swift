@@ -57,7 +57,7 @@ final class PastedImagesModel {
     }
 
     struct Screen {
-        /// One string per row, empty where no row holds a label.
+        /// One string per row, or none where no row holds a label.
         let rows: [String]
         let cell: CGSize
         /// The frame's color at a point, in the pane's top-left space.
@@ -67,8 +67,9 @@ final class PastedImagesModel {
     /// The pane as this model reads it. Every point and rect is in the pane's
     /// top-left space.
     struct Pane {
-        /// Nil while the pane is off screen.
-        var screen: () -> Screen?
+        /// Nil while the pane is off screen. `whole` asks for the rows even
+        /// where none holds a label, for a look at where the prompt is.
+        var screen: (_ whole: Bool) -> Screen?
         /// Which frame the pane is showing, nil while it shows none.
         var frame: () -> ObjectIdentifier?
         var window: () -> NSWindow?
@@ -91,6 +92,13 @@ final class PastedImagesModel {
 
     @ObservationIgnored private let store: @MainActor () -> PastedImageStore
     @ObservationIgnored private var conversation: String?
+    /// Pasted while no conversation was known.
+    @ObservationIgnored private var unfiled: [Int: String] = [:]
+    /// What a number named before a paste took it, in case the paste turns
+    /// out to be another conversation's.
+    @ObservationIgnored private var displaced: [Int: String] = [:]
+    /// The last conversation known, which an agent that exits leaves.
+    @ObservationIgnored private var shownConversation: String?
     /// Every image this conversation has, whether or not it is loaded: one is
     /// loaded once its label is on screen.
     @ObservationIgnored private var paths: [Int: String] = [:]
@@ -116,17 +124,29 @@ final class PastedImagesModel {
         Set(labels.filter { $0.inPrompt && images[$0.number] != nil }.map(\.number)).sorted()
     }
 
-    /// `next` is the agent's own session id, nil while herdr reports none.
-    /// Images pasted before it was known join the one that arrives.
+    /// False while the pane is behind a modal.
+    @ObservationIgnored var acceptsDrops = true
+
+    /// `next` is the agent's own session id, nil while herdr reports none. It
+    /// arrives after the conversation it names has begun, so images pasted
+    /// before it was known, and the prompt's, join it.
     func bind(conversation next: String?) {
-        guard let next, next != conversation else { return }
-        let carried = conversation == nil ? paths : [:]
-        if conversation != nil {
-            images = [:]
+        guard next != conversation else { return }
+        conversation = next
+        guard let next else { return }
+        var carried = unfiled
+        unfiled = [:]
+        if let previous = shownConversation, previous != next {
+            for number in promptNumbers {
+                carried[number] = paths[number]
+                if let path = displaced[number] { _ = store().keep(path, as: number, in: previous) }
+            }
             matcher = PastedImageMatcher()
         }
-        conversation = next
+        shownConversation = next
+        displaced = [:]
         paths = store().images(for: next)
+        images = images.filter { (carried[$0.key] ?? paths[$0.key]) == $0.value.path }
         touched = .distantPast
         for (number, path) in carried { assign(path, to: number) }
         watch()
@@ -134,11 +154,15 @@ final class PastedImagesModel {
 
     /// Called before the paste is sent: the labels on screen now are not its.
     /// The answer is for `cancelPaste`, nil where nothing waits.
-    func willPaste(_ paths: [String]) -> Int? {
-        guard !paths.isEmpty, let screen = pane?.screen() else { return nil }
-        let paste = matcher.willPaste(paths, over: PastedImageLabels(rows: screen.rows), now: Date())
+    func willPaste(_ paths: [String], held: Bool = false) -> Int? {
+        guard !paths.isEmpty, let screen = pane?.screen(true) else { return nil }
+        let paste = matcher.willPaste(paths, over: PastedImageLabels(rows: screen.rows), held: held, now: Date())
         watch()
         return paste
+    }
+
+    func pasteWasSent(_ paste: Int?) {
+        if let paste { matcher.sent(paste, now: Date()) }
     }
 
     func cancelPaste(_ paste: Int?) {
@@ -254,7 +278,7 @@ final class PastedImagesModel {
 
     func refresh() {
         // A pane off screen has no labels to show, and its pastes keep waiting.
-        guard let screen = pane?.screen() else {
+        guard let screen = pane?.screen(matcher.isWaiting) else {
             show([], promptTop: nil)
             return
         }
@@ -298,7 +322,13 @@ final class PastedImagesModel {
     }
 
     private func assign(_ path: String, to number: Int) {
-        paths[number] = conversation.map { store().keep(path, as: number, in: $0) } ?? path
+        if let held = paths[number], held != path, displaced[number] == nil { displaced[number] = held }
+        if let conversation {
+            paths[number] = store().keep(path, as: number, in: conversation)
+        } else {
+            paths[number] = path
+            unfiled[number] = path
+        }
         load(number)
     }
 

@@ -1,6 +1,5 @@
 import AppKit
 import FlockCore
-import UniformTypeIdentifiers
 
 extension NSPasteboard {
     /// What the user's own paste gesture puts into a pane, by
@@ -72,7 +71,7 @@ extension NSPasteboard {
             case .text(let text):
                 pieces.append(text)
                 if let path = Self.described(item).fileURLPath,
-                   UTType(filenameExtension: (path as NSString).pathExtension)?.conforms(to: .image) == true {
+                   ClipboardPaste.becomesImageLabel(path) {
                     imagePaths.append(path)
                 }
             case .stageImage(let typeIdentifier, let fileExtension):
@@ -81,7 +80,7 @@ extension NSPasteboard {
                     let path = ClipboardImageStaging.stage(data, fileExtension: fileExtension)
                 else { continue }
                 stagedPaths.append(path)
-                imagePaths.append(path)
+                if ClipboardPaste.becomesImageLabel(path) { imagePaths.append(path) }
                 pieces.append(ClipboardPaste.escape(path))
             case .nothing:
                 continue
