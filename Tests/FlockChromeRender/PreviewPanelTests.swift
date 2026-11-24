@@ -1,0 +1,103 @@
+import AppKit
+@testable import FlockCore
+import XCTest
+
+/// The preview panel as it opens and closes: it is never seen anywhere but
+/// its place. PNGs are written only when `FLOCK_CHROME_RENDER_DIR` is set.
+@MainActor
+final class PreviewPanelTests: XCTestCase {
+    private func item(_ number: Int, width: Int, height: Int) throws -> PastedImageQuickLook.Item {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.setFillColor(CGColor(srgbRed: 0.9, green: 0.5, blue: 0.3, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setFillColor(CGColor(srgbRed: 0.2, green: 0.2, blue: 0.5, alpha: 1))
+        context.fill(CGRect(x: width / 8, y: height / 8, width: width / 2, height: height / 2))
+        let rep = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("flock-preview-\(UUID().uuidString).png")
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.addRepresentation(rep)
+        return PastedImageQuickLook.Item(number: number, title: "Image \(number)", url: url, thumbnail: image)
+    }
+
+    private func host() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 200, y: 200, width: 900, height: 600), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        return window
+    }
+
+    func testThePanelIsOnlyEverSeenInItsPlace() async throws {
+        let window = host()
+        defer { window.close() }
+        let look = PastedImageQuickLook()
+        let source = NSRect(x: 900, y: 240, width: 170, height: 128)
+        let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600)]
+        for dark in [true, false] {
+            look.show(items, startingAt: 1, over: window, isDark: dark, sourceFrame: { _ in source }, isImage: { _ in false })
+            let place = look.panel.frame
+            XCTAssertGreaterThanOrEqual(place.minY, source.maxY, "not above what was clicked")
+            var seen: Set<NSRect> = []
+            for _ in 0..<60 {
+                if look.panel.isVisible, look.panel.alphaValue > 0 { seen.insert(look.panel.frame) }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(seen, [place])
+            for _ in 0..<150 where look.panel.alphaValue < 1 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(look.panel.alphaValue, 1)
+            try write(try XCTUnwrap(look.picture()), name: "preview-panel-\(dark ? "dark" : "light")")
+            look.close()
+            for _ in 0..<60 where look.panel.isVisible { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertFalse(look.panel.isVisible)
+        }
+    }
+
+    func testClosingWhileItOpensLeavesNothingBehind() async throws {
+        let window = host()
+        defer { window.close() }
+        let look = PastedImageQuickLook()
+        let source = NSRect(x: 900, y: 240, width: 170, height: 128)
+        look.show(
+            [try item(1, width: 700, height: 500)], startingAt: 1, over: window, isDark: true,
+            sourceFrame: { _ in source }, isImage: { _ in false })
+        try await Task.sleep(for: .milliseconds(60))
+        look.close()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertFalse(look.panel.isVisible)
+        XCTAssertFalse(look.isOpen)
+        XCTAssertNil(look.zoom)
+    }
+
+    func testAnotherImageTakesOverAnOpenPanel() async throws {
+        let window = host()
+        defer { window.close() }
+        let look = PastedImageQuickLook()
+        let source = NSRect(x: 900, y: 240, width: 170, height: 128)
+        let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600)]
+        for number in [1, 2] {
+            look.show(
+                items, startingAt: number, over: window, isDark: true, sourceFrame: { _ in source },
+                isImage: { _ in false })
+            try await Task.sleep(for: .milliseconds(500))
+            XCTAssertEqual(look.panel.title, "Image \(number) (\(number) of 2)")
+            for _ in 0..<150 where look.panel.alphaValue < 1 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(look.panel.alphaValue, 1)
+        }
+        look.close()
+        try await Task.sleep(for: .milliseconds(400))
+    }
+
+    private func write(_ image: NSImage, name: String) throws {
+        guard let folder = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !folder.isEmpty else { return }
+        let rep = try XCTUnwrap(image.representations.first as? NSBitmapImageRep)
+        try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+    }
+}

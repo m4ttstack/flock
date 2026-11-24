@@ -44,11 +44,12 @@ final class PastedImageQuickLook: NSObject {
     /// Counts opens and closes, so an animation that has been overtaken ends
     /// nothing.
     private var generation = 0
-    private var zoom: NSWindow?
+    private(set) var zoom: NSWindow?
 
-    private lazy var panel = makePanel()
+    private(set) lazy var panel = makePanel()
     private let image = NSImageView()
     private let openButton = NSButton(title: "", target: nil, action: nil)
+    private let openHolder = NSView()
     private var preview: QLPreviewView?
 
     private(set) var isOpen = false
@@ -96,43 +97,39 @@ final class PastedImageQuickLook: NSObject {
             return
         }
         let opened = generation
-        // In place and drawn before the picture reaches it, so there is never
-        // a moment with neither.
+        // In place, drawn and key before it is seen: what grows is a picture
+        // of it, title bar and all, and it takes over where that ends.
         panel.alphaValue = 0
-        panel.orderFront(nil)
-        animate(from: source, to: pictureFrame) { [weak self] in
+        panel.makeKeyAndOrderFront(nil)
+        animate(from: Self.fit(panel.frame.size, over: source), to: panel.frame) { [weak self] in
             guard let self, generation == opened else { return }
+            panel.alphaValue = 1
             endZoom()
-            panel.makeKeyAndOrderFront(nil)
             loadPreview()
         }
-        // Under the picture as it grows, so the chrome arrives with it.
-        fadePanel(to: 1) {}
     }
 
     func close() {
         guard isOpen else { return }
         isOpen = false
         generation += 1
-        let from = pictureFrame
         let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
         unwatch()
-        unloadPreview()
-        window?.makeKey()
         guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.orderOut(nil)
+            unloadPreview()
             endZoom()
+            window?.makeKey()
             return
         }
         let closed = generation
-        animate(from: from, to: back) { [weak self] in
+        animate(from: panel.frame, to: Self.fit(panel.frame.size, over: back)) { [weak self] in
             guard let self, generation == closed else { return }
             endZoom()
         }
-        fadePanel(to: 0) { [weak self] in
-            guard let self, generation == closed else { return }
-            panel.orderOut(nil)
-        }
+        panel.orderOut(nil)
+        unloadPreview()
+        window?.makeKey()
     }
 
     private func step(_ by: Int) {
@@ -173,6 +170,10 @@ final class PastedImageQuickLook: NSObject {
             openButton.isHidden = true
         }
         openButton.sizeToFit()
+        // A title bar gives an accessory the width it already has.
+        let height = panel.frameRect(forContentRect: .zero).height
+        openHolder.setFrameSize(NSSize(width: openButton.frame.width + M.previewTitlebarInset, height: height))
+        openButton.setFrameOrigin(NSPoint(x: 0, y: ((height - openButton.frame.height) / 2).rounded()))
     }
 
     /// The thumbnail is capped, and reads soft in a large panel.
@@ -213,16 +214,25 @@ final class PastedImageQuickLook: NSObject {
         preview = nil
     }
 
-    /// Where the picture is drawn, on screen.
-    private var pictureFrame: NSRect {
-        let content = panel.contentRect(forFrameRect: panel.frame)
-        guard items.indices.contains(index) else { return content }
-        let size = items[index].thumbnail.size
-        let scale = min(1, content.width / max(1, size.width), content.height / max(1, size.height))
-        let drawn = CGSize(width: size.width * scale, height: size.height * scale)
+    /// The panel's shape, shrunk to sit on `source`.
+    private static func fit(_ size: CGSize, over source: NSRect) -> NSRect {
+        let scale = min(source.width / max(1, size.width), source.height / max(1, size.height))
+        let fitted = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
         return NSRect(
-            x: content.midX - drawn.width / 2, y: content.midY - drawn.height / 2,
-            width: drawn.width, height: drawn.height)
+            x: source.midX - fitted.width / 2, y: source.midY - fitted.height / 2,
+            width: fitted.width, height: fitted.height)
+    }
+
+    /// The panel as drawn, title bar included.
+    func picture() -> NSImage? {
+        panel.layoutIfNeeded()
+        guard let frame = panel.contentView?.superview,
+              let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds)
+        else { return nil }
+        frame.cacheDisplay(in: frame.bounds, to: rep)
+        let image = NSImage(size: frame.bounds.size)
+        image.addRepresentation(rep)
+        return image
     }
 
     private func makePanel() -> Panel {
@@ -251,9 +261,8 @@ final class PastedImageQuickLook: NSObject {
         openButton.action = #selector(openInApp)
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .trailing
-        let holder = NSStackView(views: [openButton])
-        holder.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: M.previewTitlebarInset)
-        accessory.view = holder
+        openHolder.addSubview(openButton)
+        accessory.view = openHolder
         panel.addTitlebarAccessoryViewController(accessory)
         return panel
     }
@@ -273,9 +282,12 @@ final class PastedImageQuickLook: NSObject {
         zoom.hasShadow = true
         zoom.level = panel.level
         let view = NSImageView(frame: NSRect(origin: .zero, size: from.size))
-        view.image = items.indices.contains(index) ? items[index].thumbnail : nil
-        view.imageScaling = .scaleProportionallyUpOrDown
+        view.image = picture()
+        view.imageScaling = .scaleAxesIndependently
         view.autoresizingMask = [.width, .height]
+        view.wantsLayer = true
+        view.layer?.cornerRadius = M.zoomCornerRadius
+        view.layer?.masksToBounds = true
         zoom.contentView = view
         zoom.setFrame(from, display: true)
         zoom.orderFront(nil)
@@ -289,16 +301,6 @@ final class PastedImageQuickLook: NSObject {
                 guard let self, self.zoom === zoom else { return }
                 done()
             }
-        }
-    }
-
-    private func fadePanel(to alpha: CGFloat, then done: @escaping @MainActor () -> Void) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = alpha > 0 ? M.zoomDuration : M.chromeFadeOut
-            context.timingFunction = CAMediaTimingFunction(name: alpha > 0 ? .easeIn : .easeOut)
-            panel.animator().alphaValue = alpha
-        } completionHandler: {
-            MainActor.assumeIsolated { done() }
         }
     }
 
@@ -334,7 +336,7 @@ final class PastedImageQuickLook: NSObject {
         windowClosing = nil
     }
 
-    private final class Panel: NSPanel {
+    final class Panel: NSPanel {
         var onClose: () -> Void = {}
         var onStep: (Int) -> Void = { _ in }
 
