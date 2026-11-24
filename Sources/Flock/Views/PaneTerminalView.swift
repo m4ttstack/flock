@@ -174,36 +174,46 @@ struct GhosttyPaneTerminalView: View {
                     gap: ChromeMetrics.LinkChip.gap, inset: ChromeMetrics.LinkChip.inset
                 )
             }
-            LinkChipView(
-                theme: theme, link: chip.link, flash: session.linkChip.flash,
-                preview: PastedImageOptions.isOn(PastedImageOptions.hoverKey)
-                    ? session.pastedImages.image(for: chip.link)?.thumbnail : nil,
-                previewLimit: CGSize(
-                    width: min(460, pane.size.width - 24),
-                    height: min(320, max(chip.anchor.lineTop, pane.size.height - chip.anchor.lineBottom) - 56)
-                ),
-                onPreview: {
-                    guard let number = session.pastedImages.number(for: chip.link) else { return }
-                    let clicked = session.linkChip.frame
-                    session.linkChip.dismiss()
-                    session.pastedImages.quickLook(number, from: clicked.map { .text($0) } ?? .tray)
-                },
-                onOpen: {
-                    session.open(chip.link)
-                    session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
-                },
-                onReveal: {
-                    if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
-                },
-                onCopy: {
-                    if case .web(let url) = chip.link {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                    }
-                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+            let onOpen = {
+                session.open(chip.link)
+                session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
+            }
+            let onReveal = {
+                if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+            }
+            Group {
+                if PastedImageOptions.isOn(PastedImageOptions.hoverKey),
+                   let number = session.pastedImages.number(for: chip.link),
+                   let image = session.pastedImages.images[number] {
+                    PastedImagePreview(
+                        theme: theme, number: number, image: image.thumbnail,
+                        limit: CGSize(
+                            width: min(460, pane.size.width - 32),
+                            height: min(320, max(chip.anchor.lineTop, pane.size.height - chip.anchor.lineBottom) - 72)
+                        ),
+                        flash: session.linkChip.flash,
+                        onQuickLook: {
+                            let clicked = session.linkChip.frame
+                            session.linkChip.dismiss()
+                            session.pastedImages.quickLook(number, from: clicked.map { .text($0) } ?? .tray)
+                        },
+                        onOpen: onOpen, onReveal: onReveal
+                    )
+                } else {
+                    LinkChipView(
+                        theme: theme, link: chip.link, flash: session.linkChip.flash,
+                        onOpen: onOpen, onReveal: onReveal,
+                        onCopy: {
+                            if case .web(let url) = chip.link {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                            }
+                            session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+                        }
+                    )
                 }
-            )
+            }
             .onHover { session.linkChip.chipHover($0) }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = (chip.link, $0) }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {

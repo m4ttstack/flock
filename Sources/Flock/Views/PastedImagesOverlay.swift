@@ -467,6 +467,122 @@ private struct PastedImageThumb: View {
     }
 }
 
+/// The card over a hovered label: the image, and the tray's footer.
+struct PastedImagePreview: View {
+    let theme: Theme
+    let number: Int
+    let image: NSImage
+    let limit: CGSize
+    let flash: LinkChip.Action?
+    let onQuickLook: () -> Void
+    let onOpen: () -> Void
+    let onReveal: () -> Void
+
+    private static let padding: CGFloat = 8
+    private static let minimumWidth: CGFloat = 264
+
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let colors = theme.cardColors
+        let card = RoundedRectangle(cornerRadius: Card.cornerRadius)
+        let inner = RoundedRectangle(cornerRadius: ChromeRadius.control)
+        let size = fitted
+        VStack(spacing: Self.padding) {
+            Button(action: onQuickLook) {
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: size.width, height: size.height)
+                    .frame(width: max(size.width, Self.minimumWidth))
+                    .background(Color(colors.edge).opacity(Card.quietFillOpacity))
+                    .clipShape(inner)
+                    .overlay {
+                        inner.strokeBorder(
+                            isHovering ? theme.accent : Color(colors.edge).opacity(colors.edgeOpacity),
+                            lineWidth: isHovering ? 2 : 1)
+                    }
+                    .contentShape(inner)
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .pointerStyle(.link)
+            .onHover { isHovering = $0 }
+            .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isHovering)
+            HStack(spacing: 4) {
+                Text("Image \(number)")
+                    .font(ChromeType.confirmCardName)
+                    .foregroundStyle(Color(colors.title))
+                    .padding(.leading, 4)
+                Spacer(minLength: 12)
+                PastedImageCardButton(theme: theme, title: "Reveal", isLit: flash == .second, action: onReveal)
+                PastedImageCardButton(theme: theme, title: "Open", isLit: flash == .open, action: onOpen)
+            }
+            .frame(width: max(size.width, Self.minimumWidth))
+        }
+        .padding(Self.padding)
+        .background {
+            card.fill(Color(colors.ground))
+                .shadow(color: .black.opacity(Card.contactShadowOpacity), radius: Card.contactShadowRadius, y: Card.contactShadowY)
+                .shadow(color: .black.opacity(Card.liftShadowOpacity), radius: Card.liftShadowRadius, y: Card.liftShadowY)
+        }
+        .overlay {
+            card.strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth)
+                .allowsHitTesting(false)
+        }
+        .fixedSize()
+    }
+
+    private var fitted: CGSize {
+        let width = max(40, limit.width), height = max(40, limit.height)
+        let scale = min(1, width / max(1, image.size.width), height / max(1, image.size.height))
+        return CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    }
+}
+
+private struct PastedImageCardButton: View {
+    let theme: Theme
+    let title: String
+    /// Says, for the moment before the card goes, that this was the action.
+    let isLit: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(Style(theme: theme, isHovering: isHovering, isLit: isLit))
+            .focusEffectDisabled()
+            .pointerStyle(.link)
+            .onHover { isHovering = $0 }
+            .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isHovering)
+    }
+
+    private struct Style: ButtonStyle {
+        let theme: Theme
+        let isHovering: Bool
+        let isLit: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            let edge = Color(theme.cardColors.edge)
+            configuration.label
+                .font(ChromeType.confirmCardButton)
+                .foregroundStyle(Color(theme.cardColors.title))
+                .padding(.horizontal, 12)
+                .frame(height: Card.buttonHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: Card.buttonCornerRadius)
+                        .fill(isLit ? theme.accent.opacity(ChromeMetrics.LinkChip.flashOpacity)
+                            : edge.opacity(
+                                configuration.isPressed ? Card.quietPressedFillOpacity
+                                    : isHovering ? 0.11 : Card.quietFillOpacity))
+                )
+                .contentShape(Rectangle())
+        }
+    }
+}
+
 /// SPIKE: the Pane menu's switches for each treatment.
 struct PastedImageMenu: View {
     @AppStorage(PastedImageOptions.trayKey) private var showsTray = true

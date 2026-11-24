@@ -150,8 +150,11 @@ final class PastedImagesModel {
         NSWorkspace.shared.open(URL(fileURLWithPath: image.path))
     }
 
+    /// One file can be pasted more than once, so the one under the pointer
+    /// answers first.
     func number(for link: PaneLink) -> Int? {
-        images.first { $0.value.link == link }?.key
+        if let highlighted, images[highlighted]?.link == link { return highlighted }
+        return images.filter { $0.value.link == link }.keys.max()
     }
 
     /// What was clicked, in the pane's top-left space.
