@@ -224,7 +224,7 @@ struct ConfirmCardPresenter<Item: Equatable>: ViewModifier {
     /// sinks into the chrome around it.
     private var cardIsLight: Bool { !ChromeRoles.isLight(panelBg: theme.palette.panelBg) }
 
-    private var colors: ChromeMetrics.ConfirmCard.Colors { cardIsLight ? .light : .dark }
+    private var colors: ChromeMetrics.ConfirmCard.Colors { theme.confirmCardColors }
 
     private func card(_ text: ConfirmCardContent, arrowX: CGFloat? = nil) -> some View {
         let shape = CalloutShape(cornerRadius: M.cornerRadius, arrowX: arrowX, arrowWidth: M.arrowWidth, arrowHeight: M.arrowHeight)

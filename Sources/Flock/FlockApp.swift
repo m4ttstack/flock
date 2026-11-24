@@ -657,10 +657,6 @@ struct FlockApp: App {
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(viewModel.focusedPaneRightClickMode == nil)
                 .accessibilityIdentifier("flock.pane.toggleRightClicks")
-                if PastedImageOptions.isAvailable {
-                    Divider()
-                    PastedImageMenu()
-                }
             }
             ChatCommands(
                 chatStore: chatStore, viewModel: viewModel,

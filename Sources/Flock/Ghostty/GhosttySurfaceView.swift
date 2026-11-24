@@ -245,7 +245,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         applyBackgroundColor()
-        if PastedImageOptions.isAvailable { registerForDraggedTypes(Self.dropTypes) }
+        registerForDraggedTypes(Self.dropTypes)
     }
 
     nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
@@ -263,13 +263,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private static let dropTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard takesDrop(sender) else { return [] }
+        dropIsOffered = sender.draggingSourceOperationMask.contains(.copy)
+            && sender.draggingPasteboard.offersPasteText
+        guard takesDrop else { return [] }
         session.pastedImages.dropLabel = Self.dropLabel(sender.draggingPasteboard)
         return .copy
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        takesDrop(sender) ? .copy : []
+        takesDrop ? .copy : []
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -284,7 +286,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// and takes focus along the way a click would.
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         session.pastedImages.dropLabel = nil
-        guard takesDrop(sender) else { return false }
+        guard takesDrop else { return false }
         NSApp.activate()
         window?.makeKey()
         if wantsFocus {
@@ -296,20 +298,21 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         return true
     }
 
-    private func takesDrop(_ sender: any NSDraggingInfo) -> Bool {
-        !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
-            && session.firstFrameLatch.holdLoss == nil && sender.draggingSourceOperationMask.contains(.copy)
-            && sender.draggingPasteboard.offersPasteText
+    /// What the drag carries, read once as it enters: every later update
+    /// would parse the same pasteboard again.
+    private var dropIsOffered = false
+
+    private var takesDrop: Bool {
+        dropIsOffered && !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
+            && session.firstFrameLatch.holdLoss == nil
     }
 
     private static func dropLabel(_ pasteboard: NSPasteboard) -> String {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        let count = max(1, urls.count)
-        let images = urls.allSatisfy {
-            UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true
-        }
-        let noun = images ? "image" : "file"
-        return count == 1 ? "Drop \(noun)" : "Drop \(count) \(noun)s"
+        return PaneDropLabel.text(
+            count: urls.count,
+            allImages: urls.allSatisfy { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
+        )
     }
 
     @available(*, unavailable)
@@ -489,8 +492,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     }
 
     private func imageLabel(at point: CGPoint) -> PastedImagesModel.Label? {
-        guard PastedImageOptions.isOn(PastedImageOptions.hoverKey) else { return nil }
-        return session.pastedImages.label(at: point)
+        session.pastedImages.label(at: point)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -984,8 +986,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         session.linkChip.dismiss()
         session.pastedImages.highlight(nil)
-        // Control-V has the program read the clipboard itself.
-        if event.charactersIgnoringModifiers == "v",
+        // Control-V has an agent read the clipboard itself.
+        if session.pastedImages.hasConversation, event.charactersIgnoringModifiers == "v",
            event.modifierFlags.intersection([.control, .command, .option]) == .control {
             session.notePastedImages()
         }

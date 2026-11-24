@@ -1,10 +1,8 @@
 import AppKit
+import FlockCore
 import QuickLookUI
-import os
 
-private let quickLookLog = Logger(subsystem: "dev.mattstack.flock", category: "quick-look")
-
-/// SPIKE: pasted images in the Quick Look panel, which AppKit keeps one of.
+/// Pasted images in the Quick Look panel, which AppKit keeps one of.
 /// The panel takes its contents from whichever responder accepts control of
 /// it (`GhosttySurfaceView`), and that hands it this.
 @MainActor
@@ -28,6 +26,12 @@ final class PastedImageQuickLook: NSObject {
 
     private var items: [Item] = []
     private var sourceFrame: (Int) -> NSRect? = { _ in nil }
+    private var isImage: (NSPoint) -> Bool = { _ in false }
+    private weak var window: NSWindow?
+    private var clickOut: Any?
+    private var startIndex = 0
+    private var openedAt = Date.distantPast
+    private static let openingTime: TimeInterval = 0.6
 
     var hasItems: Bool { !items.isEmpty }
 
@@ -62,22 +66,19 @@ final class PastedImageQuickLook: NSObject {
             return
         }
         openedAt = Date()
-        let before = panel.frame
-        let source = sourceFrame(number)
-        let target = window.map { Self.frame(for: items[index], above: source, in: $0, panel: panel) }
-        if let target { panel.setFrame(target, display: false) }
         panel.makeKeyAndOrderFront(nil)
-        let opened = panel.frame
-        if let target, opened != target { panel.setFrame(target, display: true) }
-        quickLookLog.notice(
-            "open before=\(NSStringFromRect(before), privacy: .public) source=\(source.map(NSStringFromRect) ?? "nil", privacy: .public) target=\(target.map(NSStringFromRect) ?? "nil", privacy: .public) opened=\(NSStringFromRect(opened), privacy: .public) window=\(window.map { NSStringFromRect($0.frame) } ?? "nil", privacy: .public)"
+        // After it opens, never before: opening centers it on the screen.
+        guard let window else { return }
+        let anchor = sourceFrame(number)
+            ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
+        panel.setFrame(
+            QuickLookPlacement.frame(
+                image: items[index].thumbnail.size, anchor: anchor, window: window.frame,
+                visibleScreen: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame,
+                chrome: panel.frameRect(forContentRect: .zero).height
+            ),
+            display: true
         )
-        for delay in [0.1, 0.3, 0.8] {
-            Task {
-                try? await Task.sleep(for: .seconds(delay))
-                quickLookLog.notice("after \(delay, privacy: .public)s frame=\(NSStringFromRect(panel.frame), privacy: .public)")
-            }
-        }
     }
 
     /// The click goes on to what it landed on: the panel is not modal.
@@ -87,34 +88,6 @@ final class PastedImageQuickLook: NSObject {
         else { return }
         panel.orderOut(nil)
     }
-
-    /// Centered over what was clicked and clear above it, or below it where
-    /// there is more room, kept on the window's screen.
-    private static func frame(for item: Item, above source: NSRect?, in window: NSWindow, panel: NSPanel) -> NSRect {
-        let screen = (window.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 12, dy: 12) ?? window.frame
-        let anchor = source ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
-        let gap: CGFloat = 10
-        let over = screen.maxY - anchor.maxY - gap, under = anchor.minY - gap - screen.minY
-        let room = max(over, under)
-        let chrome = panel.frameRect(forContentRect: .zero).height
-        let limit = CGSize(width: min(screen.width, window.frame.width * 0.75), height: max(240, room - chrome))
-        let image = item.thumbnail.size
-        let scale = min(limit.width / max(1, image.width), limit.height / max(1, image.height), 1)
-        let size = CGSize(
-            width: max(360, image.width * scale), height: max(240, image.height * scale) + chrome)
-        let x = min(max(anchor.midX - size.width / 2, screen.minX), screen.maxX - size.width)
-        let y = over >= under ? anchor.maxY + gap : anchor.minY - gap - size.height
-        return NSRect(
-            x: x, y: min(max(y, screen.minY), screen.maxY - size.height), width: size.width, height: size.height
-        ).integral
-    }
-
-    private var isImage: (NSPoint) -> Bool = { _ in false }
-    private weak var window: NSWindow?
-    private var clickOut: Any?
-    private var startIndex = 0
-    private var openedAt = Date.distantPast
-    private static let openingTime: TimeInterval = 0.6
 
     func begin() {
         guard let panel = QLPreviewPanel.shared() else { return }

@@ -137,10 +137,12 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if let session, PastedImageOptions.isAvailable {
+            if let session {
                 PastedImagesOverlay(
                     theme: theme, model: session.pastedImages, space: Self.space,
-                    fontSizePoints: fontSizePoints, shade: shade)
+                    fontSizePoints: fontSizePoints, shade: shade,
+                    showsTray: !rearrangeActive && !paneDragInProgress && !isLauncherShowing
+                )
             }
         }
         .overlay(alignment: .topLeading) {
@@ -158,9 +160,9 @@ struct GhosttyPaneTerminalView: View {
             )
         }
         .coordinateSpace(name: Self.space)
-        .onAppear { session?.bindPastedImages(to: conversation) }
-        .onChange(of: conversation) { _, next in session?.bindPastedImages(to: next) }
-        .onChange(of: ObjectIdentifier(surface)) { session?.bindPastedImages(to: conversation) }
+        .onAppear { session?.pastedImages.bind(conversation: conversation) }
+        .onChange(of: conversation) { _, next in session?.pastedImages.bind(conversation: next) }
+        .onChange(of: ObjectIdentifier(surface)) { session?.pastedImages.bind(conversation: conversation) }
     }
 
     /// Measured before it is placed: where the chip goes depends on its own
@@ -183,15 +185,11 @@ struct GhosttyPaneTerminalView: View {
                 session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
             }
             Group {
-                if PastedImageOptions.isOn(PastedImageOptions.hoverKey),
-                   let number = session.pastedImages.number(for: chip.link),
+                if let number = session.pastedImages.number(for: chip.link),
                    let image = session.pastedImages.images[number] {
                     PastedImagePreview(
                         theme: theme, number: number, image: image.thumbnail,
-                        limit: CGSize(
-                            width: min(460, pane.size.width - 32),
-                            height: min(320, max(chip.anchor.lineTop, pane.size.height - chip.anchor.lineBottom) - 72)
-                        ),
+                        limit: PastedImagePreview.limit(for: chip.anchor, in: pane.size),
                         flash: session.linkChip.flash,
                         onQuickLook: {
                             let clicked = session.linkChip.frame

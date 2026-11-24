@@ -1,62 +1,60 @@
+import FlockCore
 import Foundation
 import os
 
 private let pastedImageLog = Logger(subsystem: "dev.mattstack.flock", category: "pasted-images")
 
-/// SPIKE: which file each conversation's `[Image #N]` came from, kept across
-/// launches. A conversation's id is the key because it alone outlives a herdr
-/// handoff and changes when the program starts numbering over.
+/// `PastedImageIndex` on disk, so labels keep their images across launches.
 ///
-/// Flock's own staged clipboard images are copied here, since staging reaps
-/// them after a day; any other file is only pointed at.
+/// Flock's own staged clipboard images are copied in, since staging reaps
+/// them after a day; any other file is only pointed at. What lands here is
+/// the user's own screen captures, so it is owner-only.
 @MainActor
 final class PastedImageStore {
-    static let shared = PastedImageStore()
-
-    private struct Conversation: Codable {
-        var updated: Date
-        var images: [Int: String]
-    }
-
-    private static let maximumAge: TimeInterval = 14 * 24 * 60 * 60
+    static let shared = PastedImageStore(
+        directory: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "dev.mattstack.Flock", isDirectory: true)
+            .appendingPathComponent("pasted-images", isDirectory: true),
+        stagingDirectory: ClipboardImageStaging.directory
+    )
 
     private let directory: URL
-    private var conversations: [String: Conversation] = [:]
+    private let stagingDirectory: URL
+    private var index = PastedImageIndex()
 
-    private var index: URL { directory.appendingPathComponent("index.json") }
+    private var indexFile: URL { directory.appendingPathComponent("index.json") }
 
-    private init() {
-        directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "dev.mattstack.Flock", isDirectory: true)
-            .appendingPathComponent("pasted-images", isDirectory: true)
-        guard let data = try? Data(contentsOf: index) else { return }
+    init(directory: URL, stagingDirectory: URL, now: Date = Date()) {
+        self.directory = directory
+        self.stagingDirectory = stagingDirectory
+        guard let data = try? Data(contentsOf: indexFile) else { return }
         do {
-            conversations = try JSONDecoder().decode([String: Conversation].self, from: data)
+            index = try JSONDecoder().decode(PastedImageIndex.self, from: data)
         } catch {
             pastedImageLog.warning("cannot read the pasted image index: \(error.localizedDescription, privacy: .public)")
+            return
         }
-        prune()
+        let before = index
+        let unused = index.prune(now: now)
+        guard index != before else { return }
+        // Only the copies made here: every other path is the user's own file.
+        for path in unused where path.hasPrefix(directory.path + "/") {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        save()
     }
 
     func images(for conversation: String) -> [Int: String] {
-        conversations[conversation]?.images ?? [:]
+        index.images(for: conversation)
     }
 
     /// The path the image is kept at from here on.
-    @discardableResult
-    func keep(_ path: String, as number: Int, in conversation: String) -> String {
+    func keep(_ path: String, as number: Int, in conversation: String, now: Date = Date()) -> String {
         guard ensureDirectory() else { return path }
-        let kept = isStaged(path) ? copy(path) ?? path : path
-        var entry = conversations[conversation] ?? Conversation(updated: Date(), images: [:])
-        entry.images[number] = kept
-        entry.updated = Date()
-        conversations[conversation] = entry
+        let kept = path.hasPrefix(stagingDirectory.path + "/") ? copy(path) ?? path : path
+        index.set(kept, as: number, in: conversation, now: now)
         save()
         return kept
-    }
-
-    private func isStaged(_ path: String) -> Bool {
-        path.hasPrefix(ClipboardImageStaging.directory.path + "/")
     }
 
     private func copy(_ path: String) -> String? {
@@ -86,25 +84,10 @@ final class PastedImageStore {
 
     private func save() {
         do {
-            try JSONEncoder().encode(conversations).write(to: index, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: index.path)
+            try JSONEncoder().encode(index).write(to: indexFile, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexFile.path)
         } catch {
             pastedImageLog.warning("cannot save the pasted image index: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// Forgets old conversations, and deletes only copies no remaining one
-    /// points at: every other path is the user's own file.
-    private func prune() {
-        let cutoff = Date().addingTimeInterval(-Self.maximumAge)
-        let stale = conversations.filter { $0.value.updated < cutoff }
-        guard !stale.isEmpty else { return }
-        for key in stale.keys { conversations[key] = nil }
-        let live = Set(conversations.values.flatMap { $0.images.values })
-        for path in stale.values.flatMap({ $0.images.values })
-        where path.hasPrefix(directory.path + "/") && !live.contains(path) {
-            try? FileManager.default.removeItem(atPath: path)
-        }
-        save()
     }
 }

@@ -259,6 +259,51 @@ enum ChromeMetrics {
         static let inset: CGFloat = 4
     }
 
+    /// A pasted image's chip, the tray over the prompt and the preview card.
+    /// Their ground, edge and fills are `ConfirmCard`'s.
+    enum PastedImages {
+        static let chipRowInset: CGFloat = 1
+        static let chipCornerRadius: CGFloat = 4
+        /// The chip's parts, in cells of the label it covers.
+        static let chipImageCells: CGFloat = 2.2
+        static let chipMarginCells: CGFloat = 0.55
+        static let chipTextScale: Double = 0.82
+        static let chipLitOpacity: Double = 0.35
+
+        static let trayInset: CGFloat = 12
+        static let cardPadding: CGFloat = 8
+        static let thumbGap: CGFloat = 6
+        static let thumbHeight: CGFloat = 128
+        static let minimumThumbHeight: CGFloat = 32
+        static let thumbWidths: ClosedRange<CGFloat> = 80...228
+        static let stripWidth: CGFloat = 640
+        static let minimumStripWidth: CGFloat = 60
+        static let pageDuration: Double = 0.22
+        static let badgePadding: CGFloat = 5
+        static let badgeInset: CGFloat = 6
+        static let litBorderWidth: CGFloat = 2
+        static let pressedScale: CGFloat = 0.97
+        static let pressedDim: Double = 0.18
+
+        static let footerGap: CGFloat = 10
+        static let footerHeight: CGFloat = 28
+        static let footerLeading: CGFloat = 4
+        static let buttonGap: CGFloat = 4
+        static let buttonPadding: CGFloat = 12
+        static let pagerWidth: CGFloat = 34
+        static let hoverFillOpacity: Double = 0.11
+        static let disabledOpacity: Double = 0.4
+
+        static let previewLimit = CGSize(width: 460, height: 320)
+        static let previewMinimumWidth: CGFloat = 264
+        /// What the preview takes beside and above its image.
+        static let previewReserve = CGSize(width: 32, height: 72)
+
+        static let dropDim: Double = 0.62
+        static let dropGap: CGFloat = 10
+        static let dropPadding = CGSize(width: 20, height: 14)
+    }
+
     /// A pane's find bar, pinned to the terminal's top trailing corner.
     enum FindBar {
         static let inset: CGFloat = 8

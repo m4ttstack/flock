@@ -51,7 +51,7 @@ public enum PaneLink: Equatable {
 
     /// Two for what a terminal draws double width: emoji shown as pictures,
     /// and the East Asian wide and fullwidth blocks.
-    public static func cellWidth(of character: Character) -> Int {
+    static func cellWidth(of character: Character) -> Int {
         guard let scalar = character.unicodeScalars.first else { return 1 }
         if scalar.properties.isEmojiPresentation { return 2 }
         if scalar.properties.isEmoji, character.unicodeScalars.contains(where: { $0.value == 0xFE0F }) { return 2 }

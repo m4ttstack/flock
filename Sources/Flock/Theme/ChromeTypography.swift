@@ -213,6 +213,8 @@ enum ChromeType {
     static let findSymbol = Font.system(size: 11, weight: .semibold)
     static let linkChip = inter(11, .medium)
     static let linkChipSymbol = Font.system(size: 9.5, weight: .semibold)
+    static let pastedImageDropSymbol = Font.system(size: 18, weight: .medium)
+    static let pastedImagePagerSymbol = Font.system(size: 12, weight: .semibold)
 
     static let ghostSymbol = Font.system(size: 14, weight: .semibold)
     static let ghostLabel = inter(14, .semibold)

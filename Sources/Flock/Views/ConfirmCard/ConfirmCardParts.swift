@@ -1,4 +1,5 @@
 import AppKit
+import FlockCore
 import SwiftUI
 
 /// One for the app, rather than a view per card: a view mounted behind the
@@ -213,5 +214,32 @@ struct CalloutShape: InsettableShape {
         var copy = self
         copy.inset += amount
         return copy
+    }
+}
+
+extension Theme {
+    /// In the scheme opposite the window's, so a card never sinks into the
+    /// chrome around it.
+    var confirmCardColors: ChromeMetrics.ConfirmCard.Colors {
+        ChromeRoles.isLight(panelBg: palette.panelBg) ? .dark : .light
+    }
+}
+
+extension View {
+    /// The confirm card's ground, edge and lift, for a floating card that is
+    /// not a prompt.
+    func confirmCardSurface(_ theme: Theme) -> some View {
+        typealias M = ChromeMetrics.ConfirmCard
+        let colors = theme.confirmCardColors
+        let shape = RoundedRectangle(cornerRadius: M.cornerRadius)
+        return background {
+            shape.fill(Color(colors.ground))
+                .shadow(color: .black.opacity(M.contactShadowOpacity), radius: M.contactShadowRadius, y: M.contactShadowY)
+                .shadow(color: .black.opacity(M.liftShadowOpacity), radius: M.liftShadowRadius, y: M.liftShadowY)
+        }
+        .overlay {
+            shape.strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth)
+                .allowsHitTesting(false)
+        }
     }
 }

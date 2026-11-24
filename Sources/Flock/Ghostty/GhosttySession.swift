@@ -4,6 +4,7 @@ import Carbon
 import GhosttyKit
 import os
 import FlockCore
+import CoreVideo
 import IOSurface
 
 /// One libghostty surface, and everything that has to be told about it: size,
@@ -149,6 +150,7 @@ final class GhosttySession {
         self.paneID = paneID
         self.configuration = configuration
         host.register(self)
+        connectPastedImages()
     }
 
     deinit {
@@ -666,37 +668,31 @@ final class GhosttySession {
     let linkChip = LinkChipModel()
     let pastedImages = PastedImagesModel()
 
-    /// SPIKE: call before the paste goes out.
+    /// Call before the paste goes out.
     func notePastedImages(from pasteboard: NSPasteboard = .general) {
-        guard PastedImageOptions.isAvailable else { return }
-        readScreenForImages()
         pastedImages.willPaste(pasteboard.pasteImagePaths())
     }
 
-    func bindPastedImages(to conversation: String?) {
-        guard PastedImageOptions.isAvailable else { return }
-        readScreenForImages()
-        pastedImages.bind(conversation: conversation)
-    }
-
-    private func readScreenForImages() {
-        pastedImages.readScreen = { [weak self] in self?.screenRows() }
-        pastedImages.currentFrame = { [weak self] in
-            guard let view = self?.view, view.window != nil else { return nil }
-            return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
-        }
-        pastedImages.window = { [weak self] in self?.view?.window }
-        pastedImages.fromWindow = { [weak self] point in
-            guard let view = self?.view else { return nil }
-            let local = view.convert(point, from: nil)
-            return CGPoint(x: local.x, y: view.bounds.height - local.y)
-        }
-        pastedImages.onScreen = { [weak self] rect in
-            guard let view = self?.view, let window = view.window else { return nil }
-            let flipped = NSRect(
-                x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
-            return window.convertToScreen(view.convert(flipped, to: nil))
-        }
+    private func connectPastedImages() {
+        pastedImages.pane = PastedImagesModel.Pane(
+            screen: { [weak self] in self?.screenRows() },
+            frame: { [weak self] in
+                guard let view = self?.view, view.window != nil else { return nil }
+                return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
+            },
+            window: { [weak self] in self?.view?.window },
+            toScreen: { [weak self] rect in
+                guard let view = self?.view, let window = view.window else { return nil }
+                let flipped = NSRect(
+                    x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+                return window.convertToScreen(view.convert(flipped, to: nil))
+            },
+            fromWindow: { [weak self] point in
+                guard let view = self?.view else { return nil }
+                let local = view.convert(point, from: nil)
+                return CGPoint(x: local.x, y: view.bounds.height - local.y)
+            }
+        )
     }
 
     /// Row by row: read as one selection, soft-wrapped rows come back joined.
@@ -720,7 +716,7 @@ final class GhosttySession {
         }
         // This runs for every frame, and most screens show no label.
         let count = UInt32(size.rows)
-        let rows = text(from: 0, to: count - 1).contains("[Image #")
+        let rows = text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
             ? (0..<count).map { text(from: $0, to: $0) } : []
         return PastedImagesModel.Screen(
             rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),
@@ -733,7 +729,7 @@ final class GhosttySession {
         guard let contents = view?.layer?.contents as CFTypeRef?, CFGetTypeID(contents) == IOSurfaceGetTypeID()
         else { return nil }
         let frame = unsafeDowncast(contents, to: IOSurfaceRef.self)
-        guard IOSurfaceGetPixelFormat(frame) == 0x4247_5241 else { return nil }
+        guard IOSurfaceGetPixelFormat(frame) == kCVPixelFormatType_32BGRA else { return nil }
         let x = Int(point.x * scale), y = Int(point.y * scale)
         guard x >= 0, y >= 0, x < IOSurfaceGetWidth(frame), y < IOSurfaceGetHeight(frame),
               IOSurfaceLock(frame, .readOnly, nil) == kIOReturnSuccess
@@ -837,7 +833,7 @@ final class GhosttySession {
             }
         case .file(let url):
             // A pasted image's file is on this Mac whatever the pane's machine.
-            guard !isRemoteMachine || pastedImages.image(for: link) != nil else { return }
+            guard !isRemoteMachine || pastedImages.holds(link) else { return }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             let runs = isDirectory.boolValue

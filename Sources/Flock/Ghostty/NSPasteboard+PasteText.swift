@@ -15,7 +15,9 @@ extension NSPasteboard {
         )
     }
 
-    /// SPIKE: the image files the clipboard's items are or were staged as.
+    /// The image files the pasteboard's items are, or were staged as. Bytes
+    /// with no file behind them are staged here for a pane on a machine too:
+    /// the preview is drawn on this Mac.
     func pasteImagePaths() -> [String] {
         PasteTextMemo.shared.imagePaths(
             for: .init(name: name.rawValue, changeCount: changeCount),
@@ -32,8 +34,8 @@ extension NSPasteboard {
 
     /// The paste for a pane on a herdr machine: files and images are uploaded
     /// and their path there is pasted, since a path on this Mac names nothing
-    /// on the machine. Never stages a local copy and never touches the local
-    /// paste memo.
+    /// on the machine. Never stages a local copy of its own and never touches
+    /// the local paste memo.
     @MainActor
     func remotePasteText(uploader: RemoteFileUploader) async -> RemotePasteOutcome {
         let items = pasteboardItems ?? []
