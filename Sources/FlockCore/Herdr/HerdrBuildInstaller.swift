@@ -51,7 +51,8 @@ public enum HerdrBuildInstaller {
     /// touches the live one. The final `rename(2)` repoints the directory
     /// entry without touching the inode a running herdr has open.
     public static func install(
-        artifactPath: String, binaryPath: String, sha256: String, fileManager: FileManager = .default
+        artifactPath: String, binaryPath: String, sha256: String, fileManager: FileManager = .default,
+        removeQuarantine: (String) -> Int32 = removeQuarantine(at:)
     ) throws {
         guard fileManager.isReadableFile(atPath: artifactPath) else { throw InstallError.sourceUnreadable }
         let directory = directory(of: binaryPath)
@@ -76,13 +77,22 @@ public enum HerdrBuildInstaller {
             throw InstallError.checksumMismatch
         }
         // A quarantined binary is refused by Gatekeeper when it is executed.
-        removexattr(staging, "com.apple.quarantine", 0)
+        let quarantine = removeQuarantine(staging)
+        guard quarantine == 0 || quarantine == ENOATTR else {
+            try? fileManager.removeItem(atPath: staging)
+            throw InstallError.stagingFailed
+        }
 
         guard Darwin.rename(staging, binaryPath) == 0 else {
             let failure = errno
             try? fileManager.removeItem(atPath: staging)
             throw InstallError.renameFailed(errno: failure)
         }
+    }
+
+    /// 0 once the attribute is gone, otherwise the `errno` that kept it.
+    public static func removeQuarantine(at path: String) -> Int32 {
+        removexattr(path, "com.apple.quarantine", 0) == 0 ? 0 : errno
     }
 
     private static func directory(of path: String) -> String {

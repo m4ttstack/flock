@@ -391,6 +391,7 @@ final class HerdrBuildStore {
                 try HerdrBuildInstaller.install(
                     artifactPath: artifact, binaryPath: installPath, sha256: asset.sha256, fileManager: fileManager
                 )
+                try? fileManager.removeItem(atPath: artifact)
                 if !decidedFrom.exists {
                     let result = await runner.run(installPath, Self.integrationArguments)
                     if result.status != 0 { lastErrorMessage = HerdrBuildCopy.integrationFailed }

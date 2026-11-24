@@ -51,6 +51,23 @@ final class HerdrBuildListTests: XCTestCase {
         XCTAssertNil(HerdrBuildList.decode(Data("not json".utf8)))
     }
 
+    func testRejectsAssetURLsThatClimbOutOfTheReleases() {
+        for url in [
+            "\(Self.base)/../../../acme/evil/releases/download/v1/herdr",
+            "\(Self.base)/v0.9.5-ms.2/../../../../acme/herdr",
+            "\(Self.base)/%2e%2e/%2E%2E/acme/herdr",
+            "\(Self.base)/.%2e/acme/herdr",
+            "\(Self.base)/v1%2f..%2f..%2facme/herdr",
+        ] {
+            XCTAssertNil(decode(Self.json(secondURL: url)), url)
+        }
+    }
+
+    func testAcceptsDotsInsideAFileName() throws {
+        let list = try XCTUnwrap(decode(Self.json(secondURL: "\(Self.base)/v0.9.5-ms.2/herdr..macos.aarch64")))
+        XCTAssertEqual(list.newest.assets[.arm64]?.url.lastPathComponent, "herdr..macos.aarch64")
+    }
+
     func testUnknownArchKeysAreIgnored() throws {
         let extra = ",\"riscv64\":{\"url\":\"\(Self.base)/v0.9.5-ms.2/herdr-linux-riscv64\",\"sha256\":\"\(Self.sha2Arm)\"}"
         let list = try XCTUnwrap(decode(Self.json(extraAsset: extra)))

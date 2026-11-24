@@ -13,10 +13,12 @@ public struct HerdrBuildDownloader: Sendable {
     public enum Failure: Error, Equatable { case transport, checksumMismatch }
 
     private let cacheDirectory: URL
+    private let obsoleteDirectories: [URL]
     private let transport: HerdrDownloadTransport
 
-    public init(cacheDirectory: URL, transport: HerdrDownloadTransport) {
+    public init(cacheDirectory: URL, obsoleteDirectories: [URL] = [], transport: HerdrDownloadTransport) {
         self.cacheDirectory = cacheDirectory
+        self.obsoleteDirectories = obsoleteDirectories
         self.transport = transport
     }
 
@@ -24,6 +26,7 @@ public struct HerdrBuildDownloader: Sendable {
         url: URL, sha256: String, fileName: String, progress: @escaping @Sendable (Double) -> Void
     ) async throws -> String {
         let fileManager = FileManager.default
+        for directory in obsoleteDirectories { try? fileManager.removeItem(at: directory) }
         try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         let cached = cacheDirectory.appendingPathComponent(fileName)
         if fileManager.fileExists(atPath: cached.path) {
@@ -46,8 +49,6 @@ public struct HerdrBuildDownloader: Sendable {
         }
         guard (try? Self.sha256(ofFileAt: partial)) == sha256 else { throw Failure.checksumMismatch }
         try fileManager.moveItem(at: partial, to: cached)
-        // A quarantined helper binary is refused by Gatekeeper when a bridge execs it.
-        removexattr(cached.path, "com.apple.quarantine", 0)
         return cached.path
     }
 

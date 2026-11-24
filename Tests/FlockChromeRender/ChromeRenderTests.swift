@@ -2879,8 +2879,8 @@ final class ChromeRenderTests: XCTestCase {
                     "\(name): the row does not read the state's body"
                 )
                 XCTAssertFalse(
-                    elements.contains { $0.identifier == "flock.settings.herdrMousePatch.secondaryAction" },
-                    "\(name): a Restore button is drawn"
+                    elements.contains { $0.words.contains { $0.localizedCaseInsensitiveContains("Restore") } },
+                    "\(name): something in the herdr Settings tab reads Restore"
                 )
                 XCTAssertEqual(
                     elements.contains { $0.identifier == "flock.settings.herdrBuild.action" },
@@ -5837,7 +5837,7 @@ extension ChromeRenderTests {
     /// Every element the window's content exposes to accessibility, with
     /// its identifier and the text it reads as. SwiftUI builds the tree only
     /// for an assistive client, which enhanced UI stands in for.
-    private func accessibilityElements(in window: NSWindow) async -> [(identifier: String, text: String)] {
+    private func accessibilityElements(in window: NSWindow) async -> [(identifier: String, text: String, words: [String])] {
         // AppKit has no public property for it; this key is the one an
         // assistive client sets, and a missing setter fails here, not later.
         let key = "accessibilityEnhancedUserInterface"
@@ -5849,7 +5849,7 @@ extension ChromeRenderTests {
         NSApp.setValue(true, forKey: key)
         defer { NSApp.setValue(wasEnhanced, forKey: key) }
         await settle(window)
-        var found: [(identifier: String, text: String)] = []
+        var found: [(identifier: String, text: String, words: [String])] = []
         var pending: [Any] = window.contentView.map { [$0] } ?? []
         var visited = 0
         while let next = pending.popLast(), visited < 20_000 {
@@ -5862,8 +5862,9 @@ extension ChromeRenderTests {
             }
             let identifier = read("accessibilityIdentifier") as? String ?? ""
             let label = read("accessibilityLabel") as? String ?? ""
-            let text = label.isEmpty ? read("accessibilityValue") as? String ?? "" : label
-            found.append((identifier, text))
+            let value = read("accessibilityValue") as? String ?? ""
+            let text = label.isEmpty ? value : label
+            found.append((identifier, text, [read("accessibilityTitle") as? String ?? "", label, value]))
             pending.append(contentsOf: read("accessibilityChildren") as? [Any] ?? [])
         }
         return found

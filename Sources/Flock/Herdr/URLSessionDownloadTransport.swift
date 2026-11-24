@@ -35,9 +35,11 @@ private final class ProgressDelegate: NSObject, URLSessionDownloadDelegate, Send
 extension HerdrBuildDownloader {
     static var standard: HerdrBuildDownloader {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let directory = caches
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "flock")
-            .appendingPathComponent("herdr-builds")
-        return HerdrBuildDownloader(cacheDirectory: directory, transport: URLSessionDownloadTransport())
+        return HerdrBuildDownloader(
+            cacheDirectory: caches.appendingPathComponent("herdr-builds"),
+            obsoleteDirectories: [caches.appendingPathComponent("herdr-patches")],
+            transport: URLSessionDownloadTransport()
+        )
     }
 }

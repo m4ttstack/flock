@@ -71,7 +71,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(HerdrBuildCopy.listUnreadable, "flock couldn't read the herdr build list. Check your connection and try again.")
         XCTAssertEqual(HerdrBuildCopy.herdrChanged, "herdr changed while the new build downloaded. Nothing was changed.")
         XCTAssertEqual(HerdrBuildCopy.notWritable, "herdr's install location is not writable.")
-        XCTAssertEqual(HerdrBuildCopy.renameFailed, "The file move failed partway through.")
+        XCTAssertEqual(HerdrBuildCopy.renameFailed, "Couldn't move the new build into place. Nothing was changed.")
         XCTAssertEqual(
             HerdrBuildCopy.integrationFailed,
             "herdr is installed, but its Claude integration didn't install. Run herdr integration install claude in a terminal.")

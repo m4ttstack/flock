@@ -127,6 +127,30 @@ final class HerdrBuildInstallerTests: XCTestCase {
         XCTAssertEqual(errno, ENOATTR)
     }
 
+    func testAQuarantineThatWillNotComeOffCleansUpAndKeepsTheOldBinary() throws {
+        let dir = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let binary = dir.appendingPathComponent("herdr").path
+        try Data("old".utf8).write(to: URL(fileURLWithPath: binary))
+        XCTAssertThrowsError(
+            try HerdrBuildInstaller.install(
+                artifactPath: artifactPath, binaryPath: binary, sha256: sha, removeQuarantine: { _ in EPERM }
+            )
+        ) {
+            XCTAssertEqual($0 as? HerdrBuildInstaller.InstallError, .stagingFailed)
+        }
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binary)), Data("old".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["herdr"])
+    }
+
+    func testNoQuarantineToRemoveIsNotAFailure() throws {
+        let binary = root.appendingPathComponent("bin/herdr").path
+        try HerdrBuildInstaller.install(
+            artifactPath: artifactPath, binaryPath: binary, sha256: sha, removeQuarantine: { _ in ENOATTR }
+        )
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binary)), artifactBytes)
+    }
+
     func testFileName() throws {
         XCTAssertEqual(
             HerdrBuildInstaller.fileName(for: try XCTUnwrap(HerdrBuildVersion("0.9.5-ms.1")), arch: .x86_64), "herdr-0.9.5-ms.1-x86_64")

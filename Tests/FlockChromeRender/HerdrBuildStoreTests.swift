@@ -314,6 +314,18 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertTrue(tools.isFound)
     }
 
+    func testAnInstalledBuildIsNotKeptInTheDownloadCache() async throws {
+        let store = try makeStore(binary: nil)
+        await settle(store)
+
+        store.installMissing()
+        await settle(store)
+
+        XCTAssertEqual(binaryBytes(), ms2)
+        let cache = root.appendingPathComponent("cache").path
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cache), [])
+    }
+
     func testHerdrRemovedMidSessionKeepsTheSessionUp() async throws {
         try writeBinary(stock)
         let tools = await toolStore()

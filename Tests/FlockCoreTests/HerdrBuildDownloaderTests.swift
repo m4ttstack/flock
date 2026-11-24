@@ -102,6 +102,24 @@ final class HerdrBuildDownloaderTests: XCTestCase {
         )
     }
 
+    func testAnObsoleteCacheFolderIsRemovedOnDownload() async throws {
+        let root = cache.appendingPathComponent("caches")
+        let obsolete = root.appendingPathComponent("herdr-patches")
+        try FileManager.default.createDirectory(at: obsolete, withIntermediateDirectories: true)
+        try Data(repeating: 0, count: 1024).write(to: obsolete.appendingPathComponent("herdr-0.9.1-arm64"))
+        let transport = StubTransport()
+        transport.body = good
+        let downloader = HerdrBuildDownloader(
+            cacheDirectory: root.appendingPathComponent("herdr-builds"), obsoleteDirectories: [obsolete], transport: transport
+        )
+
+        _ = try await downloader.fetch(request: entry(for: good))
+        _ = try await downloader.fetch(request: entry(for: good))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: obsolete.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["herdr-builds"])
+    }
+
     func testTheProgressThrottlePassesOnlyMovesOfAPercentAndTheEnd() {
         let throttle = HerdrDownloadProgressThrottle()
         let passed = [0, 0.001, 0.005, 0.0101, 0.015, 0.03, 0.995, 0.999, 1, 1].filter { throttle.shouldReport($0) }

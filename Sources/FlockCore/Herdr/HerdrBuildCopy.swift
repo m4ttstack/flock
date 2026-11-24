@@ -116,7 +116,7 @@ public enum HerdrBuildCopy {
     public static let listUnreadable = "flock couldn't read the herdr build list. Check your connection and try again."
     public static let herdrChanged = "herdr changed while the new build downloaded. Nothing was changed."
     public static let notWritable = "herdr's install location is not writable."
-    public static let renameFailed = "The file move failed partway through."
+    public static let renameFailed = "Couldn't move the new build into place. Nothing was changed."
     public static let integrationFailed =
         "herdr is installed, but its Claude integration didn't install. Run herdr integration install claude in a terminal."
 

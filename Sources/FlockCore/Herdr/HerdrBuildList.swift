@@ -53,7 +53,8 @@ public struct HerdrBuildList: Equatable, Sendable {
             var assets: [HerdrArch: Asset] = [:]
             for (key, asset) in entry.assets {
                 guard let arch = HerdrArch(rawValue: key) else { continue }
-                guard isSha256(asset.sha256), asset.url.hasPrefix(downloadPrefix), let url = URL(string: asset.url) else {
+                guard isSha256(asset.sha256), asset.url.hasPrefix(downloadPrefix), let url = URL(string: asset.url),
+                      !climbsOut(url) else {
                     return nil
                 }
                 assets[arch] = Asset(url: url, sha256: asset.sha256)
@@ -78,6 +79,12 @@ public struct HerdrBuildList: Equatable, Sendable {
     public func isOutdatedBuild(sha256: String?) -> Bool {
         guard let sha256 else { return false }
         return newest.supersedes.contains(sha256) || flockPatchSha256.contains(sha256)
+    }
+
+    /// A `..` segment, spelled out or percent-encoded, would leave the
+    /// fork's releases while the string still starts with their prefix.
+    private static func climbsOut(_ url: URL) -> Bool {
+        url.path(percentEncoded: false).split(separator: "/", omittingEmptySubsequences: false).contains("..")
     }
 
     private static func isSha256(_ value: String) -> Bool {
