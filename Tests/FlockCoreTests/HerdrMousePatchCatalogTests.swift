@@ -6,7 +6,7 @@ final class HerdrMousePatchCatalogTests: XCTestCase {
     private let second = String(repeating: "b", count: 64)
 
     func testEveryEntryHasAReleaseURLAndAFullChecksum() {
-        for arch in HerdrPatchArch.allCases {
+        for arch in HerdrArch.allCases {
             for entry in HerdrMousePatchCatalog.entries(for: arch) {
                 XCTAssertEqual(
                     entry.url.absoluteString,
@@ -105,7 +105,7 @@ final class HerdrMousePatchCatalogTests: XCTestCase {
                 arm64: HerdrMousePatchCatalog.awaitingPublication, x86_64: HerdrMousePatchCatalog.awaitingPublication
             ),
         ]
-        for arch in HerdrPatchArch.allCases {
+        for arch in HerdrArch.allCases {
             let entry = try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.9", arch: arch, in: releases))
             XCTAssertEqual(entry.revision, 1, arch.rawValue)
             XCTAssertTrue(entry.superseded.isEmpty, arch.rawValue)

@@ -1,34 +1,11 @@
 import Foundation
 
-/// The CPU a patched herdr binary is built for. A patch is published per
-/// architecture, and the one installed must match the Mac's own CPU.
-public enum HerdrPatchArch: String, CaseIterable, Sendable {
-    case arm64
-    case x86_64
-
-    /// The Mac's CPU, not this process's: a universal Flock opened under
-    /// Rosetta on Apple silicon must still install the arm64 herdr.
-    public static var current: HerdrPatchArch {
-        #if arch(x86_64)
-            isTranslated ? .arm64 : .x86_64
-        #else
-            .arm64
-        #endif
-    }
-
-    private static var isTranslated: Bool {
-        var translated: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        return sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0) == 0 && translated == 1
-    }
-}
-
 /// One installable patch: a herdr version built for one architecture, at one
 /// revision of flock's patch for that version.
 public struct HerdrMousePatchEntry: Equatable, Sendable {
     public let version: String
     public let sha256: String
-    public let arch: HerdrPatchArch
+    public let arch: HerdrArch
     public let revision: Int
     /// The SHA-256 of every earlier revision published for this version and
     /// architecture: a herdr carrying one of them has an outdated patch.
@@ -38,7 +15,7 @@ public struct HerdrMousePatchEntry: Equatable, Sendable {
     public let changesServer: Bool
 
     public init(
-        version: String, sha256: String, arch: HerdrPatchArch = .current, revision: Int = 1, superseded: Set<String> = [],
+        version: String, sha256: String, arch: HerdrArch = .current, revision: Int = 1, superseded: Set<String> = [],
         changesServer: Bool = false
     ) {
         self.version = version
@@ -71,20 +48,20 @@ public struct HerdrMousePatchEntry: Equatable, Sendable {
 public struct HerdrMousePatchRelease: Equatable, Sendable {
     public let version: String
     public let revision: Int
-    public let sha256: [HerdrPatchArch: String]
+    public let sha256: [HerdrArch: String]
     public let changesServer: Bool
 
     public init(version: String, revision: Int = 1, arm64: String?, x86_64: String? = nil, changesServer: Bool = false) {
         self.version = version
         self.revision = revision
         self.changesServer = changesServer
-        var sha256: [HerdrPatchArch: String] = [:]
+        var sha256: [HerdrArch: String] = [:]
         sha256[.arm64] = arm64
         sha256[.x86_64] = x86_64
         self.sha256 = sha256
     }
 
-    public func entry(for arch: HerdrPatchArch, superseded: Set<String> = []) -> HerdrMousePatchEntry? {
+    public func entry(for arch: HerdrArch, superseded: Set<String> = []) -> HerdrMousePatchEntry? {
         sha256[arch].map {
             HerdrMousePatchEntry(
                 version: version, sha256: $0, arch: arch, revision: revision, superseded: superseded, changesServer: changesServer
@@ -132,7 +109,7 @@ public enum HerdrMousePatchCatalog {
 
     /// One entry per version: its newest revision built for `arch`.
     public static func entries(
-        for arch: HerdrPatchArch, in releases: [HerdrMousePatchRelease] = releases
+        for arch: HerdrArch, in releases: [HerdrMousePatchRelease] = releases
     ) -> [HerdrMousePatchEntry] {
         var versions: [String] = []
         for release in releases where !versions.contains(release.version) {
@@ -146,7 +123,7 @@ public enum HerdrMousePatchCatalog {
     }
 
     public static func entry(
-        for version: String, arch: HerdrPatchArch, in releases: [HerdrMousePatchRelease] = releases
+        for version: String, arch: HerdrArch, in releases: [HerdrMousePatchRelease] = releases
     ) -> HerdrMousePatchEntry? {
         let pinned = releases
             .filter { $0.version == version && $0.sha256[arch] != nil }
