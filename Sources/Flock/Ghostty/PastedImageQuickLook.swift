@@ -18,6 +18,8 @@ final class PastedImageQuickLook: NSObject {
         let thumbnail: NSImage
         /// Of what is previewed.
         let size: CGSize
+        /// Shown as a picture, rather than through Quick Look's own view.
+        let isImage: Bool
 
         init(number: Int, title: String, url: URL, thumbnail: NSImage, size: CGSize? = nil) {
             self.number = number
@@ -25,6 +27,7 @@ final class PastedImageQuickLook: NSObject {
             self.url = url
             self.thumbnail = thumbnail
             self.size = size ?? thumbnail.size
+            isImage = size == nil
         }
     }
 
@@ -78,19 +81,29 @@ final class PastedImageQuickLook: NSObject {
         generation += 1
         watch(window)
         fill()
-        panel.setFrame(target, display: false)
+        panel.setFrame(target, display: true)
         if wasOpen, panel.isVisible {
+            panel.alphaValue = 1
             panel.makeKeyAndOrderFront(nil)
+            loadPreview()
             return
         }
         guard let source = sourceFrame(number), !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.alphaValue = 1
             panel.makeKeyAndOrderFront(nil)
+            loadPreview()
             return
         }
         let opened = generation
-        animate(from: source, to: target, fadingIn: true) { [weak self] in
+        // In place and drawn before the picture reaches it, so there is never
+        // a moment with neither.
+        panel.alphaValue = 0
+        panel.orderFront(nil)
+        animate(from: source, to: pictureFrame) { [weak self] in
             guard let self, generation == opened else { return }
+            panel.alphaValue = 1
             panel.makeKeyAndOrderFront(nil)
+            loadPreview()
         }
     }
 
@@ -98,17 +111,17 @@ final class PastedImageQuickLook: NSObject {
         guard isOpen else { return }
         isOpen = false
         generation += 1
-        let from = panel.frame
+        let from = pictureFrame
         let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
         unwatch()
         panel.orderOut(nil)
-        preview?.previewItem = nil
+        unloadPreview()
         window?.makeKey()
         guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             endZoom()
             return
         }
-        animate(from: from, to: back, fadingIn: false) {}
+        animate(from: from, to: back) {}
     }
 
     private func step(_ by: Int) {
@@ -116,6 +129,7 @@ final class PastedImageQuickLook: NSObject {
         index += by
         fill()
         panel.setFrame(target, display: true)
+        loadPreview()
     }
 
     @objc private func openInApp() {
@@ -138,8 +152,9 @@ final class PastedImageQuickLook: NSObject {
     private func fill() {
         let item = items[index]
         panel.title = items.count == 1 ? item.title : "\(item.title) (\(index + 1) of \(items.count))"
+        unloadPreview()
         image.image = item.thumbnail
-        preview?.previewItem = item.url as NSURL
+        if item.isImage { loadFullImage(item) }
         if let app = NSWorkspace.shared.urlForApplication(toOpen: item.url) {
             openButton.title = "Open in \(FileManager.default.displayName(atPath: app.path))"
             openButton.isHidden = false
@@ -147,6 +162,56 @@ final class PastedImageQuickLook: NSObject {
             openButton.isHidden = true
         }
         openButton.sizeToFit()
+    }
+
+    /// The thumbnail is capped, and reads soft in a large panel.
+    private func loadFullImage(_ item: Item) {
+        let url = item.url
+        Task { [weak self] in
+            let full = await Task.detached(priority: .userInitiated) { () -> Decoded? in
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+                else { return nil }
+                return Decoded(image: image)
+            }.value
+            guard let self, let full, items.indices.contains(index), items[index].url == url else { return }
+            // The thumbnail's size in points, so nothing moves.
+            image.image = NSImage(cgImage: full.image, size: item.thumbnail.size)
+        }
+    }
+
+    /// Sendable because a decoded CGImage is immutable.
+    private struct Decoded: @unchecked Sendable {
+        let image: CGImage
+    }
+
+    /// Last, since loading one holds up the main thread.
+    private func loadPreview() {
+        guard isOpen, items.indices.contains(index), !items[index].isImage, let content = panel.contentView,
+              let preview = QLPreviewView(frame: content.bounds, style: .normal)
+        else { return }
+        preview.autoresizingMask = [.width, .height]
+        preview.previewItem = items[index].url as NSURL
+        content.addSubview(preview)
+        self.preview = preview
+    }
+
+    private func unloadPreview() {
+        preview?.close()
+        preview?.removeFromSuperview()
+        preview = nil
+    }
+
+    /// Where the picture is drawn, on screen.
+    private var pictureFrame: NSRect {
+        let content = panel.contentRect(forFrameRect: panel.frame)
+        guard items.indices.contains(index) else { return content }
+        let size = items[index].thumbnail.size
+        let scale = min(1, content.width / max(1, size.width), content.height / max(1, size.height))
+        let drawn = CGSize(width: size.width * scale, height: size.height * scale)
+        return NSRect(
+            x: content.midX - drawn.width / 2, y: content.midY - drawn.height / 2,
+            width: drawn.width, height: drawn.height)
     }
 
     private func makePanel() -> Panel {
@@ -162,19 +227,11 @@ final class PastedImageQuickLook: NSObject {
         panel.onClose = { [weak self] in self?.close() }
         panel.onStep = { [weak self] in self?.step($0) }
 
-        // Under the preview, which draws nothing until it has loaded.
         image.imageScaling = .scaleProportionallyDown
         let content = NSView(frame: panel.contentLayoutRect)
         image.frame = content.bounds
         image.autoresizingMask = [.width, .height]
         content.addSubview(image)
-        if let preview = QLPreviewView(frame: content.bounds, style: .normal) {
-            // Otherwise it can never show another item.
-            preview.shouldCloseWithWindow = false
-            preview.autoresizingMask = [.width, .height]
-            content.addSubview(preview)
-            self.preview = preview
-        }
         panel.contentView = content
 
         openButton.bezelStyle = .accessoryBarAction
@@ -193,10 +250,12 @@ final class PastedImageQuickLook: NSObject {
     // MARK: - Growing and shrinking
 
     /// A window of its own: a titled one cannot be as small as a label.
-    private func animate(from: NSRect, to: NSRect, fadingIn: Bool, then done: @escaping @MainActor () -> Void) {
+    private func animate(from: NSRect, to: NSRect, then done: @escaping @MainActor () -> Void) {
         endZoom()
         let zoom = NSWindow(contentRect: from, styleMask: .borderless, backing: .buffered, defer: false)
         zoom.isReleasedWhenClosed = false
+        // Its own would fade it away as the panel takes over.
+        zoom.animationBehavior = .none
         zoom.isOpaque = false
         zoom.backgroundColor = .clear
         zoom.ignoresMouseEvents = true
@@ -207,7 +266,6 @@ final class PastedImageQuickLook: NSObject {
         view.imageScaling = .scaleProportionallyUpOrDown
         view.autoresizingMask = [.width, .height]
         zoom.contentView = view
-        zoom.alphaValue = fadingIn ? M.zoomAlpha : 1
         zoom.setFrame(from, display: true)
         zoom.orderFront(nil)
         self.zoom = zoom
@@ -215,7 +273,6 @@ final class PastedImageQuickLook: NSObject {
             context.duration = M.zoomDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             zoom.animator().setFrame(to, display: true)
-            zoom.animator().alphaValue = fadingIn ? 1 : 0
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 done()
