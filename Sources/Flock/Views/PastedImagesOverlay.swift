@@ -7,7 +7,6 @@ import SwiftUI
 struct PastedImagesOverlay: View {
     let theme: Theme
     let model: PastedImagesModel
-    let linkChip: LinkChipModel
     let space: String
     let fontSizePoints: Double
     let shade: SurfaceShade
@@ -37,7 +36,7 @@ struct PastedImagesOverlay: View {
                 }
                 if showsTray, let top = model.promptTop, !trayNumbers.isEmpty {
                     PastedImageTray(
-                        theme: theme, model: model, linkChip: linkChip, space: space,
+                        theme: theme, model: model, space: space,
                         numbers: trayNumbers,
                         available: CGSize(width: pane.size.width, height: top)
                     )
@@ -120,34 +119,29 @@ private struct PastedImageChip: View {
 
     var body: some View {
         let cell = label.rect.width / CGFloat("[Image #\(label.number)]".count)
+        // Past its row by less than any glyph's own margin there.
+        let height = label.rect.height + 1.5
         HStack(spacing: 0) {
             Image(nsImage: image.thumbnail)
                 .resizable()
                 .scaledToFill()
-                .frame(width: cell * 1.45, height: max(4, label.rect.height - 8))
-                .clipShape(RoundedRectangle(cornerRadius: 2))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 2)
-                        .strokeBorder(Color(theme.cardColors.title).opacity(0.45), lineWidth: 1)
-                }
-                .padding(.leading, cell * 0.75)
-            Spacer(minLength: 0)
+                .frame(width: cell * 2.3, height: height)
+                .clipped()
             Text("Image \(label.number)")
                 .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.85))
                 .foregroundStyle(Color(theme.cardColors.title))
                 .fixedSize()
-                .padding(.trailing, cell * 0.8)
+                .frame(maxWidth: .infinity)
         }
-        .frame(width: label.rect.width, height: label.rect.height)
+        .frame(width: label.rect.width, height: height)
         .background {
-            // The row's own color over the program's label, then the chip.
-            Rectangle().fill(ground)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color(theme.cardColors.ground))
-                .overlay(RoundedRectangle(cornerRadius: 4).fill(theme.accent.opacity(isLit ? 0.35 : 0)))
-                // Past its row by less than any glyph's own margin there.
-                .padding(.vertical, -0.75)
+            Color(theme.cardColors.ground)
+            theme.accent.opacity(isLit ? 0.35 : 0)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .frame(height: label.rect.height)
+        // The row's own color over the program's label, then the chip.
+        .background(ground)
     }
 }
 
@@ -165,7 +159,6 @@ private extension PastedImageChip {
 private struct PastedImageTray: View {
     let theme: Theme
     let model: PastedImagesModel
-    let linkChip: LinkChipModel
     let space: String
     let numbers: [Int]
     let available: CGSize
@@ -240,8 +233,8 @@ private struct PastedImageTray: View {
         if let image = model.images[number] {
             PastedImageThumb(
                 theme: theme, number: number, image: image, size: size,
-                isLit: model.highlighted == number, space: space,
-                onHover: { frame in hover(number, image, frame) },
+                isLit: model.highlighted == number,
+                onHover: { hover(number, $0) },
                 onOpen: { model.open(number) }
             )
             .transition(.opacity)
@@ -344,20 +337,12 @@ private struct PastedImageTray: View {
         ) { page(forward: forward) }
     }
 
-    private func hover(_ number: Int, _ image: PastedImage, _ frame: CGRect?) {
-        guard let frame else {
-            guard model.highlighted == number else { return }
+    private func hover(_ number: Int, _ inside: Bool) {
+        if inside {
+            model.highlight(number)
+        } else if model.highlighted == number {
             model.highlight(nil)
-            linkChip.pointerLeftPane()
-            return
         }
-        model.highlight(number)
-        guard PastedImageOptions.isOn(PastedImageOptions.hoverKey) else { return }
-        linkChip.hover(
-            image.link,
-            anchor: LinkChip.Anchor(
-                x: frame.midX, lineTop: frame.minY - Self.padding, lineBottom: frame.maxY + Self.padding)
-        )
     }
 }
 
@@ -413,12 +398,9 @@ private struct PastedImageThumb: View {
     let size: CGSize
     /// The pointer is on this image, here or on its label in the terminal.
     let isLit: Bool
-    let space: String
-    /// The thumbnail's frame in `space`, nil once the pointer is off it.
-    let onHover: (CGRect?) -> Void
+    let onHover: (Bool) -> Void
     let onOpen: () -> Void
 
-    @State private var frame = CGRect.zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -434,8 +416,7 @@ private struct PastedImageThumb: View {
         .focusEffectDisabled()
         .pointerStyle(.link)
         .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isLit)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { frame = $0 }
-        .onHover { onHover($0 ? frame : nil) }
+        .onHover(perform: onHover)
         .contextMenu {
             Button("Open", action: onOpen)
             Button("Reveal in Finder") {
