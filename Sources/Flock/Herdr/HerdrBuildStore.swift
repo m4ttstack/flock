@@ -394,7 +394,9 @@ final class HerdrBuildStore {
             guard installOffer == offer, let build = list?.newest, build.version.display == offer.newest else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
-            missingInstall = nil
+            // As in `installMissing`: only Continue or a landed install drops a
+            // screen already held.
+            if missingInstall != nil { missingInstall = .running }
             performInstall(build: build, decidedFrom: offer.probe, startedFromBanner: pending.source == .banner)
         case .restartServer(let offer):
             // As above, for a dialog left open across a switch of servers.

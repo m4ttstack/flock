@@ -455,6 +455,33 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertFalse(showsMissingScreen(tools, store), "a herdr installed by hand did not lift the screen")
     }
 
+    func testAFailedUpdateFromSettingsKeepsTheHeldScreen() async throws {
+        let tools = await toolStore()
+        let lists = ListSource([standardList()])
+        let store = try makeStore(
+            binary: nil, lists: lists, runner: StubRunner(status: 1, output: "boom"),
+            onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
+        await settle(store)
+        store.installMissing(source: .missingScreen)
+        await settle(store)
+        await tools.probeTask.value
+        lists.set(ms3List)
+        await store.refreshList()
+        await settle(store)
+
+        store.requestInstall(source: .settings)
+        XCTAssertNotNil(store.pendingConfirmation)
+        store.confirmPendingAction()
+        XCTAssertTrue(showsMissingScreen(tools, store), "the update took the screen away before Continue")
+        await settle(store)
+
+        XCTAssertEqual(store.missingInstall, .failed(HerdrBuildCopy.checksumMismatch))
+        XCTAssertTrue(showsMissingScreen(tools, store))
+        store.dismissMissingInstall()
+        XCTAssertFalse(showsMissingScreen(tools, store))
+    }
+
     func testContinueWaitsForARunningInstall() async throws {
         let gate = GatedRunner()
         let store = try makeStore(binary: nil, runner: gate)
