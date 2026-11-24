@@ -72,27 +72,39 @@ struct PastedImagesOverlay: View {
     }
 }
 
+private typealias Card = ChromeMetrics.ConfirmCard
+
+private extension Theme {
+    /// The confirm card's colors, in the scheme opposite the window's.
+    var cardColors: Card.Colors { ChromeRoles.isLight(panelBg: palette.panelBg) ? .dark : .light }
+}
+
 private struct PastedImageDropTarget: View {
     let theme: Theme
     let label: String
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: ChromeRadius.surface)
+        let colors = theme.cardColors
+        let card = RoundedRectangle(cornerRadius: Card.cornerRadius)
         ZStack {
-            shape.fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
-            shape.strokeBorder(theme.accent, lineWidth: 2)
-            HStack(spacing: 6) {
-                Image(systemName: "photo.on.rectangle.angled").font(ChromeType.linkChipSymbol)
-                    .foregroundStyle(theme.accent)
-                Text(label).font(ChromeType.linkChip).foregroundStyle(theme.textStrong)
+            theme.terminalGround.opacity(0.62)
+            HStack(spacing: 10) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color(colors.body))
+                Text(label)
+                    .font(ChromeType.confirmCardTitle)
+                    .foregroundStyle(Color(colors.title))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(Capsule().fill(theme.chrome))
-            .overlay(Capsule().strokeBorder(theme.rule, lineWidth: 1))
-            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background {
+                card.fill(Color(colors.ground))
+                    .shadow(color: .black.opacity(Card.contactShadowOpacity), radius: Card.contactShadowRadius, y: Card.contactShadowY)
+                    .shadow(color: .black.opacity(Card.liftShadowOpacity), radius: Card.liftShadowRadius, y: Card.liftShadowY)
+            }
+            .overlay(card.strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth))
         }
-        .padding(4)
         .allowsHitTesting(false)
     }
 }
@@ -118,7 +130,7 @@ private struct PastedImageChip: View {
             Spacer(minLength: 0)
             Text("Image \(label.number)")
                 .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.88))
-                .foregroundStyle(theme.textStrong)
+                .foregroundStyle(Color(theme.cardColors.title))
                 .fixedSize()
                 .padding(.trailing, cell * 0.8)
         }
@@ -127,7 +139,8 @@ private struct PastedImageChip: View {
             // The row's own color over the program's label, then the chip.
             Rectangle().fill(ground)
             RoundedRectangle(cornerRadius: 4)
-                .fill(theme.accent.opacity(isLit ? 0.4 : 0.24))
+                .fill(Color(theme.cardColors.ground))
+                .overlay(RoundedRectangle(cornerRadius: 4).fill(theme.accent.opacity(isLit ? 0.35 : 0)))
                 .padding(.vertical, 1)
         }
     }
@@ -189,9 +202,14 @@ private struct PastedImageTray: View {
         .overlay(alignment: .leading) { arrow(forward: false) }
         .overlay(alignment: .trailing) { arrow(forward: true) }
         .background {
-            shape.fill(theme.chrome).shadow(color: .black.opacity(0.28), radius: 10, y: 4)
+            shape.fill(Color(colors.ground))
+                .shadow(color: .black.opacity(Card.contactShadowOpacity), radius: Card.contactShadowRadius, y: Card.contactShadowY)
+                .shadow(color: .black.opacity(Card.liftShadowOpacity), radius: Card.liftShadowRadius, y: Card.liftShadowY)
         }
-        .overlay { shape.strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth).allowsHitTesting(false) }
+        .overlay {
+            shape.strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: ChromeMetrics.ruleWidth)
+                .allowsHitTesting(false)
+        }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.trayFrame = $0 }
         .onHover { pointerInside = $0 }
         .onDisappear { model.trayFrame = nil }
@@ -205,7 +223,8 @@ private struct PastedImageTray: View {
         }
     }
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: ChromeRadius.container) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Card.cornerRadius) }
+    private var colors: Card.Colors { theme.cardColors }
     private var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.22) }
 
     private var thumbHeight: CGFloat {
@@ -284,7 +303,7 @@ private struct PastedImageTray: View {
             .frame(maxHeight: .infinity)
             .background(
                 LinearGradient(
-                    colors: [theme.chrome, theme.chrome.opacity(0)],
+                    colors: [Color(colors.ground), Color(colors.ground).opacity(0)],
                     startPoint: forward ? .trailing : .leading, endPoint: forward ? .leading : .trailing
                 )
                 .clipShape(shape)
@@ -346,20 +365,22 @@ private struct PastedImageThumb: View {
 
         func makeBody(configuration: Configuration) -> some View {
             let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
+            let colors = theme.cardColors
+            let edge = Color(colors.edge).opacity(colors.edgeOpacity)
             configuration.label
                 .overlay { if configuration.isPressed { Color.black.opacity(0.18) } }
                 .clipShape(shape)
                 .overlay {
-                    shape.strokeBorder(isLit ? theme.accent : theme.rule, lineWidth: isLit ? 2 : 1)
+                    shape.strokeBorder(isLit ? theme.accent : edge, lineWidth: isLit ? 2 : 1)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     Text("\(number)")
                         .font(ChromeType.linkChip)
-                        .foregroundStyle(isLit ? theme.chrome : theme.textStrong)
+                        .foregroundStyle(isLit ? theme.chrome : Color(colors.title))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(isLit ? theme.accent : theme.chrome))
-                        .overlay(Capsule().strokeBorder(isLit ? .clear : theme.rule, lineWidth: 1))
+                        .background(Capsule().fill(isLit ? theme.accent : Color(colors.ground)))
+                        .overlay(Capsule().strokeBorder(isLit ? .clear : edge, lineWidth: 1))
                         .padding(5)
                 }
                 .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
@@ -376,20 +397,21 @@ private struct PastedImageArrow: View {
     let action: () -> Void
 
     var body: some View {
-        GridControlButton(
-            theme: theme, shape: AnyShape(Capsule()), restFill: theme.chrome,
-            restForeground: theme.textStrong, action: action
-        ) {
+        let colors = theme.cardColors
+        Button(action: action) {
             HStack(spacing: 3) {
-                if forward, count > 0 { Text("\(count)").font(ChromeType.linkChip) }
+                if forward, count > 0 { Text("\(count)") }
                 Image(systemName: forward ? "chevron.right" : "chevron.left").font(ChromeType.linkChipSymbol)
-                if !forward, count > 0 { Text("\(count)").font(ChromeType.linkChip) }
+                if !forward, count > 0 { Text("\(count)") }
             }
-            .padding(.horizontal, 8)
-            .frame(minWidth: 26, minHeight: 26)
         }
-        .overlay(Capsule().strokeBorder(theme.rule, lineWidth: 1).allowsHitTesting(false))
-        .shadow(color: .black.opacity(0.2), radius: 4, y: 1)
+        .buttonStyle(ConfirmCardButtonStyle(fill: Color(colors.ground), pressedFill: nil, ink: Color(colors.title)))
+        .overlay {
+            RoundedRectangle(cornerRadius: Card.buttonCornerRadius)
+                .strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .shadow(color: .black.opacity(Card.contactShadowOpacity), radius: Card.contactShadowRadius, y: Card.contactShadowY)
         .pointerStyle(.link)
         .focusEffectDisabled()
         .accessibilityLabel(forward ? "Next images" : "Previous images")
