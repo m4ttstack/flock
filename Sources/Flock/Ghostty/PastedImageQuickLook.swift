@@ -2,15 +2,16 @@ import AppKit
 import FlockCore
 import QuickLookUI
 
-/// Pasted images in the Quick Look panel, which AppKit keeps one of. The panel
-/// takes its contents from whichever responder accepts control of it: the
-/// terminal with the keyboard (`GhosttySurfaceView`), or failing one, the end
-/// of the window's chain (`Responder`).
+/// Pasted images and dropped files at full size, in a panel of flock's own.
+///
+/// Not AppKit's `QLPreviewPanel`: that centers itself on the screen each time
+/// it opens, and can only be moved once it has been seen there. This one is
+/// put where it belongs before it is first shown.
 @MainActor
 final class PastedImageQuickLook: NSObject {
     static let shared = PastedImageQuickLook()
 
-    final class Item: NSObject, QLPreviewItem {
+    struct Item {
         let number: Int
         let title: String
         let url: URL
@@ -25,49 +26,29 @@ final class PastedImageQuickLook: NSObject {
             self.thumbnail = thumbnail
             self.size = size ?? thumbnail.size
         }
-
-        var previewItemURL: URL? { url }
-        var previewItemTitle: String? { title }
     }
 
+    private typealias M = ChromeMetrics.PastedImages
+
     private var items: [Item] = []
+    private var index = 0
+    private var anchor = NSRect.zero
     private var sourceFrame: (Int) -> NSRect? = { _ in nil }
     private var isImage: (NSPoint) -> Bool = { _ in false }
     private weak var window: NSWindow?
     private var clickOut: Any?
-    private var startIndex = 0
-    private var openedAt = Date.distantPast
-    private var openingURL: URL?
-    private var queued: Task<Void, Never>?
-    private static let openingTime: TimeInterval = 0.6
+    private var windowClosing: Any?
+    /// Counts opens and closes, so an animation that has been overtaken ends
+    /// nothing.
+    private var generation = 0
+    private var zoom: NSWindow?
 
-    var hasItems: Bool { !items.isEmpty }
+    private lazy var panel = makePanel()
+    private let image = NSImageView()
+    private let openButton = NSButton(title: "", target: nil, action: nil)
+    private var preview: QLPreviewView?
 
-    /// At the end of a window's responder chain, for a click on the tray while
-    /// something other than a terminal has the keyboard.
-    private final class Responder: NSResponder {
-        private nonisolated(unsafe) static var key: UInt8 = 0
-
-        static func install(in window: NSWindow) {
-            guard objc_getAssociatedObject(window, &key) == nil else { return }
-            let responder = Responder()
-            responder.nextResponder = window.nextResponder
-            window.nextResponder = responder
-            objc_setAssociatedObject(window, &key, responder, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-
-        nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
-            MainActor.assumeIsolated { PastedImageQuickLook.shared.hasItems }
-        }
-
-        nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-            MainActor.assumeIsolated { PastedImageQuickLook.shared.begin() }
-        }
-
-        nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-            MainActor.assumeIsolated { PastedImageQuickLook.shared.end() }
-        }
-    }
+    private(set) var isOpen = false
 
     /// `sourceFrame` is where an image is drawn on screen, which the panel
     /// grows from and shrinks back to; nil fades it instead. `isImage` is
@@ -76,101 +57,231 @@ final class PastedImageQuickLook: NSObject {
         _ shown: [Item], startingAt number: Int, over window: NSWindow?, sourceFrame: @escaping (Int) -> NSRect?,
         isImage: @escaping (NSPoint) -> Bool
     ) {
-        // A reload while the panel is up or still opening runs its opening
-        // animation again, so another image waits that out.
-        queued?.cancel()
-        let remaining = Self.openingTime - Date().timeIntervalSince(openedAt)
-        guard remaining <= 0 || QLPreviewPanel.shared()?.isVisible != true else {
-            guard shown.first(where: { $0.number == number })?.url != openingURL else { return }
-            queued = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(remaining))
-                guard !Task.isCancelled, QLPreviewPanel.shared()?.isVisible == true else { return }
-                self?.show(shown, startingAt: number, over: window, sourceFrame: sourceFrame, isImage: isImage)
-            }
-            return
-        }
-        if let panel = QLPreviewPanel.shared(), panel.isVisible, panel.dataSource === self,
-           (panel.currentPreviewItem as? Item)?.number == number, items.map(\.url) == shown.map(\.url) {
-            return
-        }
-        items = shown.filter { FileManager.default.fileExists(atPath: $0.url.path) }
-        guard let index = items.firstIndex(where: { $0.number == number }), let panel = QLPreviewPanel.shared() else {
-            items = []
+        let present = shown.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        guard let window, let start = present.firstIndex(where: { $0.number == number }) else {
             NSSound.beep()
             return
         }
+        if isOpen, items.indices.contains(index), items[index].url == present[start].url,
+           items[index].number == number {
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+        let wasOpen = isOpen && self.window === window
+        items = present
+        index = start
         self.sourceFrame = sourceFrame
         self.isImage = isImage
         self.window = window
-        startIndex = index
-        if panel.isVisible {
-            if panel.dataSource !== self { panel.updateController() }
-            panel.reloadData()
-            panel.currentPreviewItemIndex = index
+        anchor = sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
+        isOpen = true
+        generation += 1
+        watch(window)
+        fill()
+        panel.setFrame(target, display: false)
+        if wasOpen, panel.isVisible {
+            panel.makeKeyAndOrderFront(nil)
             return
         }
-        openedAt = Date()
-        openingURL = items[index].url
-        guard let window else { return panel.makeKeyAndOrderFront(nil) }
-        Responder.install(in: window)
-        let target = QuickLookPlacement.frame(
-            image: items[index].size,
-            anchor: sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0),
-            window: window.frame, visibleScreen: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame,
-            chrome: panel.frameRect(forContentRect: .zero).height
-        )
-        // Before as well as after: opening centers the panel on the screen
-        // either way, but without the first it animates to there.
-        panel.setFrame(target, display: false)
-        panel.makeKeyAndOrderFront(nil)
-        if panel.frame != target { panel.setFrame(target, display: true) }
-    }
-
-    /// The click goes on to what it landed on: the panel is not modal.
-    private func closeIfOutside(_ event: NSEvent) {
-        guard let window, event.window === window, !isImage(event.locationInWindow),
-              let panel = QLPreviewPanel.shared(), panel.isVisible
-        else { return }
-        panel.orderOut(nil)
-    }
-
-    func begin() {
-        guard let panel = QLPreviewPanel.shared() else { return }
-        panel.dataSource = self
-        panel.delegate = self
-        panel.reloadData()
-        panel.currentPreviewItemIndex = min(startIndex, max(0, items.count - 1))
-        guard clickOut == nil else { return }
-        clickOut = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
-            MainActor.assumeIsolated { PastedImageQuickLook.shared.closeIfOutside(event) }
-            return event
+        guard let source = sourceFrame(number), !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
+        let opened = generation
+        animate(from: source, to: target, fadingIn: true) { [weak self] in
+            guard let self, generation == opened else { return }
+            panel.makeKeyAndOrderFront(nil)
         }
     }
 
-    func end() {
-        guard let panel = QLPreviewPanel.shared() else { return }
+    func close() {
+        guard isOpen else { return }
+        isOpen = false
+        generation += 1
+        let from = panel.frame
+        let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
+        unwatch()
+        panel.orderOut(nil)
+        preview?.previewItem = nil
+        window?.makeKey()
+        guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            endZoom()
+            return
+        }
+        animate(from: from, to: back, fadingIn: false) {}
+    }
+
+    private func step(_ by: Int) {
+        guard items.indices.contains(index + by) else { return }
+        index += by
+        fill()
+        panel.setFrame(target, display: true)
+    }
+
+    @objc private func openInApp() {
+        guard items.indices.contains(index) else { return }
+        NSWorkspace.shared.open(items[index].url)
+    }
+
+    // MARK: - Contents
+
+    private var target: NSRect {
+        guard items.indices.contains(index) else { return panel.frame }
+        let window = window?.frame ?? .zero
+        return QuickLookPlacement.frame(
+            image: items[index].size, anchor: anchor, window: window,
+            visibleScreen: (self.window?.screen ?? NSScreen.main)?.visibleFrame ?? window,
+            chrome: panel.frameRect(forContentRect: .zero).height
+        )
+    }
+
+    private func fill() {
+        let item = items[index]
+        panel.title = items.count == 1 ? item.title : "\(item.title) (\(index + 1) of \(items.count))"
+        image.image = item.thumbnail
+        preview?.previewItem = item.url as NSURL
+        if let app = NSWorkspace.shared.urlForApplication(toOpen: item.url) {
+            openButton.title = "Open in \(FileManager.default.displayName(atPath: app.path))"
+            openButton.isHidden = false
+        } else {
+            openButton.isHidden = true
+        }
+        openButton.sizeToFit()
+    }
+
+    private func makePanel() -> Panel {
+        let panel = Panel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: true
+        )
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = false
+        panel.animationBehavior = .none
+        panel.delegate = self
+        panel.onClose = { [weak self] in self?.close() }
+        panel.onStep = { [weak self] in self?.step($0) }
+
+        // Under the preview, which draws nothing until it has loaded.
+        image.imageScaling = .scaleProportionallyDown
+        let content = NSView(frame: panel.contentLayoutRect)
+        image.frame = content.bounds
+        image.autoresizingMask = [.width, .height]
+        content.addSubview(image)
+        if let preview = QLPreviewView(frame: content.bounds, style: .normal) {
+            // Otherwise it can never show another item.
+            preview.shouldCloseWithWindow = false
+            preview.autoresizingMask = [.width, .height]
+            content.addSubview(preview)
+            self.preview = preview
+        }
+        panel.contentView = content
+
+        openButton.bezelStyle = .accessoryBarAction
+        openButton.controlSize = .small
+        openButton.target = self
+        openButton.action = #selector(openInApp)
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .trailing
+        let holder = NSStackView(views: [openButton])
+        holder.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: M.previewTitlebarInset)
+        accessory.view = holder
+        panel.addTitlebarAccessoryViewController(accessory)
+        return panel
+    }
+
+    // MARK: - Growing and shrinking
+
+    /// A window of its own: a titled one cannot be as small as a label.
+    private func animate(from: NSRect, to: NSRect, fadingIn: Bool, then done: @escaping @MainActor () -> Void) {
+        endZoom()
+        let zoom = NSWindow(contentRect: from, styleMask: .borderless, backing: .buffered, defer: false)
+        zoom.isReleasedWhenClosed = false
+        zoom.isOpaque = false
+        zoom.backgroundColor = .clear
+        zoom.ignoresMouseEvents = true
+        zoom.hasShadow = true
+        zoom.level = panel.level
+        let view = NSImageView(frame: NSRect(origin: .zero, size: from.size))
+        view.image = items.indices.contains(index) ? items[index].thumbnail : nil
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.autoresizingMask = [.width, .height]
+        zoom.contentView = view
+        zoom.alphaValue = fadingIn ? M.zoomAlpha : 1
+        zoom.setFrame(from, display: true)
+        zoom.orderFront(nil)
+        self.zoom = zoom
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = M.zoomDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            zoom.animator().setFrame(to, display: true)
+            zoom.animator().alphaValue = fadingIn ? 1 : 0
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                done()
+                guard let self, self.zoom === zoom else { return }
+                self.endZoom()
+            }
+        }
+    }
+
+    private func endZoom() {
+        zoom?.orderOut(nil)
+        zoom = nil
+    }
+
+    // MARK: - Closing
+
+    /// A click elsewhere in the window closes the panel and goes on to what
+    /// it landed on: the panel is not modal.
+    private func watch(_ window: NSWindow) {
+        unwatch()
+        clickOut = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, event.window === self.window, !self.isImage(event.locationInWindow) else { return }
+                self.close()
+            }
+            return event
+        }
+        windowClosing = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.close() }
+        }
+    }
+
+    private func unwatch() {
         if let clickOut { NSEvent.removeMonitor(clickOut) }
+        if let windowClosing { NotificationCenter.default.removeObserver(windowClosing) }
         clickOut = nil
-        if panel.dataSource === self { panel.dataSource = nil }
-        if panel.delegate === self { panel.delegate = nil }
+        windowClosing = nil
+    }
+
+    private final class Panel: NSPanel {
+        var onClose: () -> Void = {}
+        var onStep: (Int) -> Void = { _ in }
+
+        override var canBecomeKey: Bool { true }
+
+        /// Before the preview, which has the keyboard and takes some of these
+        /// for itself.
+        override func sendEvent(_ event: NSEvent) {
+            guard event.type == .keyDown, event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else {
+                return super.sendEvent(event)
+            }
+            switch event.keyCode {
+            case 53, 49: onClose()
+            case 123, 126: onStep(-1)
+            case 124, 125: onStep(1)
+            default: super.sendEvent(event)
+            }
+        }
     }
 }
 
-extension PastedImageQuickLook: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
-    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { items.count }
-
-    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        items.indices.contains(index) ? items[index] : nil
-    }
-
-    func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: (any QLPreviewItem)!) -> NSRect {
-        (item as? Item).flatMap { sourceFrame($0.number) } ?? .zero
-    }
-
-    func previewPanel(
-        _ panel: QLPreviewPanel!, transitionImageFor item: (any QLPreviewItem)!,
-        contentRect: UnsafeMutablePointer<NSRect>!
-    ) -> Any! {
-        (item as? Item)?.thumbnail
+extension PastedImageQuickLook: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        close()
+        return false
     }
 }
