@@ -93,9 +93,8 @@ private struct PastedImageDropTarget: View {
     }
 }
 
-/// `[Image #N]` in the same cells: the text in the terminal's own font, and
-/// the three cells its brackets and `#` leave shared by the thumbnail and
-/// the space around it.
+/// `[Image #N]` in the same cells: the text in the terminal's own font, a
+/// step smaller, so the cells it frees pad the ends.
 private struct PastedImageChip: View {
     let theme: Theme
     let label: PastedImagesModel.Label
@@ -110,22 +109,21 @@ private struct PastedImageChip: View {
             Image(nsImage: image.thumbnail)
                 .resizable()
                 .scaledToFill()
-                .frame(width: cell * 1.7, height: max(4, label.rect.height - 6))
+                .frame(width: cell * 1.45, height: max(4, label.rect.height - 8))
                 .clipShape(RoundedRectangle(cornerRadius: 2))
-                .padding(.leading, cell * 0.4)
+                .padding(.leading, cell * 0.75)
             Spacer(minLength: 0)
             Text("Image \(label.number)")
-                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints))
+                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.88))
                 .foregroundStyle(theme.textStrong)
                 .fixedSize()
-                .padding(.trailing, cell * 0.4)
+                .padding(.trailing, cell * 0.8)
         }
         .frame(width: label.rect.width, height: label.rect.height)
         .background {
             // Opaque: the program's own label is under here.
             shape.fill(theme.terminalGround)
-            shape.fill(theme.accent.opacity(isLit ? 0.42 : 0.22))
-            shape.strokeBorder(theme.accent.opacity(isLit ? 1 : 0.6), lineWidth: 1)
+            shape.fill(theme.accent.opacity(isLit ? 0.36 : 0.2))
         }
     }
 }
