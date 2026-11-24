@@ -17,7 +17,7 @@ struct ProcessHerdrCommandRunner: HerdrCommandRunner {
     var environment: @Sendable () -> [String: String] = { ToolPath.childEnvironment() }
 
     func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        let log = FileManager.default.temporaryDirectory.appendingPathComponent("flock-herdr-update-\(UUID().uuidString).log")
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("flock-herdr-run-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: log) }
         guard FileManager.default.createFile(atPath: log.path, contents: nil),
               let handle = try? FileHandle(forWritingTo: log) else {

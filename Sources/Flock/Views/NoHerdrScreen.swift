@@ -21,7 +21,7 @@ struct NoHerdrScreen: View {
     static let missing = Copy(
         headline: "You can't have a flock without a herdr!",
         body: "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.",
-        hint: "Install herdr, then relaunch flock."
+        hint: HerdrBuildCopy.missingHint
     )
     static let notRunning = Copy(
         headline: "Oops! Doesn't look like herdr has started.",
@@ -64,6 +64,8 @@ struct NoHerdrScreen: View {
     let theme: Theme
     var copy: Copy = Self.missing
     var primaryAction: PrimaryAction?
+    /// Under the button: why its last press did not land.
+    var errorMessage: String?
 
     var body: some View {
         content
@@ -107,8 +109,44 @@ struct NoHerdrScreen: View {
                     .padding(.top, ChromeMetrics.NoHerdr.primaryActionTopPadding)
                     .accessibilityIdentifier("flock.noHerdr.primaryAction")
             }
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(ChromeType.noHerdrHint)
+                    .foregroundStyle(theme.red)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("flock.noHerdr.error")
+            }
         }
         .padding(.horizontal, ChromeMetrics.NoHerdr.horizontalPadding)
+    }
+}
+
+/// The screen for no herdr on this Mac. Its button installs the newest
+/// mattstack build at once: pressing it is the consent, since nothing on
+/// disk is replaced.
+struct MissingHerdrScreen: View {
+    let theme: Theme
+    let store: HerdrBuildStore
+
+    var body: some View {
+        NoHerdrScreen(theme: theme, primaryAction: action, errorMessage: errorMessage)
+    }
+
+    private var action: NoHerdrScreen.PrimaryAction {
+        let busy = store.phase != .idle
+        var installable = false
+        if case .missing = store.state { installable = true }
+        return .init(
+            title: busy ? HerdrBuildCopy.missingInstallingTitle : HerdrBuildCopy.missingInstallTitle,
+            isDisabled: busy || !installable,
+            perform: store.installMissing
+        )
+    }
+
+    private var errorMessage: String? {
+        if let message = store.lastErrorMessage { return message }
+        guard let state = store.state, case .notWritable = state else { return nil }
+        return HerdrBuildCopy.body(for: state)
     }
 }
 

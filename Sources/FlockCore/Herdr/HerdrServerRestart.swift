@@ -1,19 +1,9 @@
 import Foundation
 
-/// When the herdr server has to move to the binary on disk: a Flock restart
-/// gives every pane a new per-pane client, but the server keeps running the
-/// binary it was started from.
+/// Why a live handoff of herdr's server failed. A Flock restart gives every
+/// pane a new per-pane client, but the server keeps running the binary it was
+/// started from, so only a handoff moves it to the binary on disk.
 public enum HerdrServerRestart {
-    /// Only flock's current patch, only a revision that changes the server,
-    /// and only a server seen on another binary. An unknown server is never
-    /// pressed to restart.
-    public static func isNeeded(
-        state: HerdrMousePatchRowState?, patchChangesServer: Bool, server: HerdrServerBinary
-    ) -> Bool {
-        guard patchChangesServer, case .installed = state else { return false }
-        return server == .other
-    }
-
     public static let failedFallback = "herdr's server didn't restart."
 
     /// herdr's own error line when it printed one: `server live-handoff`

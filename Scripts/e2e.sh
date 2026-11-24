@@ -33,13 +33,9 @@ for tool in git jq nc python3 xcodegen xcodebuild; do
 done
 
 # FLOCK_HERDR_BIN is the app's own override, so honoring it first keeps the
-# server, the seed and the pane bridges on one binary. The patched build is
-# the default when it is installed, because that is what flock runs against.
+# server, the seed and the pane bridges on one binary.
 herdr_bin="${FLOCK_HERDR_BIN:-${HERDR_BIN:-}}"
-if [ -z "$herdr_bin" ]; then
-  patched="$HOME/.local/share/flock/herdr-mouse-cli"
-  if [ -x "$patched" ]; then herdr_bin="$patched"; else herdr_bin="$(command -v herdr || true)"; fi
-fi
+if [ -z "$herdr_bin" ]; then herdr_bin="$(command -v herdr || true)"; fi
 [ -x "$herdr_bin" ] || { echo "e2e.sh: no herdr binary (set FLOCK_HERDR_BIN)" >&2; exit 1; }
 export HERDR_BIN="$herdr_bin"
 

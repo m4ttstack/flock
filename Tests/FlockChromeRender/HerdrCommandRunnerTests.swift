@@ -3,12 +3,12 @@ import XCTest
 
 /// The real `Process` runner against harmless system binaries, with an empty
 /// environment so no login shell is asked for a PATH.
-final class HerdrUpdateRunnerTests: XCTestCase {
+final class HerdrCommandRunnerTests: XCTestCase {
     func testARunReturnsItsStatusAndOutput() async {
         let runner = ProcessHerdrCommandRunner(deadline: .seconds(10), environment: { [:] })
-        let result = await runner.run("/bin/echo", ["installed v0.9.6"])
+        let result = await runner.run("/bin/echo", ["live handoff complete"])
         XCTAssertEqual(result.status, 0)
-        XCTAssertEqual(result.output, "installed v0.9.6\n")
+        XCTAssertEqual(result.output, "live handoff complete\n")
     }
 
     func testARunPastItsDeadlineIsStoppedAndReadsAsTimedOut() async {
@@ -18,14 +18,11 @@ final class HerdrUpdateRunnerTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 10, "the process was not stopped at the deadline")
         XCTAssertNotEqual(result.status, 0)
         XCTAssertEqual(result.output, "timed out")
-        XCTAssertEqual(
-            HerdrUpdateRun.outcome(status: result.status, output: result.output, binaryChanged: false), .failed("herdr couldn't update: timed out")
-        )
     }
 
     func testAnExecutableThatCannotLaunchIsAFailure() async {
         let runner = ProcessHerdrCommandRunner(deadline: .seconds(10), environment: { [:] })
-        let result = await runner.run("/nonexistent/herdr", ["update", "--handoff"])
+        let result = await runner.run("/nonexistent/herdr", ["--version"])
         XCTAssertNotEqual(result.status, 0)
         XCTAssertFalse(result.output.isEmpty)
     }

@@ -1,51 +1,7 @@
 import AppKit
-import CryptoKit
 @testable import FlockCore
 import SwiftUI
 import XCTest
-
-private struct BytesTransport: HerdrDownloadTransport {
-    let body: Data
-    func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
-        try body.write(to: destination)
-    }
-}
-
-private struct HangingTransport: HerdrDownloadTransport {
-    func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
-        progress(0.4)
-        try await Task.sleep(for: .seconds(3600))
-    }
-}
-
-private struct HangingHerdrRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        try? await Task.sleep(for: .seconds(3600))
-        return (1, "")
-    }
-}
-
-private struct FailingHerdrRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        (1, "checking stable channel for updates...\nupdate failed: failed to fetch update manifest\n")
-    }
-}
-
-private struct RefusingHandoffRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        (1, #"{"error":{"code":"handoff_failed","message":"handoff replacement server did not become ready"}}"#)
-    }
-}
-
-/// Plays a successful `herdr update` by replacing the temp herdr's bytes.
-private struct RewritingHerdrRunner: HerdrCommandRunner {
-    let path: String
-    let bytes: Data
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        try? bytes.write(to: URL(fileURLWithPath: path), options: .atomic)
-        return (0, "installed 0.9.5\nlive handoff complete for session default; pane processes should still be running.\n")
-    }
-}
 
 /// Renders the real `MainWindow` offscreen from fixture data, with no app host
 /// and no herdr connection. Pane bodies are ground-only surfaces, since
@@ -2671,9 +2627,20 @@ final class ChromeRenderTests: XCTestCase {
         customTab.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
         var cases: [(
             name: String, appearance: NSAppearance.Name, folders: StartingFolderStore, tab: SettingsTab,
-            stores: (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?, picker: ServerPicker?,
+            build: HerdrBuildStore?, picker: ServerPicker?,
             profiles: (store: ProfileStore, locked: Bool, draft: String?)?
         )] = []
+        let herdrFixture = try HerdrBuildFixture()
+        defer { herdrFixture.remove() }
+        func makeBuildStore(
+            _ binary: Data, name: String, list: HerdrBuildList? = HerdrBuildFixture.standardList
+        ) async throws -> HerdrBuildStore {
+            let store = try herdrFixture.store(binary: binary, name: name, list: list)
+            await HerdrBuildFixture.settle(store)
+            return store
+        }
+        let currentBuild = try await makeBuildStore(HerdrBuildFixture.ms2, name: "shared")
+        XCTAssertEqual(currentBuild.state, .current(version: "0.9.5-ms.2"))
         let profilesSuite = "\(ChromeRenderTests.defaultsSuite).profiles"
         defer { UserDefaults().removePersistentDomain(forName: profilesSuite) }
         let profileDefaults = try XCTUnwrap(UserDefaults(suiteName: profilesSuite))
@@ -2691,22 +2658,29 @@ final class ChromeRenderTests: XCTestCase {
         }
         cases.append(("custom-tab-light", .aqua, customTab, .general, nil, nil, nil))
         cases.append(("custom-tab-dark", .darkAqua, customTab, .general, nil, nil, nil))
-        let updateKinds: [(kind: String, warning: Bool, runner: HerdrCommandRunner?)] = [
-            ("note", false, nil), ("warning", true, nil),
-            ("updating", false, HangingHerdrRunner()), ("error", false, FailingHerdrRunner()),
+        let buildKinds: [(kind: String, binary: Data, list: HerdrBuildList?, state: (String) -> HerdrBuildState)] = [
+            ("current", HerdrBuildFixture.ms2, HerdrBuildFixture.standardList, { _ in .current(version: "0.9.5-ms.2") }),
+            ("stock", HerdrBuildFixture.stock, HerdrBuildFixture.standardList,
+             { .stock(installPath: $0, installed: "0.9.5", newest: "0.9.5-ms.2") }),
+            ("outdated", HerdrBuildFixture.ms1, HerdrBuildFixture.standardList,
+             { .outdated(installPath: $0, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2") }),
+            ("list-unavailable", HerdrBuildFixture.ms2, nil, { _ in .listUnavailable(installed: "0.9.5-ms.2") }),
+            ("outdated-confirm", HerdrBuildFixture.ms1, HerdrBuildFixture.standardList,
+             { .outdated(installPath: $0, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2") }),
         ]
-        for (kind, warning, runner) in updateKinds {
+        var buildStates: [String: HerdrBuildState] = [:]
+        for (kind, binary, list, expected) in buildKinds {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                let stores = try makeHerdrUpdateStores(patchInstalled: warning, runner: runner ?? HangingHerdrRunner())
-                await stores.update.checkIfDue()
-                XCTAssertEqual(stores.update.notice?.isWarning, warning, "herdr-update-\(kind): wrong notice")
-                XCTAssertTrue(stores.update.canRunUpdate, "herdr-update-\(kind): no Update button to draw")
-                if runner != nil {
-                    stores.update.requestUpdate()
-                    stores.update.confirmUpdate()
-                    if kind == "error" { await stores.update.updateTask?.value }
+                let name = "herdr-build-\(kind)-\(scheme)"
+                let store = try await makeBuildStore(binary, name: name, list: list)
+                let state = expected(herdrFixture.installPath(name))
+                XCTAssertEqual(store.state, state, name)
+                if kind == "outdated-confirm" {
+                    store.requestInstall(source: .settings)
+                    XCTAssertEqual(store.pendingConfirmation?.source, .settings, "\(name): nothing to confirm")
                 }
-                cases.append(("herdr-update-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, nil, nil))
+                buildStates[name] = state
+                cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, store, nil, nil))
             }
         }
         let serverEntries = [
@@ -2715,15 +2689,13 @@ final class ChromeRenderTests: XCTestCase {
         ]
         for (kind, locked) in [("server", false), ("server-locked", true)] {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                let stores = try makeHerdrUpdateStores(patchInstalled: false)
-                await stores.update.checkIfDue()
                 let picker = ServerPicker(
                     list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
                     currentSocket: { locked ? "/Users/acme/sockets/override/herdr.sock" : serverEntries[0].socketPath },
                     isLocked: locked, home: "/Users/acme"
                 )
                 await picker.refresh()
-                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
+                cases.append(("herdr-\(kind)-\(scheme)", appearance, StartingFolderStore(userDefaults: defaults), .herdr, nil, picker, nil))
             }
         }
         var serverDrafts: [String: ServerSettingsSection.Draft] = [:]
@@ -2736,8 +2708,6 @@ final class ChromeRenderTests: XCTestCase {
         ]
         for (kind, draft) in serverFields {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-                let stores = try makeHerdrUpdateStores(patchInstalled: false)
-                await stores.update.checkIfDue()
                 let picker = ServerPicker(
                     list: { serverEntries }, start: { _ in .success(()) }, choose: { _ in true },
                     currentSocket: { serverEntries[0].socketPath }, isLocked: false, home: "/Users/acme"
@@ -2751,7 +2721,7 @@ final class ChromeRenderTests: XCTestCase {
                 }
                 let name = "herdr-\(kind)-\(scheme)"
                 serverDrafts[name] = draft
-                cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, stores, picker, nil))
+                cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, nil, picker, nil))
             }
         }
         let namedSocket = { (name: String) in "/Users/acme/.config/herdr/sessions/\(name)/herdr.sock" }
@@ -2828,28 +2798,25 @@ final class ChromeRenderTests: XCTestCase {
         machineFolders.selectCustom(path: NSHomeDirectory() + "/notes", for: .tab)
         machineFolders.select(.mainCheckout, for: .pane)
         for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            let stores = try makeHerdrUpdateStores(patchInstalled: false)
-            await stores.update.checkIfDue()
-            let machineCases: [(String, StartingFolderStore, SettingsTab, (update: HerdrUpdateStore, patch: HerdrMousePatchStore)?)] = [
-                ("herdr-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .herdr, stores),
-                ("profiles-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .profiles, nil),
-                ("general-machine-\(scheme)", machineFolders, .general, nil),
+            let machineCases: [(String, StartingFolderStore, SettingsTab)] = [
+                ("herdr-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .herdr),
+                ("profiles-machine-\(scheme)", StartingFolderStore(userDefaults: defaults), .profiles),
+                ("general-machine-\(scheme)", machineFolders, .general),
             ]
-            for (name, folders, tab, caseStores) in machineCases {
+            for (name, folders, tab) in machineCases {
                 remoteCases.insert(name)
-                cases.append((name, appearance, folders, tab, caseStores, profilesPicker, (machineProfiles, false, nil)))
+                cases.append((name, appearance, folders, tab, nil, profilesPicker, (machineProfiles, false, nil)))
             }
         }
-        defer { for item in cases { item.stores?.update.updateTask?.cancel() } }
         var tabSizes: Set<CGSize> = []
         let linkTrustStore = LinkTrustStore(userDefaults: defaults)
         linkTrustStore.trust("vscode")
-        for (name, appearance, startingFolderStore, tab, stores, picker, profiles) in cases {
-            let update = stores?.update
+        for (name, appearance, startingFolderStore, tab, build, picker, profiles) in cases {
+            let buildStore = build ?? currentBuild
             let selection = SettingsTabSelection(tab: tab)
             selection.opensNewProfile = profiles?.draft != nil
             let view = FlockSettingsView(
-                herdrMousePatchStore: stores?.patch ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
+                herdrBuildStore: buildStore,
                 notificationLifetimeStore: NotificationLifetimeStore(userDefaults: defaults),
                 missionBottomLineStore: MissionBottomLineStore(userDefaults: defaults),
                 overviewReturnStore: OverviewReturnStore(userDefaults: defaults),
@@ -2867,8 +2834,7 @@ final class ChromeRenderTests: XCTestCase {
                     executablePath: "/Applications/Flock.app/Contents/MacOS/Flock",
                     name: "flock"
                 ),
-                herdrVersion: update == nil ? "0.9.3" : "0.9.5",
-                herdrUpdateStore: update,
+                herdrVersion: buildStore.binaryVersion?.display ?? "0.9.5-ms.2",
                 serverPicker: picker,
                 profiles: profiles?.store,
                 isLocked: profiles?.locked ?? false,
@@ -2880,12 +2846,6 @@ final class ChromeRenderTests: XCTestCase {
                 isRemoteMachine: remoteCases.contains(name),
                 selection: selection
             )
-            if name.hasPrefix("herdr-update-updating") {
-                XCTAssertEqual(update?.updatePhase, .updating, "\(name): not mid-update")
-            }
-            if name.hasPrefix("herdr-update-error") {
-                XCTAssertEqual(update?.updateError, "herdr couldn't update: failed to fetch update manifest", "\(name)")
-            }
             let window = NSWindow(
                 contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -2906,77 +2866,85 @@ final class ChromeRenderTests: XCTestCase {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-\(name).png"))
             }
+            if let state = buildStates[name] {
+                let elements = accessibilityElements(in: host)
+                XCTAssertEqual(
+                    elements.first { $0.identifier == "flock.settings.herdrBuild.body" }?.text, HerdrBuildCopy.body(for: state),
+                    "\(name): the row does not read the state's body"
+                )
+                XCTAssertFalse(
+                    elements.contains { $0.identifier == "flock.settings.herdrMousePatch.secondaryAction" },
+                    "\(name): a Restore button is drawn"
+                )
+                XCTAssertEqual(
+                    elements.contains { $0.identifier == "flock.settings.herdrMousePatch.action" },
+                    HerdrBuildCopy.actionTitle(for: state) != nil, "\(name): the action button does not match the state"
+                )
+                if let sheet = window.attachedSheet {
+                    let sheetImage = try snapshot(sheet)
+                    if let directory {
+                        try XCTUnwrap(sheetImage.representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-\(name)-sheet.png"))
+                    }
+                    sheet.close()
+                }
+            }
             window.close()
         }
         XCTAssertEqual(tabSizes.count, 1, "every tab is one size, so switching never moves the window: \(tabSizes)")
     }
 
-    /// The unprompted mouse patch offer under the title bar. PNGs go to
-    /// `FLOCK_CHROME_RENDER_DIR`; the assertion is that Install is drawn as a
-    /// filled accent pill rather than a system button that fades into the band.
-    func testTheMousePatchBannerDrawsInstallAsAnAccentPill() async throws {
+    /// The unprompted build offer under the title bar, for a stock herdr and
+    /// for an older mattstack build, then the restart prompt once the stock
+    /// one is installed. PNGs go to `FLOCK_CHROME_RENDER_DIR`; the assertion
+    /// is that the action is drawn as a filled accent pill rather than a
+    /// system button that fades into the band.
+    func testTheBuildBannerOffersTheBuildThenTheRestart() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-banner-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: herdrDir) }
-        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
-        let herdr = herdrDir.appendingPathComponent("herdr").path
-        let patched = Data("herdr 0.9.3 terminal.mouse_capture".utf8)
-        let patchedSHA = SHA256.hash(data: patched).map { String(format: "%02x", $0) }.joined()
-        let bannerSuite = "flock-banner-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
         let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
 
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
-            try? FileManager.default.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: herdr))
-            try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
-            let store = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr },
-                catalog: { HerdrMousePatchEntry(version: $0, sha256: patchedSHA) },
-                downloader: HerdrBuildDownloader(
-                    cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: patched)
-                ),
-                defaults: defaults,
-                readVersionOutput: HerdrVersionFixture.read
-            )
-            XCTAssertTrue(store.shouldOfferBanner, "\(scheme): a plain herdr 0.9.3 should be offered the patch")
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
-            for stage in ["offer", "restart"] {
-                if stage == "restart" {
-                    store.requestInstall(source: .banner)
-                    store.confirmPendingAction()
-                    await store.installTask?.value
-                    XCTAssertEqual(store.restartReason, .installed, "\(scheme): install did not land")
+            for (kind, binary) in [("stock", HerdrBuildFixture.stock), ("outdated", HerdrBuildFixture.ms1)] {
+                let store = try fixture.store(binary: binary, name: "\(kind)-\(id)", cache: "cache-\(kind)-\(id)")
+                await HerdrBuildFixture.settle(store)
+                XCTAssertTrue(store.shouldOfferBanner, "\(scheme) \(kind): \(String(describing: store.state)) is not offered")
+                let window = harness.makeWindow(size: Self.windowSize, herdrBuildStore: store)
+                for stage in kind == "stock" ? ["offer", "installed"] : ["offer"] {
+                    if stage == "installed" {
+                        store.requestInstall(source: .banner)
+                        store.confirmPendingAction()
+                        await HerdrBuildFixture.settle(store)
+                        XCTAssertEqual(store.state, .current(version: "0.9.5-ms.2"), "\(scheme): install did not land")
+                        XCTAssertEqual(store.bannerRestartPrompt, .installed, "\(scheme): no restart prompt")
+                    }
+                    await settle(window)
+                    let image = try snapshot(window)
+                    let file = stage == "offer"
+                        ? "herdr-banner-\(kind)-\(scheme)-\(id).png" : "herdr-restart-banner-installed-\(scheme)-\(id).png"
+                    if let directory {
+                        try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent(file))
+                    }
+                    XCTAssertGreaterThan(
+                        count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme) \(kind) \(stage): no filled pill at the right"
+                    )
                 }
-                await settle(window)
-                let image = try snapshot(window)
-                if let directory {
-                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(stage)-\(scheme)-\(id).png"))
-                }
-                XCTAssertGreaterThan(
-                    count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme) \(stage): no filled pill at the right"
-                )
+                window.close()
             }
-            window.close()
         }
     }
 
     /// The banner after Install is confirmed: progress in place of the pill
-    /// while the patch downloads, then the failure in red with Install back
+    /// while the build downloads, then the failure in red with Install back
     /// for a retry. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
-    func testTheMousePatchBannerShowsDownloadProgressThenTheFailure() async throws {
+    func testTheBuildBannerShowsDownloadProgressThenTheFailure() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-banner-busy-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: herdrDir) }
-        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
-        let herdr = herdrDir.appendingPathComponent("herdr").path
-        try Data("herdr 0.9.3 terminal.mouse".utf8).write(to: URL(fileURLWithPath: herdr))
-        let bannerSuite = "flock-banner-busy-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: bannerSuite))
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: bannerSuite) }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
         let pillBand = CGRect(x: Self.windowSize.width - 90, y: ChromeMetrics.TitleBar.height, width: 90, height: 40)
         let trailingBand = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 40)
         let messageBand = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width / 2, height: 40)
@@ -2987,25 +2955,20 @@ final class ChromeRenderTests: XCTestCase {
             for stage in ["downloading", "failed"] {
                 let transport: HerdrDownloadTransport = stage == "downloading"
                     ? HangingTransport() : BytesTransport(body: Data("<html>Not Found</html>".utf8))
-                let store = HerdrMousePatchStore(
-                    resolveBinaryPath: { herdr },
-                    catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
-                    downloader: HerdrBuildDownloader(
-                        cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)-\(stage)"), transport: transport
-                    ),
-                    defaults: defaults,
-                    readVersionOutput: HerdrVersionFixture.read
+                let store = try fixture.store(
+                    binary: HerdrBuildFixture.stock, name: "\(stage)-\(id)", transport: transport, cache: "cache-\(id)-\(stage)"
                 )
+                await HerdrBuildFixture.settle(store)
                 store.requestInstall(source: .banner)
                 store.confirmPendingAction()
                 defer { store.installTask?.cancel() }
                 if stage == "failed" { await store.installTask?.value }
-                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+                let window = harness.makeWindow(size: Self.windowSize, herdrBuildStore: store)
                 await settle(window)
                 let image = try snapshot(window)
                 if let directory {
                     try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("mouse-banner-\(stage)-\(scheme)-\(id).png"))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-banner-\(stage)-\(scheme)-\(id).png"))
                 }
                 if stage == "downloading" {
                     XCTAssertEqual(store.phase, .downloading(0.4), "\(scheme): the banner is not mid-download")
@@ -3014,7 +2977,7 @@ final class ChromeRenderTests: XCTestCase {
                     XCTAssertGreaterThan(accent, 300, "\(scheme): no accent progress bar")
                     XCTAssertLessThan(accent, 1500, "\(scheme): the Install pill is still drawn")
                 } else {
-                    XCTAssertEqual(store.bannerErrorMessage, "The download didn't match what flock expected. Nothing was changed.")
+                    XCTAssertEqual(store.bannerErrorMessage, HerdrBuildCopy.checksumMismatch)
                     XCTAssertGreaterThan(
                         count(theme.palette.red.hex, in: messageBand, of: image), 20, "\(scheme): the failure is not drawn in red"
                     )
@@ -3027,93 +2990,16 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
-    /// An earlier revision of flock's patch: the banner offers Update, and
-    /// the herdr row offers Update beside Restore Original. Banner PNGs go to
-    /// `FLOCK_CHROME_RENDER_DIR`, row PNGs to `FLOCK_SETTINGS_RENDER_DIR`.
-    func testAnOutdatedPatchIsOfferedTheUpdateOnTheBannerAndTheRow() async throws {
-        let chromeDirectory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let settingsDirectory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-outdated-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: herdrDir) }
-        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
-        let herdr = herdrDir.appendingPathComponent("herdr").path
-        let older = Data("herdr 0.9.5 terminal.mouse_capture revision 1".utf8)
-        try older.write(to: URL(fileURLWithPath: herdr))
-        try Data("herdr 0.9.5 stock".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
-        let olderSHA = SHA256.hash(data: older).map { String(format: "%02x", $0) }.joined()
-        let suite = "flock-outdated-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
-
-        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
-            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
-            let store = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr },
-                catalog: {
-                    HerdrMousePatchEntry(
-                        version: $0, sha256: String(repeating: "0", count: 64), revision: 2, superseded: [olderSHA]
-                    )
-                },
-                defaults: defaults,
-                readVersionOutput: HerdrVersionFixture.read
-            )
-            guard case .outdated = store.state else { return XCTFail("\(scheme): \(String(describing: store.state))") }
-            XCTAssertTrue(store.shouldOfferBanner, "\(scheme): an outdated patch should be offered the update")
-
-            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
-            await settle(window)
-            let image = try snapshot(window)
-            if let chromeDirectory {
-                try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: chromeDirectory).appendingPathComponent("mouse-banner-update-\(scheme)-\(id).png"))
-            }
-            XCTAssertGreaterThan(
-                count(theme.palette.accent.hex, in: band, of: image), 200, "\(scheme): no Update pill at the right"
-            )
-            window.close()
-
-            let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
-            let rowWindow = NSWindow(
-                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
-                styleMask: [.titled, .closable], backing: .buffered, defer: false
-            )
-            rowWindow.isReleasedWhenClosed = false
-            rowWindow.appearance = NSAppearance(named: appearance)
-            rowWindow.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
-                .formStyle(.grouped)
-                .frame(width: FlockSettingsView.size.width, height: 240))
-            rowWindow.orderFront(nil)
-            await settle(rowWindow)
-            let rowImage = try snapshot(rowWindow)
-            if let settingsDirectory {
-                try XCTUnwrap(rowImage.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: settingsDirectory).appendingPathComponent("settings-herdr-outdated-\(scheme).png"))
-            }
-            rowWindow.close()
-        }
-    }
-
-    /// flock's patch changes herdr's server, and the server still runs an
+    /// A build that changes herdr's server, and the server still runs an
     /// older binary: the banner and the herdr row offer Restart herdr, then
     /// show the handoff running, then a refused one in red with the offer
     /// back. Banner PNGs go to `FLOCK_CHROME_RENDER_DIR`, row PNGs to
     /// `FLOCK_SETTINGS_RENDER_DIR`.
-    func testAServerBehindThePatchIsOfferedAHerdrRestart() async throws {
+    func testAServerBehindTheBuildIsOfferedAHerdrRestart() async throws {
         let chromeDirectory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let settingsDirectory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let herdrDir = FileManager.default.temporaryDirectory.appendingPathComponent("flock-server-behind-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: herdrDir) }
-        try FileManager.default.createDirectory(at: herdrDir, withIntermediateDirectories: true)
-        let herdr = herdrDir.appendingPathComponent("herdr").path
-        let older = Data("herdr 0.9.5 terminal.mouse_capture revision 1".utf8)
-        let current = Data("herdr 0.9.5 terminal.mouse_capture host_theme revision 2".utf8)
-        let olderSHA = SHA256.hash(data: older).map { String(format: "%02x", $0) }.joined()
-        let currentSHA = SHA256.hash(data: current).map { String(format: "%02x", $0) }.joined()
-        let suite = "flock-server-behind-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
         let pillBand = CGRect(x: Self.windowSize.width - 120, y: ChromeMetrics.TitleBar.height, width: 120, height: 40)
         let messageBand = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width / 2, height: 40)
 
@@ -3121,35 +3007,19 @@ final class ChromeRenderTests: XCTestCase {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
             for stage in ["updated", "behind", "restarting", "failed", "dismissed"] {
-                defaults.removeObject(forKey: "flock.herdrMousePatch.serverBehindDismissedForRelease")
-                try? FileManager.default.removeItem(atPath: HerdrMousePatchInstaller.backupPath(for: herdr))
-                try Data("herdr 0.9.5 stock".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
-                try (stage == "updated" ? older : current).write(to: URL(fileURLWithPath: herdr))
+                fixture.defaults.removeObject(forKey: "flock.herdrBuild.serverBehindDismissedFor")
                 let runner: HerdrCommandRunner = stage == "failed" ? RefusingHandoffRunner() : HangingHerdrRunner()
-                let store = HerdrMousePatchStore(
-                    resolveBinaryPath: { herdr },
-                    catalog: {
-                        HerdrMousePatchEntry(
-                            version: $0, sha256: currentSHA, revision: 2, superseded: [olderSHA], changesServer: true
-                        )
-                    },
-                    downloader: HerdrBuildDownloader(
-                        cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: current)
-                    ),
-                    defaults: defaults,
-                    readVersionOutput: HerdrVersionFixture.read,
-                    serverSocketPath: { "/tmp/acme/herdr.sock" },
-                    probeServer: { _, _ in .other },
-                    runner: runner,
-                    relaunch: { XCTFail("relaunched") }
+                let store = try fixture.store(
+                    binary: stage == "updated" ? HerdrBuildFixture.ms1 : HerdrBuildFixture.ms2, name: "\(stage)-\(id)",
+                    runner: runner, server: .other, cache: "cache-\(stage)-\(id)"
                 )
                 defer { store.serverRestartTask?.cancel() }
+                await HerdrBuildFixture.settle(store)
                 if stage == "updated" {
                     store.requestInstall(source: .banner)
                     store.confirmPendingAction()
-                    await store.installTask?.value
+                    await HerdrBuildFixture.settle(store)
                 }
-                await store.serverCheckTask?.value
                 XCTAssertEqual(store.restartPrompt, stage == "updated" ? .updated : .serverBehind, "\(scheme) \(stage)")
                 XCTAssertTrue(store.needsServerRestart, "\(scheme) \(stage)")
                 if stage == "restarting" || stage == "failed" {
@@ -3163,7 +3033,7 @@ final class ChromeRenderTests: XCTestCase {
                     XCTAssertEqual(store.restartPrompt, .serverBehind, "\(scheme): Not now took the row's state away")
                 }
 
-                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: store)
+                let window = harness.makeWindow(size: Self.windowSize, herdrBuildStore: store)
                 await settle(window)
                 let image = try snapshot(window)
                 if let chromeDirectory {
@@ -3188,69 +3058,52 @@ final class ChromeRenderTests: XCTestCase {
                 window.close()
 
                 guard stage != "restarting" else { continue }
-                let appearance: NSAppearance.Name = scheme == "dark" ? .darkAqua : .aqua
-                let rowWindow = NSWindow(
-                    contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
-                    styleMask: [.titled, .closable], backing: .buffered, defer: false
-                )
-                rowWindow.isReleasedWhenClosed = false
-                rowWindow.appearance = NSAppearance(named: appearance)
-                rowWindow.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
-                    .formStyle(.grouped)
-                    .frame(width: FlockSettingsView.size.width, height: stage == "failed" ? 380 : 300))
-                rowWindow.orderFront(nil)
-                await settle(rowWindow)
-                let rowImage = try snapshot(rowWindow)
+                let rowImage = try await renderRow(store, scheme: scheme, height: stage == "failed" ? 380 : 300)
                 if let settingsDirectory {
                     try XCTUnwrap(rowImage.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: settingsDirectory).appendingPathComponent("settings-herdr-server-\(stage)-\(scheme).png"))
                 }
-                rowWindow.close()
             }
         }
     }
 
-    /// The herdr row while a patch downloads. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
+    /// The herdr row while a build downloads. PNGs go to `FLOCK_SETTINGS_RENDER_DIR`.
     func testTheHerdrRowShowsDownloadProgress() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-download-render-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let herdr = root.appendingPathComponent("herdr").path
-        try Data("herdr 0.9.5 unpatched build".utf8).write(to: URL(fileURLWithPath: herdr))
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
 
-        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
-            let store = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr },
-                catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
-                downloader: HerdrBuildDownloader(
-                    cacheDirectory: root.appendingPathComponent("cache"), transport: HangingTransport()
-                ),
-                readVersionOutput: HerdrVersionFixture.read
-            )
+        for scheme in ["light", "dark"] {
+            let store = try fixture.store(binary: HerdrBuildFixture.stock, name: scheme, transport: HangingTransport())
+            await HerdrBuildFixture.settle(store)
             store.requestInstall(source: .settings)
             store.confirmPendingAction()
             defer { store.installTask?.cancel() }
 
-            let window = NSWindow(
-                contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
-                styleMask: [.titled, .closable], backing: .buffered, defer: false
-            )
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: appearance)
-            window.contentView = NSHostingView(rootView: Form { HerdrMousePatchRow(store: store, herdrVersion: "0.9.5") }
-                .formStyle(.grouped)
-                .frame(width: FlockSettingsView.size.width, height: 240))
-            window.orderFront(nil)
-            await settle(window)
-            XCTAssertEqual(store.phase, .downloading(0.4), "\(name): the row is not mid-download")
-            let image = try snapshot(window)
+            let image = try await renderRow(store, scheme: scheme, height: 240)
+            XCTAssertEqual(store.phase, .downloading(0.4), "\(scheme): the row is not mid-download")
             if let directory {
                 try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-herdr-downloading-\(name).png"))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-herdr-downloading-\(scheme).png"))
             }
-            window.close()
         }
+    }
+
+    /// The herdr row alone, in Settings' grouped form at Settings' width.
+    private func renderRow(_ store: HerdrBuildStore, scheme: String, height: CGFloat) async throws -> NSBitmapImageRep {
+        let window = NSWindow(
+            contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: scheme == "dark" ? .darkAqua : .aqua)
+        window.contentView = NSHostingView(rootView: Form { HerdrBuildRow(store: store, herdrVersion: "0.9.5-ms.2") }
+            .formStyle(.grouped)
+            .frame(width: FlockSettingsView.size.width, height: height))
+        window.orderFront(nil)
+        await settle(window)
+        defer { window.close() }
+        return try snapshot(window)
     }
 
     /// Flock Dev's title bar: the DEV tag at the trailing cluster's head, and
@@ -5192,15 +5045,14 @@ private struct Harness {
 
     func makeWindow(
         size: CGSize, isDevBuild: Bool = false, devBuild: DevBuildWatcher? = nil, devRebuild: DevRebuild? = nil,
-        herdrMousePatchStore: HerdrMousePatchStore? = nil, chatSidebar: ChatSidebarStore? = nil
+        herdrBuildStore: HerdrBuildStore? = nil, chatSidebar: ChatSidebarStore? = nil
     ) -> NSWindow {
-        // The default resolves to no herdr, so the patch banner stays off and
+        // The default resolves to no herdr, so no build banner shows and
         // every render assertion here measures the same chrome on any machine.
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "render",
-            herdrMousePatchStore: herdrMousePatchStore
-                ?? HerdrMousePatchStore(resolveBinaryPath: { nil }),
+            herdrBuildStore: herdrBuildStore ?? HerdrBuildFixture.inert(),
             isDevBuild: isDevBuild
         )
             .environment(devBuild)
@@ -5211,7 +5063,7 @@ private struct Harness {
 
     /// The title bar alone, at a width the main window's minimum never allows.
     func makeTitleBarWindow(
-        width: CGFloat, isDevBuild: Bool, herdrUpdate: HerdrUpdateStore? = nil,
+        width: CGFloat, isDevBuild: Bool, herdrBuild: HerdrBuildStore? = nil,
         connectionState: ConnectionState = .live, machineNotice: MachineNotice? = nil
     ) -> NSWindow {
         host(
@@ -5220,7 +5072,7 @@ private struct Harness {
                     theme: themeStore.active, sessionLabel: "render", connectionState: connectionState,
                     isDevBuild: isDevBuild, machineNotice: machineNotice
                 )
-                    .environment(herdrUpdate)
+                    .environment(herdrBuild)
                 Spacer(minLength: 0)
             }
             .background(themeStore.active.chrome)
@@ -5860,41 +5712,37 @@ extension ChromeRenderTests {
         return found
     }
 
-    /// The herdr update pill at the title bar's right: neutral for a plain
-    /// update, peach when updating would drop the mouse patch. PNGs go to
+    /// The herdr update pill at the title bar's right while the list has a
+    /// newer build, and none once herdr is up to date. PNGs go to
     /// `FLOCK_CHROME_RENDER_DIR`.
-    func testTheHerdrUpdatePillDrawsNeutralAndWarning() async throws {
+    func testTheHerdrUpdatePillShowsOnlyForANewerBuild() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
         let width: CGFloat = 900
         let trailing = CGRect(x: width - 200, y: 0, width: 200, height: ChromeMetrics.TitleBar.height)
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme)
-            for (kind, warning) in [("neutral", false), ("warning", true), ("updating", false)] {
-                let store = try makeHerdrUpdateStore(patchInstalled: warning)
-                await store.checkIfDue()
-                XCTAssertEqual(store.notice?.isWarning, warning, "\(scheme): the notice is not the one this case draws")
-                if kind == "updating" {
-                    store.requestUpdate()
-                    store.confirmUpdate()
-                    XCTAssertEqual(store.updatePhase, .updating, "\(scheme): not mid-update")
-                }
-                defer { store.updateTask?.cancel() }
-                let window = harness.makeTitleBarWindow(width: width, isDevBuild: false, herdrUpdate: store)
+            var drawn: [String: Int] = [:]
+            for (kind, binary) in [("outdated", HerdrBuildFixture.ms1), ("current", HerdrBuildFixture.ms2)] {
+                let store = try fixture.store(binary: binary, name: "\(kind)-\(id)")
+                await HerdrBuildFixture.settle(store)
+                XCTAssertEqual(store.availableUpdate, kind == "outdated" ? "0.9.5-ms.2" : nil, "\(scheme) \(kind)")
+                let window = harness.makeTitleBarWindow(width: width, isDevBuild: false, herdrBuild: store)
                 await settle(window)
                 let image = try snapshot(window)
                 if let directory {
                     try XCTUnwrap(image.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-update-pill-\(kind)-\(scheme).png"))
                 }
-                let peach = count(theme.palette.peach.hex, in: trailing, of: image)
-                if warning {
-                    XCTAssertGreaterThan(peach, 0, "\(scheme): no peach warning pill at the right")
-                } else {
-                    XCTAssertEqual(peach, 0, "\(scheme): the plain note drew peach")
-                }
+                XCTAssertEqual(count(theme.palette.peach.hex, in: trailing, of: image), 0, "\(scheme) \(kind): the pill drew peach")
+                drawn[kind] = count(theme.palette.surface1.hex, in: trailing, of: image)
                 window.close()
             }
+            XCTAssertGreaterThan(
+                drawn["outdated"] ?? 0, (drawn["current"] ?? 0) + 200, "\(scheme): no pill for the newer build: \(drawn)"
+            )
         }
     }
 
@@ -5936,90 +5784,26 @@ extension ChromeRenderTests {
         }
     }
 
-    /// The restart prompt once flock has updated herdr: with the patch put
-    /// back, with the reinstall failed, and mid-reinstall with no Restart
-    /// pill yet. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
-    func testTheRestartBannerAfterAHerdrUpdate() async throws {
-        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
-        let band = CGRect(x: Self.windowSize.width - 200, y: ChromeMetrics.TitleBar.height, width: 200, height: 60)
-        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-updated-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: root) }
-            let herdr = root.appendingPathComponent("herdr").path
-            let newPatched = Data("herdr 0.9.5 terminal.mouse_capture".utf8)
-            try Data("herdr 0.9.4 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: herdr))
-            try Data("herdr 0.9.4".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
-            let newPatchedSHA = SHA256.hash(data: newPatched).map { String(format: "%02x", $0) }.joined()
-            let patch = HerdrMousePatchStore(
-                resolveBinaryPath: { herdr },
-                catalog: { HerdrMousePatchEntry(version: $0, sha256: newPatchedSHA) },
-                downloader: HerdrBuildDownloader(
-                    cacheDirectory: root.appendingPathComponent("cache"), transport: BytesTransport(body: newPatched)
-                ),
-                readVersionOutput: HerdrVersionFixture.read
-            )
-            let update = HerdrUpdateStore(
-                patchStore: patch, installedVersion: { "0.9.4" }, fetchLatest: { "0.9.5" },
-                runner: RewritingHerdrRunner(path: herdr, bytes: Data("herdr 0.9.5".utf8))
-            )
-            await update.checkIfDue()
-            update.requestUpdate()
-            update.confirmUpdate()
-            await update.updateTask?.value
-            XCTAssertEqual(patch.restartReason, .herdrUpdated(.reinstalled), "\(scheme): the reinstall did not land")
-
-            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
-            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            let cases: [(String, HerdrMousePatchCopy.PatchAfterUpdate)] = [
-                ("reinstalled", .reinstalled), ("reinstall-failed", .reinstallFailed), ("reinstalling", .reinstalling),
-            ]
-            for (kind, after) in cases {
-                patch.noteHerdrUpdated(after)
-                let window = harness.makeWindow(size: Self.windowSize, herdrMousePatchStore: patch)
-                await settle(window)
-                let image = try snapshot(window)
-                if let directory {
-                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
-                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-updated-banner-\(kind)-\(scheme).png"))
-                }
-                let accent = count(theme.palette.accent.hex, in: band, of: image)
-                if after == .reinstalling {
-                    XCTAssertEqual(accent, 0, "\(scheme): a Restart Flock pill mid-reinstall")
-                } else {
-                    XCTAssertGreaterThan(accent, 200, "\(scheme): no Restart Flock pill at the right after \(kind)")
-                }
-                window.close()
+    /// Every element the view exposes to accessibility, with its identifier
+    /// and the text it reads as.
+    private func accessibilityElements(in view: NSView) -> [(identifier: String, text: String)] {
+        var found: [(identifier: String, text: String)] = []
+        var pending: [Any] = [view]
+        var visited = 0
+        while let next = pending.popLast(), visited < 20_000 {
+            visited += 1
+            guard let element = next as? NSObject else { continue }
+            // SwiftUI's elements are private classes; asking by selector
+            // avoids AppKit's overlapping method and property spellings.
+            func read(_ key: String) -> Any? {
+                element.responds(to: NSSelectorFromString(key)) ? element.value(forKey: key) : nil
             }
+            let identifier = read("accessibilityIdentifier") as? String ?? ""
+            let text = read("accessibilityLabel") as? String ?? read("accessibilityValue") as? String ?? ""
+            found.append((identifier, text))
+            pending.append(contentsOf: read("accessibilityChildren") as? [Any] ?? [])
         }
-    }
-
-    /// A store that already knows herdr 0.9.6 is out over an installed 0.9.5,
-    /// probing a temp herdr so the section can offer to run the update. With
-    /// `patchInstalled`, that herdr carries the mouse verbs and a backup
-    /// beside it, which reads as installed.
-    private func makeHerdrUpdateStore(patchInstalled: Bool) throws -> HerdrUpdateStore {
-        try makeHerdrUpdateStores(patchInstalled: patchInstalled).update
-    }
-
-    private func makeHerdrUpdateStores(
-        patchInstalled: Bool, runner: HerdrCommandRunner = HangingHerdrRunner()
-    ) throws -> (update: HerdrUpdateStore, patch: HerdrMousePatchStore) {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("flock-update-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        let herdr = root.appendingPathComponent("herdr").path
-        if patchInstalled {
-            try Data("herdr 0.9.5 terminal.mouse_capture".utf8).write(to: URL(fileURLWithPath: herdr))
-            try Data("herdr 0.9.5".utf8).write(to: URL(fileURLWithPath: HerdrMousePatchInstaller.backupPath(for: herdr)))
-        } else {
-            try Data("herdr 0.9.5".utf8).write(to: URL(fileURLWithPath: herdr))
-        }
-        let patch = HerdrMousePatchStore(resolveBinaryPath: { herdr }, readVersionOutput: HerdrVersionFixture.read)
-        let update = HerdrUpdateStore(
-            patchStore: patch, installedVersion: { "0.9.5" }, fetchLatest: { "0.9.6" }, runner: runner
-        )
-        return (update, patch)
+        return found
     }
 
     /// Runs of `lift` across the view tabs, read just inside a tab's top edge

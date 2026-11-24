@@ -2,23 +2,22 @@ import FlockCore
 import SwiftUI
 
 /// The version of herdr flock is connected to, then the one row flock's
-/// settings show about herdr's mouse support: whichever
-/// of the states `HerdrMousePatchDecision` found, its explanation, and
-/// the actions (if any) that state offers. Install, Update and Restore gate
-/// behind one confirmation dialog, driven by the store rather than local
-/// view state, so the exact path being replaced is always named.
+/// settings show about the mattstack build: whichever of the states
+/// `HerdrBuildDecision` found, its explanation, and the one action (if any)
+/// that state offers. Replacing an existing herdr gates behind a
+/// confirmation dialog, driven by the store rather than local view state, so
+/// the exact path being replaced is always named.
 ///
 /// Built from `Section` and `LabeledContent` so it inherits the system's
-/// settings appearance instead of painting its own card. The explanation runs
-/// long by design (it names the binary being replaced), so it is the label's
-/// secondary line, which is where macOS puts exactly that kind of text.
-struct HerdrMousePatchRow: View {
-    let store: HerdrMousePatchStore
+/// settings appearance instead of painting its own card. The explanation is
+/// the label's secondary line, which is where macOS puts that kind of text.
+struct HerdrBuildRow: View {
+    let store: HerdrBuildStore
     /// nil while flock is not connected to herdr.
     var herdrVersion: String? = nil
 
     var body: some View {
-        Section(HerdrMousePatchCopy.heading) {
+        Section(HerdrBuildCopy.heading) {
             LabeledContent("Version") {
                 Text(herdrVersion.map { "v\($0)" } ?? "Not connected")
                     .textSelection(.enabled)
@@ -27,8 +26,11 @@ struct HerdrMousePatchRow: View {
             LabeledContent {
                 actionButton
             } label: {
-                Text(HerdrMousePatchCopy.rowTitle)
-                Text(bodyText)
+                Text(HerdrBuildCopy.rowTitle)
+                if let state = store.state {
+                    Text(HerdrBuildCopy.body(for: state))
+                        .accessibilityIdentifier("flock.settings.herdrBuild.body")
+                }
             }
             if let reason = store.restartPrompt {
                 let restartsServer = store.needsServerRestart
@@ -37,19 +39,18 @@ struct HerdrMousePatchRow: View {
                         ProgressView().controlSize(.small)
                             .accessibilityIdentifier("flock.settings.herdrMousePatch.restarting")
                     } else {
-                        Button(HerdrMousePatchCopy.restartActionTitle(restartsServer: restartsServer)) {
+                        Button(HerdrBuildCopy.restartActionTitle(restartsServer: restartsServer)) {
                             if restartsServer {
                                 store.requestServerRestart(source: .settings)
                             } else {
                                 AppRelaunch.relaunch()
                             }
                         }
-                        .disabled(!HerdrMousePatchCopy.offersRestart(for: reason))
                         .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
                     }
                 } label: {
-                    Text(HerdrMousePatchCopy.restartHeadline(for: reason))
-                    Text(HerdrMousePatchCopy.restartDetail(for: reason, restartsServer: restartsServer))
+                    Text(HerdrBuildCopy.restartHeadline(for: reason))
+                    Text(HerdrBuildCopy.restartDetail(for: reason, restartsServer: restartsServer))
                 }
             }
             if let message = store.serverRestartError {
@@ -93,34 +94,23 @@ struct HerdrMousePatchRow: View {
         case .installing:
             ProgressView().controlSize(.small)
         case .idle:
-            if !store.herdrUpdateInProgress, let state = store.state, let title = HerdrMousePatchCopy.actionTitle(for: state) {
-                HStack {
-                    if let secondary = HerdrMousePatchCopy.secondaryActionTitle(for: state) {
-                        Button(secondary) { store.requestRevert(source: .settings) }
-                            .accessibilityIdentifier("flock.settings.herdrMousePatch.secondaryAction")
+            if let state = store.state, let title = HerdrBuildCopy.actionTitle(for: state) {
+                Button(title) {
+                    // Nothing on disk to replace, so nothing to confirm.
+                    if case .missing = state {
+                        store.installMissing()
+                    } else {
+                        store.requestInstall(source: .settings)
                     }
-                    Button(title) {
-                        switch state {
-                        case .patchable, .outdated: store.requestInstall(source: .settings)
-                        case .installed: store.requestRevert(source: .settings)
-                        case .supportedByHerdr, .notWritable, .unsupportedVersion: break
-                        }
-                    }
-                    .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
                 }
+                .disabled(store.serverRestarting)
+                .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
             }
         }
     }
 
     /// The main window's banner presents its own requests.
-    private var ownConfirmation: HerdrMousePatchStore.PendingConfirmation? {
+    private var ownConfirmation: HerdrBuildStore.PendingConfirmation? {
         store.pendingConfirmation.flatMap { $0.source == .settings ? $0 : nil }
-    }
-
-    private var bodyText: String {
-        guard let state = store.state else {
-            return "Not available. flock can't find herdr on this Mac."
-        }
-        return HerdrMousePatchCopy.body(for: state)
     }
 }

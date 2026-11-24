@@ -337,9 +337,9 @@ final class HerdrBuildStore {
         serverRestarting = true
         serverRestartTask = Task { [runner] in
             let result = await runner.run(
-                binaryPath, HerdrUpdateRun.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
+                binaryPath, HerdrLiveHandoff.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
             )
-            if HerdrUpdateRun.handedOff(status: result.status, output: result.output) {
+            if HerdrLiveHandoff.handedOff(status: result.status, output: result.output) {
                 relaunch()
                 return
             }

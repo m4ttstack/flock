@@ -42,7 +42,7 @@ struct FlockSettingsView: View {
     /// General, the longest tab, with a custom folder showing.
     static let size = CGSize(width: 560, height: 520)
 
-    let herdrMousePatchStore: HerdrMousePatchStore
+    let herdrBuildStore: HerdrBuildStore
     let notificationLifetimeStore: NotificationLifetimeStore
     let missionBottomLineStore: MissionBottomLineStore
     let overviewReturnStore: OverviewReturnStore
@@ -57,7 +57,6 @@ struct FlockSettingsView: View {
     let rtModalTextSizeStore: RtModalTextSizeStore
     let commandLineToolStore: CommandLineToolStore
     let herdrVersion: String?
-    let herdrUpdateStore: HerdrUpdateStore?
     let serverPicker: ServerPicker?
     let profiles: ProfileStore?
     let isLocked: Bool
@@ -74,19 +73,19 @@ struct FlockSettingsView: View {
     @Bindable var selection: SettingsTabSelection
 
     init(
-        herdrMousePatchStore: HerdrMousePatchStore, notificationLifetimeStore: NotificationLifetimeStore,
+        herdrBuildStore: HerdrBuildStore, notificationLifetimeStore: NotificationLifetimeStore,
         missionBottomLineStore: MissionBottomLineStore, overviewReturnStore: OverviewReturnStore,
         overviewInclusionStore: OverviewInclusionStore,
         oneTitleStore: OneTitleStore, agentCloseWarningStore: AgentCloseWarningStore, linkTrustStore: LinkTrustStore, topBarLabelStore: TopBarLabelStore, rearrangeAfterMoveStore: RearrangeAfterMoveStore,
         paneAppearanceStore: PaneAppearanceStore? = nil,
         startingFolderStore: StartingFolderStore, rtModalTextSizeStore: RtModalTextSizeStore,
-        commandLineToolStore: CommandLineToolStore, herdrVersion: String?, herdrUpdateStore: HerdrUpdateStore? = nil,
+        commandLineToolStore: CommandLineToolStore, herdrVersion: String?,
         serverPicker: ServerPicker? = nil, profiles: ProfileStore? = nil, isLocked: Bool = false,
         switchProfile: ((String) async -> Bool)? = nil, changeServer: ((String?) async -> Bool)? = nil,
         newProfileDraft: String = "", serverDraft: ServerSettingsSection.Draft? = nil, profilesDraft: ProfilesSettingsSection.Draft? = nil, isRemoteMachine: Bool = false,
         listMachines: @escaping () async -> [HerdrMachine]? = { nil }, tab: SettingsTab = .general, selection: SettingsTabSelection? = nil
     ) {
-        self.herdrMousePatchStore = herdrMousePatchStore
+        self.herdrBuildStore = herdrBuildStore
         self.notificationLifetimeStore = notificationLifetimeStore
         self.missionBottomLineStore = missionBottomLineStore
         self.overviewReturnStore = overviewReturnStore
@@ -101,7 +100,6 @@ struct FlockSettingsView: View {
         self.rtModalTextSizeStore = rtModalTextSizeStore
         self.commandLineToolStore = commandLineToolStore
         self.herdrVersion = herdrVersion
-        self.herdrUpdateStore = herdrUpdateStore
         self.serverPicker = serverPicker
         self.profiles = profiles
         self.isLocked = isLocked
@@ -161,10 +159,7 @@ struct FlockSettingsView: View {
                         ServerSettingsSection(picker: serverPicker, machineName: profiles?.current.name ?? "herdr machine")
                     }
                 } else {
-                    if let herdrUpdateStore {
-                        HerdrUpdateSection(store: herdrUpdateStore)
-                    }
-                    HerdrMousePatchRow(store: herdrMousePatchStore, herdrVersion: herdrVersion)
+                    HerdrBuildRow(store: herdrBuildStore, herdrVersion: herdrVersion)
                     if let serverPicker {
                         ServerSettingsSection(picker: serverPicker, draft: serverDraft)
                         ServersSettingsSection(picker: serverPicker, profiles: profiles)
@@ -178,8 +173,7 @@ struct FlockSettingsView: View {
         .onAppear {
             commandLineToolStore.refresh()
             guard !isRemoteMachine else { return }
-            herdrMousePatchStore.refresh()
-            Task { await herdrUpdateStore?.checkIfDue() }
+            herdrBuildStore.refresh()
         }
     }
 
