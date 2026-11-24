@@ -1,6 +1,7 @@
 import CryptoKit
 import FlockCore
 import Foundation
+import Observation
 import XCTest
 
 /// Every herdr here is a throwaway temp file whose bytes start `herdr X`;
@@ -21,13 +22,17 @@ final class HerdrBuildStoreTests: XCTestCase {
     private let socket = "/tmp/acme/herdr.sock"
 
     private final class FileTransport: HerdrDownloadTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var started = 0
         let body: Data
         let beforeReturning: @Sendable () throws -> Void
         init(body: Data, beforeReturning: @escaping @Sendable () throws -> Void = {}) {
             self.body = body
             self.beforeReturning = beforeReturning
         }
+        var downloads: Int { lock.withLock { started } }
         func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+            lock.withLock { started += 1 }
             progress(0.5)
             try body.write(to: destination)
             try beforeReturning()
@@ -72,6 +77,33 @@ final class HerdrBuildStoreTests: XCTestCase {
                 return lists.count > 1 ? lists.removeFirst() : lists.first ?? nil
             }
         }
+    }
+
+    /// Answers the first fetch with no list at once, then holds every later
+    /// one open until the test answers it, in any order.
+    private final class GatedLists: @unchecked Sendable {
+        private let lock = NSLock()
+        private var first = true
+        private var waiting: [CheckedContinuation<HerdrBuildList?, Never>] = []
+        var pending: Int { lock.withLock { waiting.count } }
+        func next() async -> HerdrBuildList? {
+            let isFirst = lock.withLock {
+                defer { first = false }
+                return first
+            }
+            if isFirst { return nil }
+            return await withCheckedContinuation { continuation in lock.withLock { waiting.append(continuation) } }
+        }
+        func answer(_ index: Int, with list: HerdrBuildList?) {
+            lock.withLock { waiting[index] }.resume(returning: list)
+        }
+    }
+
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var raised = false
+        var isRaised: Bool { lock.withLock { raised } }
+        func raise() { lock.withLock { raised = true } }
     }
 
     private final class Clock {
@@ -148,6 +180,7 @@ final class HerdrBuildStoreTests: XCTestCase {
     private func makeStore(
         binary: Data?,
         lists: ListSource? = nil,
+        fetchList: (@Sendable () async -> HerdrBuildList?)? = nil,
         transport: HerdrDownloadTransport? = nil,
         runner: StubRunner = StubRunner(),
         server: ServerStub = ServerStub(.unknown),
@@ -163,7 +196,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         return HerdrBuildStore(
             resolveBinaryPath: { FileManager.default.fileExists(atPath: installPath) ? installPath : nil },
             defaultInstallPath: installPath,
-            fetchList: { lists.next() },
+            fetchList: fetchList ?? { lists.next() },
             downloader: HerdrBuildDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: transport ?? FileTransport(body: ms2)
             ),
@@ -186,6 +219,14 @@ final class HerdrBuildStoreTests: XCTestCase {
         await store.listTask?.value
         await store.installTask?.value
         await store.serverCheckTask?.value
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<100_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("condition never held")
     }
 
     private func confirmAndWait(_ store: HerdrBuildStore) async {
@@ -241,7 +282,8 @@ final class HerdrBuildStoreTests: XCTestCase {
             HerdrBuildStore.PendingConfirmation(
                 action: .install,
                 confirmation: HerdrBuildCopy.installConfirmation(installPath: installPath, newest: "0.9.5-ms.2"),
-                source: .settings
+                source: .settings,
+                newest: "0.9.5-ms.2"
             )
         )
         XCTAssertTrue(store.pendingConfirmation?.confirmation.message.contains(installPath) ?? false)
@@ -534,5 +576,108 @@ final class HerdrBuildStoreTests: XCTestCase {
         store.refresh()
         XCTAssertEqual(reads.count, 3)
         XCTAssertEqual(store.binaryVersion, HerdrBuildVersion("0.9.5-ms.1"))
+    }
+
+    private var ms3List: HerdrBuildList {
+        list(newest: "0.9.5-ms.3", [
+            BuildFixture(version: "0.9.5-ms.3", bytes: ms3, supersedes: [ms1, ms2]),
+            BuildFixture(version: "0.9.5-ms.2", bytes: ms2, supersedes: [ms1]),
+        ])
+    }
+
+    func testAFailedRefetchKeepsTheListAndRetriesOnTheNextRefresh() async throws {
+        let clock = Clock()
+        let lists = ListSource([standardList(), nil, standardList()])
+        let store = try makeStore(binary: ms1, lists: lists, clock: clock)
+        await settle(store)
+        let outdated = HerdrBuildState.outdated(installPath: installPath, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2")
+        XCTAssertEqual(store.state, outdated)
+
+        clock.now = clock.now.addingTimeInterval(61 * 60)
+        store.refresh()
+        await settle(store)
+        XCTAssertEqual(lists.count, 2)
+        XCTAssertNotNil(store.list)
+        XCTAssertEqual(store.state, outdated)
+        XCTAssertEqual(store.availableUpdate, "0.9.5-ms.2")
+
+        store.refresh()
+        await settle(store)
+        XCTAssertEqual(lists.count, 3, "a failed fetch is not counted as fresh")
+    }
+
+    func testALateListResultDoesNotReplaceANewerOne() async throws {
+        let gated = GatedLists()
+        let store = try makeStore(binary: stock, fetchList: { await gated.next() })
+        await settle(store)
+        let older = Task { await store.refreshList() }
+        await waitUntil { gated.pending == 1 }
+        let newer = Task { await store.refreshList() }
+        await waitUntil { gated.pending == 2 }
+
+        gated.answer(1, with: ms3List)
+        await newer.value
+        gated.answer(0, with: standardList())
+        await older.value
+
+        XCTAssertEqual(store.list?.newest.version.display, "0.9.5-ms.3")
+        XCTAssertEqual(store.state, .stock(installPath: installPath, installed: "0.9.5", newest: "0.9.5-ms.3"))
+    }
+
+    func testConfirmingWhileAnInstallRunsStartsNoSecondInstall() async throws {
+        let transport = FileTransport(body: ms2)
+        let store = try makeStore(binary: stock, transport: transport)
+        await settle(store)
+        store.requestInstall(source: .settings)
+        XCTAssertNotNil(store.pendingConfirmation)
+
+        try FileManager.default.removeItem(atPath: installPath)
+        store.refresh()
+        XCTAssertEqual(store.state, .missing(installPath: installPath))
+        store.installMissing()
+        XCTAssertNotEqual(store.phase, .idle)
+        try writeBinary(stock)
+        store.refresh()
+
+        store.confirmPendingAction()
+        XCTAssertNil(store.pendingConfirmation)
+        await settle(store)
+
+        XCTAssertEqual(transport.downloads, 1)
+    }
+
+    func testAConfirmationForABuildTheListNoLongerNamesInstallsNothing() async throws {
+        let transport = FileTransport(body: ms2)
+        let lists = ListSource([standardList()])
+        let store = try makeStore(binary: stock, lists: lists, transport: transport)
+        await settle(store)
+        store.requestInstall(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.confirmation.title, "Install herdr 0.9.5-ms.2?")
+
+        lists.set(ms3List)
+        await store.refreshList()
+        store.confirmPendingAction()
+        await settle(store)
+
+        XCTAssertNil(store.pendingConfirmation)
+        XCTAssertEqual(transport.downloads, 0)
+        XCTAssertEqual(binaryBytes(), stock)
+        XCTAssertNil(store.restartReason)
+
+        store.requestInstall(source: .settings)
+        XCTAssertEqual(store.pendingConfirmation?.confirmation.title, "Install herdr 0.9.5-ms.3?")
+    }
+
+    func testDismissingTheOfferIsObserved() async throws {
+        let store = try makeStore(binary: stock)
+        await settle(store)
+        let changed = Flag()
+        withObservationTracking { _ = store.shouldOfferBanner } onChange: { changed.raise() }
+
+        store.dismissBannerOffer()
+
+        XCTAssertTrue(changed.isRaised)
+        XCTAssertFalse(store.shouldOfferBanner)
+        XCTAssertEqual(store.offerDismissedFor, "0.9.5-ms.2")
     }
 }

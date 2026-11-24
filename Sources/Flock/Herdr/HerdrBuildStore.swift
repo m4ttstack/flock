@@ -27,6 +27,8 @@ final class HerdrBuildStore {
     private(set) var serverRestarting = false
     private(set) var serverRestartError: String?
     private(set) var serverBehindDismissedFor: String?
+    /// The newest build the install banner was waved away for.
+    private(set) var offerDismissedFor: String?
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
@@ -38,6 +40,8 @@ final class HerdrBuildStore {
         let action: Action
         let confirmation: HerdrBuildCopy.Confirmation
         let source: Source
+        /// The build the install confirmation named; nil for a server restart.
+        let newest: String?
     }
 
     @ObservationIgnored var installTask: Task<Void, Never>?
@@ -62,7 +66,12 @@ final class HerdrBuildStore {
     @ObservationIgnored private let onInstalled: () -> Void
     @ObservationIgnored private var lastProbed: BinaryFingerprint?
     @ObservationIgnored private var lastProbe: HerdrBuildInstaller.Probe?
+    /// When a fetch last brought back a list. A failed fetch leaves it, so
+    /// the next refresh tries again.
     @ObservationIgnored private var lastListFetch: Date?
+    @ObservationIgnored private var listRefreshRunning = false
+    @ObservationIgnored private var listFetchesStarted = 0
+    @ObservationIgnored private var listFetchApplied = 0
 
     /// The probe reads all of herdr (over 20 MB) on the main actor, and the
     /// app calls `refresh()` on every activation; these stat fields change
@@ -117,11 +126,12 @@ final class HerdrBuildStore {
         self.relaunch = relaunch
         self.onInstalled = onInstalled
         serverBehindDismissedFor = defaults.string(forKey: Self.serverBehindDismissedKey)
+        offerDismissedFor = defaults.string(forKey: Self.offerDismissedKey)
         refresh()
     }
 
     var shouldOfferBanner: Bool {
-        HerdrBuildOffer.shouldOffer(state: state, dismissedFor: defaults.string(forKey: Self.offerDismissedKey))
+        HerdrBuildOffer.shouldOffer(state: state, dismissedFor: offerDismissedFor)
     }
 
     var showsBanner: Bool { shouldOfferBanner || bannerErrorMessage != nil }
@@ -162,6 +172,7 @@ final class HerdrBuildStore {
         bannerErrorMessage = nil
         guard let state, let token = HerdrBuildOffer.dismissalToken(for: state) else { return }
         defaults.set(token, forKey: Self.offerDismissedKey)
+        offerDismissedFor = token
     }
 
     /// Called on init, whenever the settings row appears, the app becomes
@@ -170,11 +181,12 @@ final class HerdrBuildStore {
     func refresh() {
         refresh(force: false)
         let stale = lastListFetch.map { now().timeIntervalSince($0) >= Self.listMaxAge } ?? true
-        guard stale else { return }
-        // Stamped before the task starts, so a refresh before it runs does
-        // not start a second fetch.
-        lastListFetch = now()
-        listTask = Task { await refreshList() }
+        guard stale, !listRefreshRunning else { return }
+        listRefreshRunning = true
+        listTask = Task {
+            await refreshList()
+            listRefreshRunning = false
+        }
     }
 
     /// Re-probes unconditionally: after flock itself changed the binary, a
@@ -183,9 +195,14 @@ final class HerdrBuildStore {
         refresh(force: true)
     }
 
+    /// A failed fetch keeps the list already read, and a fetch that lands
+    /// after a later-started one has landed is dropped.
     func refreshList() async {
+        listFetchesStarted += 1
+        let fetch = listFetchesStarted
+        guard let fetched = await fetchList(), fetch > listFetchApplied else { return }
+        listFetchApplied = fetch
         lastListFetch = now()
-        let fetched = await fetchList()
         if list != fetched { list = fetched }
         decide()
     }
@@ -261,15 +278,16 @@ final class HerdrBuildStore {
     func requestInstall(source: PendingConfirmation.Source) {
         guard phase == .idle else { return }
         let confirmation: HerdrBuildCopy.Confirmation
+        let named: String
         switch state {
         case .stock(let installPath, _, let newest):
-            confirmation = HerdrBuildCopy.installConfirmation(installPath: installPath, newest: newest)
+            (confirmation, named) = (HerdrBuildCopy.installConfirmation(installPath: installPath, newest: newest), newest)
         case .outdated(let installPath, _, let newest):
-            confirmation = HerdrBuildCopy.updateConfirmation(installPath: installPath, newest: newest)
+            (confirmation, named) = (HerdrBuildCopy.updateConfirmation(installPath: installPath, newest: newest), newest)
         default:
             return
         }
-        pendingConfirmation = PendingConfirmation(action: .install, confirmation: confirmation, source: source)
+        pendingConfirmation = PendingConfirmation(action: .install, confirmation: confirmation, source: source, newest: named)
     }
 
     /// The missing-herdr screen's button is the consent, so this asks
@@ -277,13 +295,13 @@ final class HerdrBuildStore {
     func installMissing() {
         guard phase == .idle, case .missing = state else { return }
         lastErrorMessage = nil
-        performInstall(startedFromBanner: false)
+        performInstall(build: list?.newest, startedFromBanner: false)
     }
 
     func requestServerRestart(source: PendingConfirmation.Source) {
         guard needsServerRestart, !serverRestarting, phase == .idle else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
+            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source, newest: nil
         )
     }
 
@@ -294,11 +312,20 @@ final class HerdrBuildStore {
     func confirmPendingAction() {
         guard let pending = pendingConfirmation else { return }
         pendingConfirmation = nil
-        lastErrorMessage = nil
-        bannerErrorMessage = nil
+        guard phase == .idle, !serverRestarting else { return }
         switch pending.action {
-        case .install: performInstall(startedFromBanner: pending.source == .banner)
-        case .restartServer: performServerRestart()
+        case .install:
+            // A dialog left open while the list moved on named another build;
+            // asking again names the one that would land.
+            guard let state, HerdrBuildOffer.dismissalToken(for: state) == pending.newest,
+                  let build = list?.newest, build.version.display == pending.newest else { return }
+            lastErrorMessage = nil
+            bannerErrorMessage = nil
+            performInstall(build: build, startedFromBanner: pending.source == .banner)
+        case .restartServer:
+            lastErrorMessage = nil
+            bannerErrorMessage = nil
+            performServerRestart()
         }
     }
 
@@ -322,7 +349,8 @@ final class HerdrBuildStore {
         }
     }
 
-    private func performInstall(startedFromBanner: Bool) {
+    /// `build` nil: no list is read yet, so the install fetches one first.
+    private func performInstall(build confirmed: HerdrBuildList.Build?, startedFromBanner: Bool) {
         guard let decidedFrom = lastProbe else { return }
         let restart: HerdrBuildCopy.RestartReason?
         let installPath: String
@@ -337,11 +365,13 @@ final class HerdrBuildStore {
         installTask = Task { [downloader, fileManager, listTask] in
             defer { phase = .idle; reprobe() }
             do {
-                if list == nil {
+                var newest = confirmed
+                if newest == nil {
                     await listTask?.value
                     if list == nil { await refreshList() }
+                    newest = list?.newest
                 }
-                guard let newest = list?.newest, let asset = newest.assets[arch] else { throw ListUnreadable() }
+                guard let newest, let asset = newest.assets[arch] else { throw ListUnreadable() }
                 let artifact = try await downloader.fetch(
                     url: asset.url, sha256: asset.sha256, fileName: HerdrBuildInstaller.fileName(for: newest.version, arch: arch)
                 ) { fraction in
