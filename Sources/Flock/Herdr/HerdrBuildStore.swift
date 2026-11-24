@@ -35,13 +35,19 @@ final class HerdrBuildStore {
     /// The banner and the Settings row both watch this store, and each
     /// presents only the confirmations it asked for.
     struct PendingConfirmation: Equatable {
-        enum Action: Equatable { case install, restartServer }
+        enum Action: Equatable { case install(InstallOffer), restartServer }
         enum Source: Equatable { case banner, settings }
         let action: Action
         let confirmation: HerdrBuildCopy.Confirmation
         let source: Source
-        /// The build the install confirmation named; nil for a server restart.
-        let newest: String?
+    }
+
+    /// What an install confirmation answers for: the build it named, and the
+    /// herdr it would replace.
+    struct InstallOffer: Equatable {
+        let newest: String
+        let installPath: String
+        let probe: HerdrBuildInstaller.Probe
     }
 
     @ObservationIgnored var installTask: Task<Void, Never>?
@@ -279,34 +285,40 @@ final class HerdrBuildStore {
         )
     }
 
+    private var installOffer: InstallOffer? {
+        guard let lastProbe else { return nil }
+        switch state {
+        case .stock(let installPath, _, let newest), .outdated(let installPath, _, let newest):
+            return InstallOffer(newest: newest, installPath: installPath, probe: lastProbe)
+        default:
+            return nil
+        }
+    }
+
     /// Asks before replacing an existing herdr, every time.
     func requestInstall(source: PendingConfirmation.Source) {
-        guard phase == .idle else { return }
+        guard phase == .idle, let offer = installOffer else { return }
         let confirmation: HerdrBuildCopy.Confirmation
-        let named: String
-        switch state {
-        case .stock(let installPath, _, let newest):
-            (confirmation, named) = (HerdrBuildCopy.installConfirmation(installPath: installPath, newest: newest), newest)
-        case .outdated(let installPath, _, let newest):
-            (confirmation, named) = (HerdrBuildCopy.updateConfirmation(installPath: installPath, newest: newest), newest)
-        default:
-            return
+        if case .outdated = state {
+            confirmation = HerdrBuildCopy.updateConfirmation(installPath: offer.installPath, newest: offer.newest)
+        } else {
+            confirmation = HerdrBuildCopy.installConfirmation(installPath: offer.installPath, newest: offer.newest)
         }
-        pendingConfirmation = PendingConfirmation(action: .install, confirmation: confirmation, source: source, newest: named)
+        pendingConfirmation = PendingConfirmation(action: .install(offer), confirmation: confirmation, source: source)
     }
 
     /// The missing-herdr screen's button is the consent, so this asks
     /// nothing more.
     func installMissing() {
-        guard phase == .idle, case .missing = state else { return }
+        guard phase == .idle, case .missing = state, let lastProbe else { return }
         lastErrorMessage = nil
-        performInstall(build: list?.newest, startedFromBanner: false)
+        performInstall(build: list?.newest, decidedFrom: lastProbe, startedFromBanner: false)
     }
 
     func requestServerRestart(source: PendingConfirmation.Source) {
         guard needsServerRestart, !serverRestarting, phase == .idle else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source, newest: nil
+            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
         )
     }
 
@@ -319,14 +331,14 @@ final class HerdrBuildStore {
         pendingConfirmation = nil
         guard phase == .idle, !serverRestarting else { return }
         switch pending.action {
-        case .install:
-            // A dialog left open while the list moved on named another build;
-            // asking again names the one that would land.
-            guard let state, HerdrBuildOffer.dismissalToken(for: state) == pending.newest,
-                  let build = list?.newest, build.version.display == pending.newest else { return }
+        case .install(let offer):
+            // A dialog left open while the list or the herdr on disk moved on
+            // named another build or another file; asking again names the
+            // ones that would change.
+            guard installOffer == offer, let build = list?.newest, build.version.display == offer.newest else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
-            performInstall(build: build, startedFromBanner: pending.source == .banner)
+            performInstall(build: build, decidedFrom: offer.probe, startedFromBanner: pending.source == .banner)
         case .restartServer:
             lastErrorMessage = nil
             bannerErrorMessage = nil
@@ -355,8 +367,9 @@ final class HerdrBuildStore {
     }
 
     /// `build` nil: no list is read yet, so the install fetches one first.
-    private func performInstall(build confirmed: HerdrBuildList.Build?, startedFromBanner: Bool) {
-        guard let decidedFrom = lastProbe else { return }
+    private func performInstall(
+        build confirmed: HerdrBuildList.Build?, decidedFrom: HerdrBuildInstaller.Probe, startedFromBanner: Bool
+    ) {
         let restart: HerdrBuildCopy.RestartReason?
         let installPath: String
         switch state {

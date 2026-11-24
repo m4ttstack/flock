@@ -110,6 +110,11 @@ final class HerdrBuildStoreTests: XCTestCase {
         var now = Date(timeIntervalSince1970: 1_800_000_000)
     }
 
+    private final class PathBox {
+        var path: String
+        init(_ path: String) { self.path = path }
+    }
+
     private final class Counter {
         var count = 0
     }
@@ -179,6 +184,7 @@ final class HerdrBuildStoreTests: XCTestCase {
 
     private func makeStore(
         binary: Data?,
+        resolve: (() -> String?)? = nil,
         lists: ListSource? = nil,
         fetchList: (@Sendable () async -> HerdrBuildList?)? = nil,
         transport: HerdrDownloadTransport? = nil,
@@ -194,7 +200,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         let lists = lists ?? ListSource([standardList()])
         let installPath = installPath!
         return HerdrBuildStore(
-            resolveBinaryPath: { FileManager.default.fileExists(atPath: installPath) ? installPath : nil },
+            resolveBinaryPath: resolve ?? { FileManager.default.fileExists(atPath: installPath) ? installPath : nil },
             defaultInstallPath: installPath,
             fetchList: fetchList ?? { lists.next() },
             downloader: HerdrBuildDownloader(
@@ -351,10 +357,15 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertEqual(
             store.pendingConfirmation,
             HerdrBuildStore.PendingConfirmation(
-                action: .install,
+                action: .install(HerdrBuildStore.InstallOffer(
+                    newest: "0.9.5-ms.2",
+                    installPath: installPath,
+                    probe: HerdrBuildInstaller.Probe(
+                        exists: true, isWritable: true, version: HerdrBuildVersion("0.9.5"), sha256: Self.sha256(stock)
+                    )
+                )),
                 confirmation: HerdrBuildCopy.installConfirmation(installPath: installPath, newest: "0.9.5-ms.2"),
-                source: .settings,
-                newest: "0.9.5-ms.2"
+                source: .settings
             )
         )
         XCTAssertTrue(store.pendingConfirmation?.confirmation.message.contains(installPath) ?? false)
@@ -737,6 +748,64 @@ final class HerdrBuildStoreTests: XCTestCase {
 
         store.requestInstall(source: .settings)
         XCTAssertEqual(store.pendingConfirmation?.confirmation.title, "Install herdr 0.9.5-ms.3?")
+    }
+
+    func testAConfirmationForAnotherPathInstallsNothing() async throws {
+        let transport = FileTransport(body: ms2)
+        let resolved = PathBox(installPath)
+        let store = try makeStore(binary: stock, resolve: { resolved.path }, transport: transport)
+        await settle(store)
+        store.requestInstall(source: .settings)
+        XCTAssertNotNil(store.pendingConfirmation)
+
+        // The same bytes, so only the path tells the two herdrs apart.
+        let other = root.appendingPathComponent("elsewhere/herdr")
+        try FileManager.default.createDirectory(at: other.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try stock.write(to: other)
+        resolved.path = other.path
+        store.refresh()
+        XCTAssertEqual(store.state, .stock(installPath: other.path, installed: "0.9.5", newest: "0.9.5-ms.2"))
+        await confirmAndWait(store)
+
+        XCTAssertNil(store.pendingConfirmation)
+        XCTAssertEqual(transport.downloads, 0)
+        XCTAssertEqual(FileManager.default.contents(atPath: other.path), stock)
+        XCTAssertEqual(binaryBytes(), stock)
+        XCTAssertNil(store.restartReason)
+        XCTAssertEqual(store.phase, .idle)
+    }
+
+    func testAConfirmationForABinaryReplacedMeanwhileInstallsNothing() async throws {
+        let transport = FileTransport(body: ms2)
+        let store = try makeStore(binary: stock, transport: transport)
+        await settle(store)
+        store.requestInstall(source: .banner)
+        XCTAssertNotNil(store.pendingConfirmation)
+
+        try writeBinary(ms1)
+        store.refresh()
+        XCTAssertEqual(store.state, .outdated(installPath: installPath, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2"))
+        await confirmAndWait(store)
+
+        XCTAssertNil(store.pendingConfirmation)
+        XCTAssertEqual(transport.downloads, 0)
+        XCTAssertEqual(binaryBytes(), ms1)
+        XCTAssertNil(store.restartReason)
+        XCTAssertEqual(store.phase, .idle)
+    }
+
+    func testAConfirmationOutlivesARefreshThatFindsNothingChanged() async throws {
+        let store = try makeStore(binary: stock)
+        await settle(store)
+        store.requestInstall(source: .settings)
+
+        store.refresh()
+        store.reprobe()
+        await confirmAndWait(store)
+
+        XCTAssertNil(store.lastErrorMessage)
+        XCTAssertEqual(binaryBytes(), ms2)
+        XCTAssertEqual(store.restartReason, .installed)
     }
 
     func testDismissingTheOfferIsObserved() async throws {
