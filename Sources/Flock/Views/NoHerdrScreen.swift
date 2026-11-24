@@ -161,16 +161,17 @@ struct NoHerdrPrimaryActionStyle: ButtonStyle {
         configuration.label
             .font(ChromeType.noHerdrAction)
             // The chrome ground on the accent: dark on a dark theme's pale
-            // accent, near white on a light theme's deep one.
-            .foregroundStyle(theme.chrome)
+            // accent, near white on a light theme's deep one. Disabled, the
+            // title is the only word on progress, so it stays legible on a
+            // faint wash rather than fading with the fill.
+            .foregroundStyle(isEnabled ? theme.chrome : theme.textDim)
             .padding(.horizontal, ChromeMetrics.NoHerdr.actionHorizontalPadding)
             .frame(height: ChromeMetrics.NoHerdr.actionHeight)
             .background(
                 RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.actionCornerRadius)
-                    .fill(theme.accent)
+                    .fill(theme.accent.opacity(isEnabled ? 1 : 0.2))
                     .brightness(configuration.isPressed ? -0.08 : 0)
             )
-            .opacity(isEnabled ? 1 : 0.55)
             .contentShape(Rectangle())
     }
 }

@@ -620,11 +620,14 @@ private struct HerdrBuildBanner: View {
                 Text(HerdrBuildOffer.bannerHeadline(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textStrong)
+                    .lineLimit(1)
+                    .fixedSize()
                 Text(HerdrBuildOffer.bannerDetail(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(HerdrBuildOffer.bannerDetail(for: store.state))
             }
             Spacer(minLength: ChromeMetrics.Banner.spacing)
             trailing
@@ -668,6 +671,8 @@ private struct HerdrBuildBanner: View {
                 Text(title)
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .fixedSize()
                 Capsule()
                     .fill(theme.accent.opacity(0.25))
                     .frame(width: 96, height: 6)

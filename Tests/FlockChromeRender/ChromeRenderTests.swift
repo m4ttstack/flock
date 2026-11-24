@@ -2669,6 +2669,7 @@ final class ChromeRenderTests: XCTestCase {
              { .outdated(installPath: $0, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2") }),
         ]
         var buildStates: [String: HerdrBuildState] = [:]
+        var buildStores: [String: HerdrBuildStore] = [:]
         for (kind, binary, list, expected) in buildKinds {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 let name = "herdr-build-\(kind)-\(scheme)"
@@ -2680,6 +2681,7 @@ final class ChromeRenderTests: XCTestCase {
                     XCTAssertEqual(store.pendingConfirmation?.source, .settings, "\(name): nothing to confirm")
                 }
                 buildStates[name] = state
+                buildStores[name] = store
                 cases.append((name, appearance, StartingFolderStore(userDefaults: defaults), .herdr, store, nil, nil))
             }
         }
@@ -2867,7 +2869,7 @@ final class ChromeRenderTests: XCTestCase {
                     .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-\(name).png"))
             }
             if let state = buildStates[name] {
-                let elements = accessibilityElements(in: host)
+                let elements = await accessibilityElements(in: window)
                 XCTAssertEqual(
                     elements.first { $0.identifier == "flock.settings.herdrBuild.body" }?.text, HerdrBuildCopy.body(for: state),
                     "\(name): the row does not read the state's body"
@@ -2880,13 +2882,17 @@ final class ChromeRenderTests: XCTestCase {
                     elements.contains { $0.identifier == "flock.settings.herdrMousePatch.action" },
                     HerdrBuildCopy.actionTitle(for: state) != nil, "\(name): the action button does not match the state"
                 )
-                if let sheet = window.attachedSheet {
-                    let sheetImage = try snapshot(sheet)
-                    if let directory {
-                        try XCTUnwrap(sheetImage.representation(using: .png, properties: [:]))
-                            .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-\(name)-sheet.png"))
+                // The system alert draws nothing offscreen, so its words are
+                // read from its views instead.
+                if let confirmation = buildStores[name]?.pendingConfirmation?.confirmation {
+                    let sheet = try XCTUnwrap(window.attachedSheet, "\(name): no confirmation sheet")
+                    let words = sheetWords(sheet)
+                    for expected in [confirmation.title, confirmation.message, confirmation.confirmButtonTitle, "Cancel"] {
+                        XCTAssertTrue(words.contains(expected), "\(name): the sheet does not say \(expected): \(words)")
                     }
                     sheet.close()
+                } else {
+                    XCTAssertNil(window.attachedSheet, "\(name): a sheet nothing asked for")
                 }
             }
             window.close()
@@ -3097,7 +3103,7 @@ final class ChromeRenderTests: XCTestCase {
         )
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: scheme == "dark" ? .darkAqua : .aqua)
-        window.contentView = NSHostingView(rootView: Form { HerdrBuildRow(store: store, herdrVersion: "0.9.5-ms.2") }
+        window.contentView = NSHostingView(rootView: Form { HerdrBuildRow(store: store, herdrVersion: store.binaryVersion?.display) }
             .formStyle(.grouped)
             .frame(width: FlockSettingsView.size.width, height: height))
         window.orderFront(nil)
@@ -5784,11 +5790,28 @@ extension ChromeRenderTests {
         }
     }
 
-    /// Every element the view exposes to accessibility, with its identifier
-    /// and the text it reads as.
-    private func accessibilityElements(in view: NSView) -> [(identifier: String, text: String)] {
+    /// The text fields' strings and the buttons' titles in a sheet.
+    private func sheetWords(_ sheet: NSWindow) -> [String] {
+        var words: [String] = []
+        var pending: [NSView] = sheet.contentView.map { [$0] } ?? []
+        while let view = pending.popLast() {
+            if let field = view as? NSTextField, !field.stringValue.isEmpty { words.append(field.stringValue) }
+            if let button = view as? NSButton, !button.title.isEmpty { words.append(button.title) }
+            pending.append(contentsOf: view.subviews)
+        }
+        return words
+    }
+
+    /// Every element the window's content exposes to accessibility, with
+    /// its identifier and the text it reads as. SwiftUI builds the tree only
+    /// for an assistive client, which enhanced UI stands in for.
+    private func accessibilityElements(in window: NSWindow) async -> [(identifier: String, text: String)] {
+        let wasEnhanced = NSApp.value(forKey: "accessibilityEnhancedUserInterface") as? Bool ?? false
+        NSApp.setValue(true, forKey: "accessibilityEnhancedUserInterface")
+        defer { NSApp.setValue(wasEnhanced, forKey: "accessibilityEnhancedUserInterface") }
+        await settle(window)
         var found: [(identifier: String, text: String)] = []
-        var pending: [Any] = [view]
+        var pending: [Any] = window.contentView.map { [$0] } ?? []
         var visited = 0
         while let next = pending.popLast(), visited < 20_000 {
             visited += 1
@@ -5799,7 +5822,8 @@ extension ChromeRenderTests {
                 element.responds(to: NSSelectorFromString(key)) ? element.value(forKey: key) : nil
             }
             let identifier = read("accessibilityIdentifier") as? String ?? ""
-            let text = read("accessibilityLabel") as? String ?? read("accessibilityValue") as? String ?? ""
+            let label = read("accessibilityLabel") as? String ?? ""
+            let text = label.isEmpty ? read("accessibilityValue") as? String ?? "" : label
             found.append((identifier, text))
             pending.append(contentsOf: read("accessibilityChildren") as? [Any] ?? [])
         }
