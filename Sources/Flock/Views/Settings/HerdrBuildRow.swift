@@ -98,7 +98,7 @@ struct HerdrBuildRow: View {
                 Button(title) {
                     // Nothing on disk to replace, so nothing to confirm.
                     if case .missing = state {
-                        store.installMissing()
+                        store.installMissing(source: .settings)
                     } else {
                         store.requestInstall(source: .settings)
                     }

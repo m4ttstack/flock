@@ -68,6 +68,9 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(HerdrBuildCopy.missingHint, "flock can install the mattstack build of herdr for you.")
         XCTAssertEqual(HerdrBuildCopy.missingInstallTitle, "Install herdr")
         XCTAssertEqual(HerdrBuildCopy.missingInstallingTitle, "Installing herdr\u{2026}")
+        XCTAssertEqual(HerdrBuildCopy.missingInstalledHeadline, "herdr is installed")
+        XCTAssertEqual(HerdrBuildCopy.missingInstalledBody, "flock is ready to open your session.")
+        XCTAssertEqual(HerdrBuildCopy.missingContinueTitle, "Continue")
         XCTAssertEqual(HerdrBuildCopy.downloadFailed, "Couldn't download herdr. Check your connection and try again.")
         XCTAssertEqual(HerdrBuildCopy.checksumMismatch, "The download didn't match the build list. Nothing was changed.")
         XCTAssertEqual(HerdrBuildCopy.listUnreadable, "flock couldn't read the herdr build list. Check your connection and try again.")
@@ -98,6 +101,7 @@ final class HerdrBuildCopyTests: XCTestCase {
             c.heading, c.rowTitle, c.restartActionTitle, c.serverRestartActionTitle, c.serverRestartProgressTitle,
             c.serverRestartConfirmation.title, c.serverRestartConfirmation.message, c.serverRestartFailedBanner,
             c.serverRestartFailure("x"), c.missingHint, c.missingInstallTitle, c.missingInstallingTitle,
+            c.missingInstalledHeadline, c.missingInstalledBody, c.missingContinueTitle,
             c.downloadFailed, c.checksumMismatch, c.listUnreadable, c.herdrChanged, c.notWritable, c.renameFailed,
             c.integrationFailed, c.pillHelp, c.pillTitle(newest: "n"),
             c.installConfirmation(installPath: p, newest: "n").message, c.updateConfirmation(installPath: p, newest: "n").message,

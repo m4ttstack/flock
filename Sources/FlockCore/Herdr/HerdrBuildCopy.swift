@@ -113,6 +113,10 @@ public enum HerdrBuildCopy {
     public static let missingInstallTitle = "Install herdr"
     public static let missingInstallingTitle = "Installing herdr\u{2026}"
 
+    public static let missingInstalledHeadline = "herdr is installed"
+    public static let missingInstalledBody = "flock is ready to open your session."
+    public static let missingContinueTitle = "Continue"
+
     public static let downloadFailed = "Couldn't download herdr. Check your connection and try again."
     public static let checksumMismatch = "The download didn't match the build list. Nothing was changed."
     public static let listUnreadable = "flock couldn't read the herdr build list. Check your connection and try again."

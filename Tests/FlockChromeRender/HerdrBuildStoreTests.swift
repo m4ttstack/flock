@@ -55,6 +55,19 @@ final class HerdrBuildStoreTests: XCTestCase {
         }
     }
 
+    /// Holds the command open until the test finishes it.
+    private final class GatedRunner: HerdrCommandRunner, @unchecked Sendable {
+        private let lock = NSLock()
+        private var waiting: CheckedContinuation<(status: Int32, output: String), Never>?
+        var isWaiting: Bool { lock.withLock { waiting != nil } }
+        func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+            await withCheckedContinuation { continuation in lock.withLock { waiting = continuation } }
+        }
+        func finish(status: Int32) {
+            lock.withLock { waiting }?.resume(returning: (status, ""))
+        }
+    }
+
     private final class ServerStub: @unchecked Sendable {
         private let lock = NSLock()
         private var answer: HerdrServerBinary
@@ -189,7 +202,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         lists: ListSource? = nil,
         fetchList: (@Sendable () async -> HerdrBuildList?)? = nil,
         transport: HerdrDownloadTransport? = nil,
-        runner: StubRunner = StubRunner(),
+        runner: HerdrCommandRunner = StubRunner(),
         server: ServerStub = ServerStub(.unknown),
         socket: String? = nil,
         clock: Clock = Clock(),
@@ -248,7 +261,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         await settle(store)
         XCTAssertEqual(store.state, .missing(installPath: installPath))
 
-        store.installMissing()
+        store.installMissing(source: .missingScreen)
         XCTAssertNil(store.pendingConfirmation)
         await settle(store)
 
@@ -269,12 +282,105 @@ final class HerdrBuildStoreTests: XCTestCase {
         })
         await settle(store)
 
-        store.installMissing()
+        store.installMissing(source: .missingScreen)
         await settle(store)
 
         XCTAssertEqual(binaryBytes(), ms2)
         XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.integrationFailed)
         XCTAssertEqual(installs.count, 1)
+    }
+
+    private func showsMissingScreen(_ tools: HerdrToolStore, _ store: HerdrBuildStore) -> Bool {
+        HerdrAvailability.shouldShowMissingScreen(
+            herdrBinaryFound: tools.isFound, installOnScreen: store.missingInstall != nil
+        )
+    }
+
+    func testAnIntegrationFailureStaysOnTheMissingScreenUntilContinue() async throws {
+        let tools = await toolStore()
+        let store = try makeStore(
+            binary: nil, runner: StubRunner(status: 1, output: "boom"), onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
+        await settle(store)
+
+        store.installMissing(source: .missingScreen)
+        await settle(store)
+        await tools.probeTask.value
+
+        XCTAssertTrue(tools.isFound)
+        XCTAssertEqual(store.missingInstall, .failed(HerdrBuildCopy.integrationFailed))
+        XCTAssertTrue(showsMissingScreen(tools, store))
+
+        store.dismissMissingInstall()
+        XCTAssertNil(store.missingInstall)
+        XCTAssertFalse(showsMissingScreen(tools, store))
+        XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.integrationFailed, "Settings still says what to run")
+    }
+
+    func testAMissingInstallHoldsTheScreenWhileItsIntegrationRuns() async throws {
+        let tools = await toolStore()
+        let gate = GatedRunner()
+        let store = try makeStore(binary: nil, runner: gate, onBinaryPathChanged: { tools.recheckIfMissing() })
+        await settle(store)
+
+        store.installMissing(source: .missingScreen)
+        await waitUntil { gate.isWaiting }
+        store.refresh()
+        await tools.probeTask.value
+
+        XCTAssertTrue(tools.isFound, "herdr is on disk before its integration is")
+        XCTAssertEqual(store.missingInstall, .running)
+        XCTAssertTrue(showsMissingScreen(tools, store))
+
+        gate.finish(status: 0)
+        await settle(store)
+        XCTAssertNil(store.missingInstall)
+        XCTAssertFalse(showsMissingScreen(tools, store))
+    }
+
+    func testAnInstallFromSettingsNeverRaisesTheMissingScreen() async throws {
+        let tools = await toolStore()
+        let store = try makeStore(
+            binary: nil, runner: StubRunner(status: 1, output: "boom"), onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
+        await settle(store)
+
+        store.installMissing(source: .settings)
+        XCTAssertNil(store.missingInstall)
+        await settle(store)
+        await tools.probeTask.value
+
+        XCTAssertNil(store.missingInstall)
+        XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.integrationFailed)
+        XCTAssertFalse(showsMissingScreen(tools, store))
+    }
+
+    func testAFailureThatLeavesNoHerdrHoldsNothing() async throws {
+        let store = try makeStore(binary: nil, transport: FileTransport(body: Data("<html>".utf8)))
+        await settle(store)
+
+        store.installMissing(source: .missingScreen)
+        XCTAssertEqual(store.missingInstall, .running)
+        await settle(store)
+
+        XCTAssertNil(store.missingInstall, "a herdr installed by hand next must lift the screen")
+        XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+        XCTAssertEqual(store.state, .missing(installPath: installPath))
+    }
+
+    func testContinueWaitsForARunningInstall() async throws {
+        let gate = GatedRunner()
+        let store = try makeStore(binary: nil, runner: gate)
+        await settle(store)
+        store.installMissing(source: .missingScreen)
+        await waitUntil { gate.isWaiting }
+
+        store.dismissMissingInstall()
+        XCTAssertEqual(store.missingInstall, .running)
+
+        gate.finish(status: 1)
+        await settle(store)
+        XCTAssertEqual(store.missingInstall, .failed(HerdrBuildCopy.integrationFailed))
     }
 
     private func toolStore() async -> HerdrToolStore {
@@ -284,7 +390,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         return tools
     }
 
-    func testHerdrInstalledElsewhereDuringTheMissingInstallLiftsTheMissingScreen() async throws {
+    func testHerdrInstalledElsewhereDuringTheMissingInstallSaysSoThenLifts() async throws {
         let tools = await toolStore()
         XCTAssertFalse(tools.isFound)
         let path = installPath!
@@ -298,13 +404,18 @@ final class HerdrBuildStoreTests: XCTestCase {
         let store = try makeStore(binary: nil, transport: transport, onBinaryPathChanged: { tools.recheckIfMissing() })
         await settle(store)
 
-        store.installMissing()
+        store.installMissing(source: .missingScreen)
         await settle(store)
         await tools.probeTask.value
 
         XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.herdrChanged)
         XCTAssertEqual(store.state, .current(version: "0.9.5-ms.2"))
         XCTAssertTrue(tools.isFound)
+        XCTAssertEqual(store.missingInstall, .failed(HerdrBuildCopy.herdrChanged))
+        XCTAssertTrue(showsMissingScreen(tools, store))
+
+        store.dismissMissingInstall()
+        XCTAssertFalse(showsMissingScreen(tools, store))
     }
 
     func testHerdrInstalledByHandIsFoundOnTheNextRefresh() async throws {
@@ -325,7 +436,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         let store = try makeStore(binary: nil)
         await settle(store)
 
-        store.installMissing()
+        store.installMissing(source: .missingScreen)
         await settle(store)
 
         XCTAssertEqual(binaryBytes(), ms2)
@@ -428,7 +539,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         let failing = try makeStore(binary: nil, lists: neverRead)
         await settle(failing)
         XCTAssertEqual(failing.state, .missing(installPath: installPath))
-        failing.installMissing()
+        failing.installMissing(source: .missingScreen)
         await settle(failing)
         XCTAssertEqual(failing.lastErrorMessage, HerdrBuildCopy.listUnreadable)
         XCTAssertEqual(neverRead.count, 2)
@@ -438,7 +549,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         let readOnRetry = ListSource([nil, standardList()])
         let retrying = try makeStore(binary: nil, lists: readOnRetry)
         await settle(retrying)
-        retrying.installMissing()
+        retrying.installMissing(source: .missingScreen)
         await settle(retrying)
         XCTAssertNil(retrying.lastErrorMessage)
         XCTAssertEqual(binaryBytes(), ms2)
@@ -749,7 +860,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         try FileManager.default.removeItem(atPath: installPath)
         store.refresh()
         XCTAssertEqual(store.state, .missing(installPath: installPath))
-        store.installMissing()
+        store.installMissing(source: .missingScreen)
         XCTAssertNotEqual(store.phase, .idle)
         try writeBinary(stock)
         store.refresh()

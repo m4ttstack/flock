@@ -29,6 +29,10 @@ struct NoHerdrScreen: View {
         hint: "Start it here, or run herdr in a terminal."
     )
 
+    static let missingInstalled = Copy(
+        headline: HerdrBuildCopy.missingInstalledHeadline, body: HerdrBuildCopy.missingInstalledBody, hint: ""
+    )
+
     static func notRunning(for address: HerdrServerAddress, isOverride: Bool) -> Copy {
         switch address {
         case .defaultServer:
@@ -123,28 +127,41 @@ struct NoHerdrScreen: View {
 
 /// The screen for no herdr on this Mac. Its button installs the newest
 /// mattstack build at once: pressing it is the consent, since nothing on
-/// disk is replaced.
+/// disk is replaced. An install that put herdr on disk and still failed says
+/// so here until Continue.
 struct MissingHerdrScreen: View {
     let theme: Theme
     let store: HerdrBuildStore
 
     var body: some View {
-        NoHerdrScreen(theme: theme, primaryAction: action, errorMessage: errorMessage)
+        NoHerdrScreen(theme: theme, copy: copy, primaryAction: action, errorMessage: errorMessage)
     }
 
-    private var action: NoHerdrScreen.PrimaryAction {
+    private var installedWithError: String? {
+        guard case .failed(let message) = store.missingInstall else { return nil }
+        return message
+    }
+
+    var copy: NoHerdrScreen.Copy {
+        installedWithError == nil ? NoHerdrScreen.missing : NoHerdrScreen.missingInstalled
+    }
+
+    var action: NoHerdrScreen.PrimaryAction {
+        if installedWithError != nil {
+            return .init(title: HerdrBuildCopy.missingContinueTitle, perform: store.dismissMissingInstall)
+        }
         let busy = store.phase != .idle
         var installable = false
         if case .missing = store.state { installable = true }
         return .init(
             title: busy ? HerdrBuildCopy.missingInstallingTitle : HerdrBuildCopy.missingInstallTitle,
             isDisabled: busy || !installable,
-            perform: store.installMissing
+            perform: { store.installMissing(source: .missingScreen) }
         )
     }
 
-    private var errorMessage: String? {
-        if let message = store.lastErrorMessage { return message }
+    var errorMessage: String? {
+        if let message = installedWithError ?? store.lastErrorMessage { return message }
         guard let state = store.state, case .notWritable = state else { return nil }
         return HerdrBuildCopy.body(for: state)
     }

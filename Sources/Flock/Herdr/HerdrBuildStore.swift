@@ -18,6 +18,10 @@ final class HerdrBuildStore {
     /// An install begun from the banner that failed. The banner stays up to
     /// say so even when the failure took away the state that offered it.
     private(set) var bannerErrorMessage: String?
+    /// Non-nil keeps the missing-herdr screen up over a herdr already on disk.
+    /// Never set by an install from Settings, which may run over a live
+    /// session whose herdr was removed.
+    private(set) var missingInstall: MissingInstall?
     private(set) var restartReason: HerdrBuildCopy.RestartReason?
     /// The herdr found by the last refresh; nil when none is on disk.
     private(set) var binaryPath: String?
@@ -29,6 +33,9 @@ final class HerdrBuildStore {
     private(set) var serverBehindDismissedFor: String?
     /// The newest build the install banner was waved away for.
     private(set) var offerDismissedFor: String?
+
+    enum MissingInstall: Equatable { case running, failed(String) }
+    enum MissingInstallSource: Equatable { case missingScreen, settings }
 
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
@@ -314,12 +321,25 @@ final class HerdrBuildStore {
         pendingConfirmation = PendingConfirmation(action: .install(offer), confirmation: confirmation, source: source)
     }
 
-    /// The missing-herdr screen's button is the consent, so this asks
-    /// nothing more.
-    func installMissing() {
+    /// The button that asks is the consent, with nothing on disk to replace,
+    /// so this asks nothing more.
+    func installMissing(source: MissingInstallSource) {
         guard phase == .idle, case .missing = state, let lastProbe else { return }
         lastErrorMessage = nil
+        missingInstall = source == .missingScreen ? .running : nil
         performInstall(build: list?.newest, decidedFrom: lastProbe, startedFromBanner: false)
+    }
+
+    func dismissMissingInstall() {
+        guard case .failed = missingInstall else { return }
+        missingInstall = nil
+    }
+
+    /// With no herdr on disk the screen stays up by itself, and a herdr
+    /// installed by hand must still lift it.
+    private func settleMissingInstall(failure: String?) {
+        guard missingInstall == .running else { return }
+        missingInstall = binaryPath == nil ? nil : failure.map(MissingInstall.failed)
     }
 
     func requestServerRestart(source: PendingConfirmation.Source) {
@@ -345,6 +365,7 @@ final class HerdrBuildStore {
             guard installOffer == offer, let build = list?.newest, build.version.display == offer.newest else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
+            missingInstall = nil
             performInstall(build: build, decidedFrom: offer.probe, startedFromBanner: pending.source == .banner)
         case .restartServer:
             lastErrorMessage = nil
@@ -388,7 +409,12 @@ final class HerdrBuildStore {
         let throttle = HerdrDownloadProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager, listTask] in
-            defer { phase = .idle; reprobe() }
+            var failure: String?
+            defer {
+                phase = .idle
+                reprobe()
+                settleMissingInstall(failure: failure)
+            }
             do {
                 var newest = confirmed
                 if newest == nil {
@@ -414,15 +440,15 @@ final class HerdrBuildStore {
                 try? fileManager.removeItem(atPath: artifact)
                 if !decidedFrom.exists {
                     let result = await runner.run(installPath, Self.integrationArguments)
-                    if result.status != 0 { lastErrorMessage = HerdrBuildCopy.integrationFailed }
+                    if result.status != 0 { failure = HerdrBuildCopy.integrationFailed }
                 }
                 serverRestartError = nil
                 restartReason = restart
             } catch {
-                let message = Self.message(for: error)
-                lastErrorMessage = message
-                if startedFromBanner { bannerErrorMessage = message }
+                failure = Self.message(for: error)
+                if startedFromBanner { bannerErrorMessage = failure }
             }
+            lastErrorMessage = failure
         }
     }
 
