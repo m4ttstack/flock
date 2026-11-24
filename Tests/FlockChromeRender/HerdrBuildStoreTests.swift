@@ -188,7 +188,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         clock: Clock = Clock(),
         versionReads: Counter? = nil,
         relaunch: (() -> Void)? = nil,
-        onInstalled: @escaping () -> Void = {}
+        onBinaryPathChanged: @escaping () -> Void = {}
     ) throws -> HerdrBuildStore {
         if let binary { try writeBinary(binary) }
         let lists = lists ?? ListSource([standardList()])
@@ -211,7 +211,7 @@ final class HerdrBuildStoreTests: XCTestCase {
             probeServer: { server.probe(socket: $0, binary: $1) },
             runner: runner,
             relaunch: relaunch ?? { XCTFail("relaunched") },
-            onInstalled: onInstalled
+            onBinaryPathChanged: onBinaryPathChanged
         )
     }
 
@@ -237,7 +237,7 @@ final class HerdrBuildStoreTests: XCTestCase {
     func testMissingHerdrInstallsWithoutConfirmationAndRunsIntegration() async throws {
         let runner = StubRunner()
         let installs = Counter()
-        let store = try makeStore(binary: nil, runner: runner, onInstalled: { installs.count += 1 })
+        let store = try makeStore(binary: nil, runner: runner, onBinaryPathChanged: { installs.count += 1 })
         await settle(store)
         XCTAssertEqual(store.state, .missing(installPath: installPath))
 
@@ -257,7 +257,7 @@ final class HerdrBuildStoreTests: XCTestCase {
 
     func testIntegrationFailureKeepsInstallAndSaysWhatToRun() async throws {
         let installs = Counter()
-        let store = try makeStore(binary: nil, runner: StubRunner(status: 1, output: "boom"), onInstalled: {
+        let store = try makeStore(binary: nil, runner: StubRunner(status: 1, output: "boom"), onBinaryPathChanged: {
             installs.count += 1
         })
         await settle(store)
@@ -268,6 +268,65 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertEqual(binaryBytes(), ms2)
         XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.integrationFailed)
         XCTAssertEqual(installs.count, 1)
+    }
+
+    private func toolStore() async -> HerdrToolStore {
+        let path = installPath!
+        let tools = HerdrToolStore(probe: { FileManager.default.fileExists(atPath: path) })
+        await tools.probeTask.value
+        return tools
+    }
+
+    func testHerdrInstalledElsewhereDuringTheMissingInstallLiftsTheMissingScreen() async throws {
+        let tools = await toolStore()
+        XCTAssertFalse(tools.isFound)
+        let path = installPath!
+        let fork = ms2
+        let transport = FileTransport(body: ms2) {
+            try FileManager.default.createDirectory(
+                atPath: URL(fileURLWithPath: path).deletingLastPathComponent().path, withIntermediateDirectories: true
+            )
+            try fork.write(to: URL(fileURLWithPath: path))
+        }
+        let store = try makeStore(binary: nil, transport: transport, onBinaryPathChanged: { tools.recheckIfMissing() })
+        await settle(store)
+
+        store.installMissing()
+        await settle(store)
+        await tools.probeTask.value
+
+        XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.herdrChanged)
+        XCTAssertEqual(store.state, .current(version: "0.9.5-ms.2"))
+        XCTAssertTrue(tools.isFound)
+    }
+
+    func testHerdrInstalledByHandIsFoundOnTheNextRefresh() async throws {
+        let tools = await toolStore()
+        let store = try makeStore(binary: nil, onBinaryPathChanged: { tools.recheckIfMissing() })
+        await settle(store)
+
+        try writeBinary(stock)
+        store.refresh()
+        await settle(store)
+        await tools.probeTask.value
+
+        XCTAssertEqual(store.binaryPath, installPath)
+        XCTAssertTrue(tools.isFound)
+    }
+
+    func testHerdrRemovedMidSessionKeepsTheSessionUp() async throws {
+        try writeBinary(stock)
+        let tools = await toolStore()
+        let store = try makeStore(binary: stock, onBinaryPathChanged: { tools.recheckIfMissing() })
+        await settle(store)
+
+        try FileManager.default.removeItem(atPath: installPath)
+        store.refresh()
+        await settle(store)
+        await tools.probeTask.value
+
+        XCTAssertNil(store.binaryPath)
+        XCTAssertTrue(tools.isFound)
     }
 
     func testStockInstallAsksFirst() async throws {

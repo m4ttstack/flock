@@ -63,7 +63,9 @@ final class HerdrBuildStore {
     @ObservationIgnored private let probeServer: @Sendable (String, String) -> HerdrServerBinary
     @ObservationIgnored private let runner: HerdrCommandRunner
     @ObservationIgnored private let relaunch: () -> Void
-    @ObservationIgnored private let onInstalled: () -> Void
+    /// herdr can appear by any route, rt setup or a hand install included,
+    /// not only through this store.
+    @ObservationIgnored private let onBinaryPathChanged: () -> Void
     @ObservationIgnored private var lastProbed: BinaryFingerprint?
     @ObservationIgnored private var lastProbe: HerdrBuildInstaller.Probe?
     /// When a fetch last brought back a list. A failed fetch leaves it, so
@@ -109,7 +111,7 @@ final class HerdrBuildStore {
         probeServer: @escaping @Sendable (String, String) -> HerdrServerBinary = HerdrServerBinary.probe(socketPath:binaryPath:),
         runner: HerdrCommandRunner = ProcessHerdrCommandRunner(),
         relaunch: @escaping () -> Void = { AppRelaunch.relaunch() },
-        onInstalled: @escaping () -> Void = {}
+        onBinaryPathChanged: @escaping () -> Void = {}
     ) {
         self.resolveBinaryPath = resolveBinaryPath
         self.defaultInstallPath = defaultInstallPath
@@ -124,7 +126,7 @@ final class HerdrBuildStore {
         self.probeServer = probeServer
         self.runner = runner
         self.relaunch = relaunch
-        self.onInstalled = onInstalled
+        self.onBinaryPathChanged = onBinaryPathChanged
         serverBehindDismissedFor = defaults.string(forKey: Self.serverBehindDismissedKey)
         offerDismissedFor = defaults.string(forKey: Self.offerDismissedKey)
         refresh()
@@ -217,7 +219,10 @@ final class HerdrBuildStore {
             lastProbed = fingerprint
         }
         let found = lastProbe?.exists == true ? target : nil
-        if binaryPath != found { binaryPath = found }
+        if binaryPath != found {
+            binaryPath = found
+            onBinaryPathChanged()
+        }
         if binaryVersion != lastProbe?.version { binaryVersion = lastProbe?.version }
         decide()
         // The server can be restarted while the binary stays put.
@@ -390,7 +395,6 @@ final class HerdrBuildStore {
                     let result = await runner.run(installPath, Self.integrationArguments)
                     if result.status != 0 { lastErrorMessage = HerdrBuildCopy.integrationFailed }
                 }
-                onInstalled()
                 serverRestartError = nil
                 restartReason = restart
             } catch {

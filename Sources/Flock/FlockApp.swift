@@ -197,7 +197,7 @@ struct FlockApp: App {
         _herdrToolStore = State(initialValue: herdrToolStore)
         _herdrBuildStore = State(initialValue: HerdrBuildStore(
             serverSocketPath: { controller.session.isRemoteMachine ? nil : controller.socketPath },
-            onInstalled: { herdrToolStore.recheck() }
+            onBinaryPathChanged: { herdrToolStore.recheckIfMissing() }
         ))
         _serverPicker = State(initialValue: ServerPicker(
             list: HerdrSessionLister.list,
@@ -546,6 +546,7 @@ struct FlockApp: App {
                     Task { await boardStore.refresh() }
                     Task { await cswapStore.refresh() }
                     herdrBuildStore.refresh()
+                    herdrToolStore.recheckIfMissing()
                     devBuildWatcher?.check()
                 }
                 // herdr replaced by hand changes the binary under a row that
