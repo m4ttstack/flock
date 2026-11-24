@@ -17,9 +17,19 @@ final class HerdrToolStore {
     /// no production call site touches it.
     @ObservationIgnored private(set) var probeTask: Task<Void, Never> = Task {}
 
+    @ObservationIgnored private let probe: () async -> Bool
+
     init(probe: @escaping () async -> Bool = HerdrToolLocator.probeBinaryFound) {
-        probeTask = Task { [weak self] in
+        self.probe = probe
+        recheck()
+    }
+
+    /// For when flock itself just put herdr on disk.
+    func recheck() {
+        probeTask.cancel()
+        probeTask = Task { [weak self, probe] in
             let found = await probe()
+            guard !Task.isCancelled else { return }
             self?.isFound = found
         }
     }
