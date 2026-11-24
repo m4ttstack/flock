@@ -136,7 +136,7 @@ struct GhosttyPaneTerminalView: View {
             if let session, PastedImageOptions.isAvailable {
                 PastedImagesOverlay(
                     theme: theme, model: session.pastedImages, linkChip: session.linkChip, space: Self.space,
-                    fontSizePoints: fontSizePoints)
+                    fontSizePoints: fontSizePoints, shade: shade)
             }
         }
         .overlay(alignment: .topLeading) {

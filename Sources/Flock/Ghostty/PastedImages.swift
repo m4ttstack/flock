@@ -43,6 +43,14 @@ struct PastedImage {
 @MainActor
 @Observable
 final class PastedImagesModel {
+    /// What the terminal painted behind a label, as libghostty's frames
+    /// carry it (Display P3).
+    struct Ground: Equatable {
+        let red: UInt8
+        let green: UInt8
+        let blue: UInt8
+    }
+
     struct Label: Equatable {
         let number: Int
         /// In the pane's top-left space, points.
@@ -50,11 +58,14 @@ final class PastedImagesModel {
         let inPrompt: Bool
         /// Claude Code's own line repeating a sent message's attachment.
         let isAttachmentLine: Bool
+        let ground: Ground?
     }
 
     struct Screen {
         let rows: [String]
         let cell: CGSize
+        /// The frame's color at a point, in the pane's top-left space.
+        let ground: (CGPoint) -> Ground?
     }
 
     private(set) var labels: [Label] = []
@@ -145,14 +156,17 @@ final class PastedImagesModel {
             for match in line.matches(of: /\[Image #(\d+)\]/) {
                 guard let number = Int(match.output.1) else { continue }
                 let column = line[..<match.range.lowerBound].reduce(0) { $0 + PaneLink.cellWidth(of: $1) }
+                let rect = CGRect(
+                    x: CGFloat(column) * screen.cell.width, y: CGFloat(row) * screen.cell.height,
+                    width: CGFloat(match.output.0.count) * screen.cell.width, height: screen.cell.height
+                )
                 found.append(Label(
                     number: number,
-                    rect: CGRect(
-                        x: CGFloat(column) * screen.cell.width, y: CGFloat(row) * screen.cell.height,
-                        width: CGFloat(match.output.0.count) * screen.cell.width, height: screen.cell.height
-                    ),
+                    rect: rect,
                     inPrompt: prompt?.contains(row) ?? false,
-                    isAttachmentLine: line.drop { $0 == " " }.hasPrefix("\u{23BF}")
+                    isAttachmentLine: line.drop { $0 == " " }.hasPrefix("\u{23BF}"),
+                    // The corner of the `[` cell, which no glyph reaches.
+                    ground: screen.ground(CGPoint(x: rect.minX + 0.75, y: rect.minY + 0.75))
                 ))
             }
         }

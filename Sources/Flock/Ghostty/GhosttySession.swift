@@ -4,6 +4,7 @@ import Carbon
 import GhosttyKit
 import os
 import FlockCore
+import IOSurface
 
 /// One libghostty surface, and everything that has to be told about it: size,
 /// scale, focus, occlusion, keys, mouse, clipboard and color scheme.
@@ -692,7 +693,26 @@ final class GhosttySession {
             return text.text_len > 0 ? String(cString: text.text) : ""
         }
         return PastedImagesModel.Screen(
-            rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale))
+            rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),
+            ground: { [weak self] in self?.frameColor(at: $0) })
+    }
+
+    /// Read off the frame on screen: libghostty has no call for a cell's
+    /// background.
+    private func frameColor(at point: CGPoint) -> PastedImagesModel.Ground? {
+        guard let contents = view?.layer?.contents as CFTypeRef?, CFGetTypeID(contents) == IOSurfaceGetTypeID()
+        else { return nil }
+        let frame = unsafeDowncast(contents, to: IOSurfaceRef.self)
+        guard IOSurfaceGetPixelFormat(frame) == 0x4247_5241 else { return nil }
+        let x = Int(point.x * scale), y = Int(point.y * scale)
+        guard x >= 0, y >= 0, x < IOSurfaceGetWidth(frame), y < IOSurfaceGetHeight(frame),
+              IOSurfaceLock(frame, .readOnly, nil) == kIOReturnSuccess
+        else { return nil }
+        defer { IOSurfaceUnlock(frame, .readOnly, nil) }
+        let pixel = IOSurfaceGetBaseAddress(frame)
+            .advanced(by: y * IOSurfaceGetBytesPerRow(frame) + x * 4)
+            .assumingMemoryBound(to: UInt8.self)
+        return PastedImagesModel.Ground(red: pixel[2], green: pixel[1], blue: pixel[0])
     }
 
     /// The cell the pointer is over, counted from the surface's top left.

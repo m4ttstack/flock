@@ -10,6 +10,7 @@ struct PastedImagesOverlay: View {
     let linkChip: LinkChipModel
     let space: String
     let fontSizePoints: Double
+    let shade: SurfaceShade
 
     @AppStorage(PastedImageOptions.trayKey) private var showsTray = true
     @AppStorage(PastedImageOptions.chipKey) private var showsChips = true
@@ -26,6 +27,9 @@ struct PastedImagesOverlay: View {
                                 theme: theme, label: label, image: image, fontSizePoints: fontSizePoints,
                                 isLit: model.highlighted == label.number
                             )
+                            // The surface's own dimming is under this view.
+                            .saturation(1 - shade.drain)
+                            .overlay(theme.terminalGround.opacity(shade.veil))
                             .offset(x: label.rect.minX, y: label.rect.minY)
                         }
                     }
@@ -103,7 +107,6 @@ private struct PastedImageChip: View {
     let isLit: Bool
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: ChromeRadius.tiny)
         let cell = label.rect.width / CGFloat("[Image #\(label.number)]".count)
         HStack(spacing: 0) {
             Image(nsImage: image.thumbnail)
@@ -121,10 +124,21 @@ private struct PastedImageChip: View {
         }
         .frame(width: label.rect.width, height: label.rect.height)
         .background {
-            // Opaque: the program's own label is under here.
-            shape.fill(theme.terminalGround)
-            shape.fill(theme.accent.opacity(isLit ? 0.36 : 0.2))
+            // The row's own color over the program's label, then the chip.
+            Rectangle().fill(ground)
+            RoundedRectangle(cornerRadius: 4)
+                .fill(theme.accent.opacity(isLit ? 0.4 : 0.24))
+                .padding(.vertical, 1)
         }
+    }
+}
+
+private extension PastedImageChip {
+    var ground: Color {
+        guard let ground = label.ground else { return theme.terminalGround }
+        return Color(
+            .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
+            blue: Double(ground.blue) / 255)
     }
 }
 
