@@ -669,8 +669,18 @@ final class GhosttySession {
     /// SPIKE: call before the paste goes out.
     func notePastedImages(from pasteboard: NSPasteboard = .general) {
         guard PastedImageOptions.isAvailable else { return }
-        pastedImages.readScreen = { [weak self] in self?.screenRows() }
+        readScreenForImages()
         pastedImages.willPaste(pasteboard.pasteImagePaths())
+    }
+
+    func bindPastedImages(to conversation: String?) {
+        guard PastedImageOptions.isAvailable else { return }
+        readScreenForImages()
+        pastedImages.bind(conversation: conversation)
+    }
+
+    private func readScreenForImages() {
+        pastedImages.readScreen = { [weak self] in self?.screenRows() }
     }
 
     /// Row by row: read as one selection, soft-wrapped rows come back joined.

@@ -52,6 +52,8 @@ struct GhosttyPaneTerminalView: View {
     /// The pane's current folder, which a relative path printed in it is
     /// relative to. Read at the click, never at render.
     let linkFolder: () -> String?
+    /// The agent's conversation, which its pasted images are kept under.
+    let conversation: String?
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -71,6 +73,7 @@ struct GhosttyPaneTerminalView: View {
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         linkFolder: @escaping () -> String? = { nil },
+        conversation: String? = nil,
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -88,6 +91,7 @@ struct GhosttyPaneTerminalView: View {
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
         self.linkFolder = linkFolder
+        self.conversation = conversation
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -154,6 +158,9 @@ struct GhosttyPaneTerminalView: View {
             )
         }
         .coordinateSpace(name: Self.space)
+        .onAppear { session?.bindPastedImages(to: conversation) }
+        .onChange(of: conversation) { _, next in session?.bindPastedImages(to: next) }
+        .onChange(of: ObjectIdentifier(surface)) { session?.bindPastedImages(to: conversation) }
     }
 
     /// Measured before it is placed: where the chip goes depends on its own

@@ -7,24 +7,11 @@ enum PastedImageOptions {
     static let trayKey = "spike.pastedImage.tray"
     static let hoverKey = "spike.pastedImage.hover"
     static let chipKey = "spike.pastedImage.chip"
-    static let layoutKey = "spike.pastedImage.layout"
 
     static var isAvailable: Bool { BuildFlavor.isDev }
 
     static func isOn(_ key: String) -> Bool {
         isAvailable && (UserDefaults.standard.object(forKey: key) as? Bool ?? true)
-    }
-}
-
-enum PastedImageLayout: String, CaseIterable {
-    case footer, gutters, stage
-
-    var title: String {
-        switch self {
-        case .footer: "A: Footer Pager"
-        case .gutters: "B: Side Gutters"
-        case .stage: "C: Stage"
-        }
     }
 }
 
@@ -93,6 +80,9 @@ final class PastedImagesModel {
 
     @ObservationIgnored var trayFrame: CGRect?
     @ObservationIgnored var readScreen: (() -> Screen?)?
+    /// Kept from an earlier launch, and loaded once its label is on screen.
+    @ObservationIgnored private var kept: [Int: String] = [:]
+    @ObservationIgnored private var conversation: String?
     @ObservationIgnored private var pending: [PastedImage] = []
     @ObservationIgnored private var pendingDeadline = Date.distantPast
     @ObservationIgnored private var seen: [Int: Int] = [:]
@@ -100,6 +90,24 @@ final class PastedImagesModel {
 
     private static let pendingWindow: TimeInterval = 15
     private static let pollInterval: Duration = .milliseconds(150)
+
+    /// `conversation` is the agent's own session id, nil while herdr reports
+    /// none. Images pasted before it was known join the one that arrives.
+    func bind(conversation next: String?) {
+        guard PastedImageOptions.isAvailable, let next, next != conversation else { return }
+        if conversation != nil { images = [:] }
+        conversation = next
+        kept = PastedImageStore.shared.images(for: next)
+        for (number, image) in images { keep(image, as: number) }
+        startPoll()
+    }
+
+    private func keep(_ image: PastedImage, as number: Int) {
+        images[number] = image
+        guard let conversation else { return }
+        let path = PastedImageStore.shared.keep(image.path, as: number, in: conversation)
+        if path != image.path { images[number] = PastedImage(path: path, thumbnail: image.thumbnail) }
+    }
 
     /// Called before the paste is sent, so `seen` is the screen without its label.
     func willPaste(_ paths: [String]) {
@@ -147,14 +155,18 @@ final class PastedImagesModel {
             let now = Self.counts(found)
             for number in now.keys.sorted() where now[number, default: 0] > seen[number, default: 0] {
                 guard !pending.isEmpty else { break }
-                images[number] = pending.removeFirst()
+                keep(pending.removeFirst(), as: number)
             }
             seen = now
             if Date() > pendingDeadline { pending = [] }
         }
+        for number in Set(found.map(\.number)) where images[number] == nil {
+            guard let path = kept.removeValue(forKey: number), let image = PastedImage.load(path) else { continue }
+            images[number] = image
+        }
         if found != labels { labels = found }
         if let highlighted, !found.contains(where: { $0.number == highlighted }) { highlight(nil) }
-        return !images.isEmpty || !pending.isEmpty
+        return !images.isEmpty || !pending.isEmpty || !kept.isEmpty
     }
 
     private func scan() -> [Label] {

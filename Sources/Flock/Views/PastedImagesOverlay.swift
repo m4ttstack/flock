@@ -161,7 +161,7 @@ private extension PastedImageChip {
 }
 
 /// The images in the prompt: a strip that grows leftward until
-/// `stripWidth`, then pages, or a stage over a row of small thumbnails.
+/// `stripWidth`, then pages.
 private struct PastedImageTray: View {
     let theme: Theme
     let model: PastedImagesModel
@@ -178,19 +178,9 @@ private struct PastedImageTray: View {
     private static let stripWidth: CGFloat = 640
     private static let footerGap: CGFloat = 10
     private static let footerHeight: CGFloat = 28
-    private static let gutterWidth: CGFloat = 28
-    private static let trackGap: CGFloat = 8
-    private static let trackHeight: CGFloat = 4
-    private static let stage = CGSize(width: 328, height: 184)
-    private static let miniHeight: CGFloat = 36
-    private static let miniWidth: CGFloat = 37.5
-    private static let miniGap: CGFloat = 4
-
-    @AppStorage(PastedImageOptions.layoutKey) private var layout = PastedImageLayout.footer
     @State private var position = ScrollPosition(edge: .trailing)
     @State private var offset: CGFloat = 0
     @State private var pointerInside = false
-    @State private var staged: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -210,35 +200,18 @@ private struct PastedImageTray: View {
             .onDisappear { model.trayFrame = nil }
             .onChange(of: numbers) { old, new in
                 guard new.count > old.count else { return }
-                staged = new.last
                 withAnimation(motion) { position.scrollTo(edge: .trailing) }
             }
             .onChange(of: model.highlighted) { _, number in
-                guard let number, numbers.contains(number) else { return }
-                if layout == .stage { staged = number }
-                if !pointerInside { reveal(number) }
+                guard let number, numbers.contains(number), !pointerInside else { return }
+                reveal(number)
             }
     }
 
-    @ViewBuilder
     private var content: some View {
-        switch layout {
-        case .footer:
-            VStack(spacing: Self.footerGap) {
-                strip
-                if overflow > 0 { footer }
-            }
-        case .gutters:
-            VStack(spacing: Self.trackGap) {
-                HStack(spacing: Self.gap) {
-                    if overflow > 0 { pager(forward: false, width: Self.gutterWidth, height: thumbHeight) }
-                    strip
-                    if overflow > 0 { pager(forward: true, width: Self.gutterWidth, height: thumbHeight) }
-                }
-                if overflow > 0 { track }
-            }
-        case .stage:
-            stageView
+        VStack(spacing: Self.footerGap) {
+            strip
+            if overflow > 0 { footer }
         }
     }
 
@@ -263,11 +236,11 @@ private struct PastedImageTray: View {
     }
 
     @ViewBuilder
-    private func thumb(_ number: Int, size: CGSize, badge: Bool = true) -> some View {
+    private func thumb(_ number: Int, size: CGSize) -> some View {
         if let image = model.images[number] {
             PastedImageThumb(
                 theme: theme, number: number, image: image, size: size,
-                isLit: model.highlighted == number, badge: badge, space: space,
+                isLit: model.highlighted == number, space: space,
                 onHover: { frame in hover(number, image, frame) },
                 onOpen: { model.open(number) }
             )
@@ -276,7 +249,7 @@ private struct PastedImageTray: View {
     }
 
     private var thumbHeight: CGFloat {
-        let extra = layout == .footer ? Self.footerGap + Self.footerHeight : Self.trackGap + Self.trackHeight
+        let extra = Self.footerGap + Self.footerHeight
         return max(32, min(Self.thumbHeight, available.height - Self.inset * 2 - Self.padding * 2 - extra))
     }
 
@@ -300,8 +273,7 @@ private struct PastedImageTray: View {
     private var contentWidth: CGFloat { spans.last?.range.upperBound ?? 0 }
 
     private var viewport: CGFloat {
-        let gutters = layout == .gutters ? (Self.gutterWidth + Self.gap) * 2 : 0
-        return max(60, min(contentWidth, Self.stripWidth, available.width - Self.inset * 2 - Self.padding * 2 - gutters))
+        max(60, min(contentWidth, Self.stripWidth, available.width - Self.inset * 2 - Self.padding * 2))
     }
 
     private var overflow: CGFloat { max(0, contentWidth - viewport) }
@@ -365,78 +337,11 @@ private struct PastedImageTray: View {
         .frame(width: viewport, height: Self.footerHeight)
     }
 
-    private var track: some View {
-        GeometryReader { bar in
-            let share = viewport / max(1, contentWidth)
-            let width = bar.size.width * share
-            let travel = bar.size.width - width
-            Capsule().fill(Color(colors.edge).opacity(Card.quietFillOpacity))
-            Capsule().fill(Color(colors.body))
-                .frame(width: width)
-                .offset(x: travel * min(1, max(0, offset / max(1, overflow))))
-        }
-        .frame(width: viewport + (Self.gutterWidth + Self.gap) * 2, height: Self.trackHeight)
-    }
-
     private func pager(forward: Bool, width: CGFloat, height: CGFloat) -> some View {
         PastedImagePager(
             theme: theme, forward: forward, size: CGSize(width: width, height: height),
             isEnabled: forward ? offset < overflow - 1 : offset > 1
         ) { page(forward: forward) }
-    }
-
-    // MARK: Stage
-
-    @ViewBuilder
-    private var stageView: some View {
-        let number = staged.flatMap { numbers.contains($0) ? $0 : nil } ?? numbers.last
-        let scale = min(1, (available.width - Self.inset * 2 - Self.padding * 2) / Self.stage.width,
-                        max(0.3, (available.height - Self.inset * 2 - Self.padding * 2 - Self.miniHeight - 8) / Self.stage.height))
-        let size = CGSize(width: Self.stage.width * scale, height: Self.stage.height * scale)
-        VStack(spacing: 8) {
-            if let number, let image = model.images[number] {
-                Button { model.open(number) } label: {
-                    Image(nsImage: image.thumbnail)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: size.width, height: size.height)
-                        .background(Color(colors.edge).opacity(Card.quietFillOpacity))
-                        .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.control))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: ChromeRadius.control)
-                                .strokeBorder(Color(colors.edge).opacity(colors.edgeOpacity), lineWidth: 1)
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusEffectDisabled()
-                .pointerStyle(.link)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Self.miniGap) {
-                    ForEach(numbers, id: \.self) { number in
-                        if let image = model.images[number] {
-                            PastedImageThumb(
-                                theme: theme, number: number, image: image,
-                                size: CGSize(width: Self.miniWidth, height: Self.miniHeight),
-                                isLit: number == (staged ?? numbers.last), badge: false, space: space,
-                                onHover: { frame in
-                                    if frame != nil {
-                                        staged = number
-                                        model.highlight(number)
-                                    } else if model.highlighted == number {
-                                        model.highlight(nil)
-                                    }
-                                },
-                                onOpen: { model.open(number) }
-                            )
-                        }
-                    }
-                }
-            }
-            .frame(width: size.width, height: Self.miniHeight)
-            .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.control))
-        }
     }
 
     private func hover(_ number: Int, _ image: PastedImage, _ frame: CGRect?) {
@@ -508,7 +413,6 @@ private struct PastedImageThumb: View {
     let size: CGSize
     /// The pointer is on this image, here or on its label in the terminal.
     let isLit: Bool
-    var badge = true
     let space: String
     /// The thumbnail's frame in `space`, nil once the pointer is off it.
     let onHover: (CGRect?) -> Void
@@ -526,7 +430,7 @@ private struct PastedImageThumb: View {
                 .clipped()
                 .contentShape(Rectangle())
         }
-        .buttonStyle(Style(theme: theme, number: number, isLit: isLit, badge: badge))
+        .buttonStyle(Style(theme: theme, number: number, isLit: isLit))
         .focusEffectDisabled()
         .pointerStyle(.link)
         .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isLit)
@@ -549,7 +453,6 @@ private struct PastedImageThumb: View {
         let theme: Theme
         let number: Int
         let isLit: Bool
-        let badge: Bool
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         func makeBody(configuration: Configuration) -> some View {
@@ -563,13 +466,13 @@ private struct PastedImageThumb: View {
                     shape.strokeBorder(isLit ? theme.accent : edge, lineWidth: isLit ? 2 : 1)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if badge { Text("\(number)")
+                    Text("\(number)")
                         .font(ChromeType.linkChip)
                         .foregroundStyle(isLit ? theme.chrome : Color(colors.title))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
                         .background(Capsule().fill(isLit ? theme.accent : Color(colors.ground)))
-                        .padding(5) }
+                        .padding(5)
                 }
                 .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
                 .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: configuration.isPressed)
@@ -583,18 +486,11 @@ struct PastedImageMenu: View {
     @AppStorage(PastedImageOptions.hoverKey) private var showsHover = true
     @AppStorage(PastedImageOptions.chipKey) private var showsChips = true
 
-    @AppStorage(PastedImageOptions.layoutKey) private var layout = PastedImageLayout.footer
-
     var body: some View {
         Menu("Pasted Images (spike)") {
             Toggle("Thumbnail Tray", isOn: $showsTray)
             Toggle("Hover Preview, Click to Open", isOn: $showsHover)
             Toggle("Label as Chip", isOn: $showsChips)
-            Divider()
-            Picker("Tray Layout", selection: $layout) {
-                ForEach(PastedImageLayout.allCases, id: \.self) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.inline)
         }
     }
 }
