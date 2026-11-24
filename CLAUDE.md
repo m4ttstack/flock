@@ -24,13 +24,8 @@ committed here, commit messages included, is public.
   (`Scripts/libghostty.sh`), `Vendor/Sparkle` (`Scripts/fetch-sparkle.sh`),
   and `Sources/Flock/Resources/herdr-chat*`
   (`Scripts/build-herdr-chat.sh`, from the mattstack checkout).
-- `patches/herdr/<version>.patch`: the mouse patch per herdr version.
-  `Scripts/build-herdr-patch.sh` and `Scripts/publish-herdr-patch.sh` build and
-  publish it as a `herdr-patch-X` pre-release, one run per architecture;
-  `HerdrMousePatchCatalog` pins each architecture's SHA-256. A changed patch
-  for the same herdr version ships as `--revision N` (`herdr-patch-X-rN`); a
-  revision stays unoffered until both its pins are filled, and installed
-  copies of an earlier revision are offered the update.
+- herdr comes from the `m4ttstack/herdr` fork's build list, read by
+  `HerdrBuildList`. Flock carries no herdr patches.
 - Releases are universal. `docs/packaging.md` lists what that needs (Metal
   toolchain, both Rust targets).
 - Chat runs herdr-chat from the app bundle in a release, and from the
