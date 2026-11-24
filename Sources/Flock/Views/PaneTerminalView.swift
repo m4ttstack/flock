@@ -182,6 +182,11 @@ struct GhosttyPaneTerminalView: View {
                     width: min(460, pane.size.width - 24),
                     height: min(320, max(chip.anchor.lineTop, pane.size.height - chip.anchor.lineBottom) - 56)
                 ),
+                onPreview: {
+                    guard let number = session.pastedImages.number(for: chip.link) else { return }
+                    session.linkChip.dismiss()
+                    session.pastedImages.quickLook(number)
+                },
                 onOpen: {
                     session.open(chip.link)
                     session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)

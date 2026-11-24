@@ -79,6 +79,11 @@ final class PastedImagesModel {
     var dropLabel: String?
 
     @ObservationIgnored var trayFrame: CGRect?
+    /// Each tray thumbnail's frame, in the pane's top-left space.
+    @ObservationIgnored var thumbFrames: [Int: CGRect] = [:]
+    /// The pane's window, and a rect of the pane's on screen.
+    @ObservationIgnored var window: (() -> NSWindow?)?
+    @ObservationIgnored var onScreen: ((CGRect) -> NSRect?)?
     @ObservationIgnored var readScreen: (() -> Screen?)?
     /// Kept from an earlier launch, and loaded once its label is on screen.
     @ObservationIgnored private var kept: [Int: String] = [:]
@@ -136,6 +141,28 @@ final class PastedImagesModel {
     func open(_ number: Int) {
         guard let image = images[number] else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: image.path))
+    }
+
+    func number(for link: PaneLink) -> Int? {
+        images.first { $0.value.link == link }?.key
+    }
+
+    /// Opens on `number`, with the arrow keys reaching the images beside it:
+    /// the prompt's for one of those, else every sent one on screen.
+    func quickLook(_ number: Int) {
+        let inPrompt = labels.contains { $0.number == number && $0.inPrompt }
+        let numbers = Set(labels.filter { $0.inPrompt == inPrompt }.map(\.number)).union([number])
+        let items = numbers.sorted().compactMap { number in
+            images[number].map {
+                PastedImageQuickLook.Item(number: number, url: URL(fileURLWithPath: $0.path), thumbnail: $0.thumbnail)
+            }
+        }
+        PastedImageQuickLook.shared.show(items, startingAt: number, over: window?()) { [weak self] number in
+            guard let self else { return nil }
+            let tray = trayFrame.flatMap { tray in thumbFrames[number].flatMap { tray.contains($0.center) ? $0 : nil } }
+            let label = labels.first { $0.number == number && $0.inPrompt == inPrompt }?.rect
+            return (tray ?? label).flatMap { self.onScreen?($0) }
+        }
     }
 
     private func startPoll() {
@@ -201,4 +228,8 @@ final class PastedImagesModel {
     private static func counts(_ labels: [Label]) -> [Int: Int] {
         labels.reduce(into: [:]) { $0[$1.number, default: 0] += 1 }
     }
+}
+
+private extension CGRect {
+    var center: CGPoint { CGPoint(x: midX, y: midY) }
 }

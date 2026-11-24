@@ -3,6 +3,7 @@ import AppKit
 import CoreImage
 import GhosttyKit
 import FlockCore
+import QuickLookUI
 import UniformTypeIdentifiers
 
 /// How far a terminal is set back: the share of its colour drained, and of
@@ -247,6 +248,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if PastedImageOptions.isAvailable { registerForDraggedTypes(Self.dropTypes) }
     }
 
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.hasItems }
+    }
+
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.begin() }
+    }
+
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.end() }
+    }
+
     private static let dropTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -486,6 +499,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         if let press = pendingLinkClick {
             pendingLinkClick = nil
+            if let label = imageLabel(at: topLeftPoint(press.down)) {
+                session.linkChip.dismiss()
+                session.pastedImages.quickLook(label.number)
+                return
+            }
             session.open(press.link)
             if let anchor = linkAnchor(at: topLeftPoint(press.down)) {
                 session.linkChip.act(.open, on: press.link, anchor: anchor)

@@ -10,6 +10,7 @@ struct LinkChipView: View {
     /// A pasted image, shown above the buttons.
     var preview: NSImage?
     var previewLimit = CGSize.zero
+    var onPreview: () -> Void = {}
     let onOpen: () -> Void
     let onReveal: () -> Void
     let onCopy: () -> Void
@@ -23,7 +24,7 @@ struct LinkChipView: View {
                     .frame(width: size.width, height: size.height)
                     .clipShape(RoundedRectangle(cornerRadius: ChromeRadius.tiny))
                     .contentShape(Rectangle())
-                    .onTapGesture(perform: onOpen)
+                    .onTapGesture(perform: onPreview)
                     .pointerStyle(.link)
                     .padding(ChromeMetrics.LinkChip.inset)
             }

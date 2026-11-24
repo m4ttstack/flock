@@ -681,6 +681,13 @@ final class GhosttySession {
 
     private func readScreenForImages() {
         pastedImages.readScreen = { [weak self] in self?.screenRows() }
+        pastedImages.window = { [weak self] in self?.view?.window }
+        pastedImages.onScreen = { [weak self] rect in
+            guard let view = self?.view, let window = view.window else { return nil }
+            let flipped = NSRect(
+                x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+            return window.convertToScreen(view.convert(flipped, to: nil))
+        }
     }
 
     /// Row by row: read as one selection, soft-wrapped rows come back joined.

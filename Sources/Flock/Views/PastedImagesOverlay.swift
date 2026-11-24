@@ -235,8 +235,10 @@ private struct PastedImageTray: View {
                 theme: theme, number: number, image: image, size: size,
                 isLit: model.highlighted == number,
                 onHover: { hover(number, $0) },
+                onQuickLook: { model.quickLook(number) },
                 onOpen: { model.open(number) }
             )
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.thumbFrames[number] = $0 }
             .transition(.opacity)
         }
     }
@@ -399,12 +401,13 @@ private struct PastedImageThumb: View {
     /// The pointer is on this image, here or on its label in the terminal.
     let isLit: Bool
     let onHover: (Bool) -> Void
+    let onQuickLook: () -> Void
     let onOpen: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: onOpen) {
+        Button(action: onQuickLook) {
             Image(nsImage: image.thumbnail)
                 .resizable()
                 .scaledToFill()
@@ -418,6 +421,7 @@ private struct PastedImageThumb: View {
         .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isLit)
         .onHover(perform: onHover)
         .contextMenu {
+            Button("Quick Look", action: onQuickLook)
             Button("Open", action: onOpen)
             Button("Reveal in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: image.path)])
