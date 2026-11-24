@@ -221,6 +221,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let down: NSEvent
         /// The label pressed, kept since the text may move before the up.
         let image: PastedImagesModel.Label?
+        let file: PastedImagesModel.File?
     }
     private var pendingLinkClick: PendingLinkClick?
     private var overLink = false
@@ -296,7 +297,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         } else {
             onPrimaryClick?()
         }
-        session.paste(from: sender.draggingPasteboard)
+        session.drop(sender.draggingPasteboard)
         return true
     }
 
@@ -468,12 +469,14 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             requestWindowFirstResponder()
         }
         // The rest of a multiple click on an image is not the terminal's.
-        if event.clickCount > 1, !rearrangeActive, imageLabel(at: topLeftPoint(event)) != nil {
+        if event.clickCount > 1, !rearrangeActive,
+           imageLabel(at: topLeftPoint(event)) != nil || session.pastedImages.file(at: topLeftPoint(event)) != nil {
             leftButtonRoute = nil
             return
         }
         if let link = linkUnderPress(event) {
-            pendingLinkClick = PendingLinkClick(link: link, down: event, image: imageLabel(at: topLeftPoint(event)))
+            pendingLinkClick = PendingLinkClick(link: link, down: event, image: imageLabel(at: topLeftPoint(event)),
+                file: session.pastedImages.file(at: topLeftPoint(event)))
             leftButtonRoute = nil
             return
         }
@@ -490,6 +493,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
         if let label = imageLabel(at: topLeftPoint(event)) { return session.pastedImages.images[label.number]?.link }
+        if let file = session.pastedImages.file(at: topLeftPoint(event)) { return file.link }
         return session.link(at: event)
     }
 
@@ -511,6 +515,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             if let label = press.image {
                 session.linkChip.dismiss()
                 session.pastedImages.quickLook(label.number, from: .text(label.rect))
+                return
+            }
+            if let file = press.file {
+                session.linkChip.dismiss()
+                session.pastedImages.quickLook(file)
                 return
             }
             session.open(press.link)
@@ -650,6 +659,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
         session.pastedImages.highlight(nil)
+        session.pastedImages.highlightFile(nil)
         hoverPoint = nil
         setOverLink(nil)
     }
@@ -731,6 +741,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             setOverLink(CGRect(
                 x: image.rect.minX, y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
                 width: image.rect.width, height: ChromeMetrics.LinkChip.underlineHeight))
+            return
+        }
+        let file = session.pastedImages.file(at: point)
+        session.pastedImages.highlightFile(file?.number)
+        if let file {
+            session.linkChip.hover(file.link, anchor: anchor)
+            setOverLink(CGRect(
+                x: file.chip.minX, y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
+                width: file.chip.width, height: ChromeMetrics.LinkChip.underlineHeight))
             return
         }
         let match = session.hoveredMatch

@@ -37,6 +37,16 @@ struct PastedImagesOverlay: View {
                     }
                 }
                 .allowsHitTesting(false)
+                ForEach(Array(model.files.enumerated()), id: \.offset) { _, file in
+                    MentionedFileChip(
+                        theme: theme, file: file, fontSizePoints: fontSizePoints,
+                        isLit: model.highlightedFile == file.number
+                    )
+                    .saturation(1 - shade.drain)
+                    .opacity(1 - shade.veil)
+                    .transaction { $0.animation = nil }
+                }
+                .allowsHitTesting(false)
                 if showsTray, let top = model.promptTop, !model.promptNumbers.isEmpty {
                     PastedImageTray(
                         theme: theme, model: model, space: space,
@@ -133,6 +143,54 @@ private struct PastedImageChip: View {
 
     private var ground: Color {
         guard let ground = label.ground else { return theme.terminalGround }
+        return Color(
+            .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
+            blue: Double(ground.blue) / 255)
+    }
+}
+
+/// A dropped file over its label: its icon and name, and the row's own color
+/// over the rest.
+private struct MentionedFileChip: View {
+    let theme: Theme
+    let file: PastedImagesModel.File
+    let fontSizePoints: Double
+    let isLit: Bool
+
+    var body: some View {
+        ForEach(Array(file.runs.enumerated()), id: \.offset) { _, run in
+            Rectangle().fill(ground)
+                .frame(width: run.width, height: run.height)
+                .offset(x: run.minX, y: run.minY)
+        }
+        chip.offset(x: file.chip.minX, y: file.chip.minY)
+    }
+
+    private var chip: some View {
+        let height = file.chip.height - M.chipRowInset * 2
+        return HStack(spacing: M.fileIconGap) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: file.path))
+                .resizable()
+                .scaledToFit()
+                .frame(width: height - M.fileIconInset, height: height - M.fileIconInset)
+            Text(file.name)
+                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * M.chipTextScale))
+                .foregroundStyle(Color(theme.confirmCardColors.title))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, M.fileChipPadding)
+        .frame(width: max(0, file.chip.width), height: height, alignment: .leading)
+        .background {
+            Color(theme.confirmCardColors.ground)
+            theme.accent.opacity(isLit ? M.chipLitOpacity : 0)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: M.chipCornerRadius))
+        .frame(height: file.chip.height)
+    }
+
+    private var ground: Color {
+        guard let ground = file.ground else { return theme.terminalGround }
         return Color(
             .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
             blue: Double(ground.blue) / 255)

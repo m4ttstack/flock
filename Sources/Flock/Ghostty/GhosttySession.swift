@@ -675,6 +675,41 @@ final class GhosttySession {
 
     let linkChip = LinkChipModel()
     let pastedImages = PastedImagesModel()
+    /// The agent herdr detected in the pane, nil for a shell.
+    var agent: String?
+
+    /// A drop. An agent that folds pastes is handed each file that is not an
+    /// image as one of its own, after the images: it takes a paste of image
+    /// paths for images only when that is all the paste holds.
+    func drop(_ pasteboard: NSPasteboard) {
+        guard !isRemoteMachine, FileMention.isRead(by: agent) else { return paste(from: pasteboard) }
+        let contents = pasteboard.pasteContents()
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let others = urls.map(\.path).filter { !contents.imagePaths.contains($0) }
+        guard !others.isEmpty else { return paste(from: pasteboard) }
+        let images = ClipboardPaste.text(joining: contents.imagePaths.map(ClipboardPaste.escape))
+        let folder = linkFolder?()
+        Task { [weak self] in
+            if let images {
+                self?.paste(images, images: contents.imagePaths)
+                try? await Task.sleep(for: Self.pasteSpacing)
+            }
+            for path in others {
+                guard let self else { return }
+                if let text = FileMention.paste(for: path, folder: folder) {
+                    pastedImages.willDrop(path)
+                    paste(text)
+                } else {
+                    paste(ClipboardPaste.escape(path) + " ")
+                }
+                try? await Task.sleep(for: Self.pasteSpacing)
+            }
+        }
+    }
+
+    /// Claude Code takes pastes closer together than its own wait for the
+    /// rest of one as a single paste.
+    private static let pasteSpacing: Duration = .milliseconds(300)
 
     /// `images` are the files `text` names, from the same reading of the
     /// pasteboard.
@@ -726,7 +761,8 @@ final class GhosttySession {
         }
         // This runs for every frame, and most screens show no label.
         let count = UInt32(size.rows)
-        let rows = whole || text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
+        let shown = whole ? "" : text(from: 0, to: count - 1)
+        let rows = whole || PastedImageLabels.markers.contains(where: shown.contains)
             ? (0..<count).map { text(from: $0, to: $0) } : []
         return PastedImagesModel.Screen(
             rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),

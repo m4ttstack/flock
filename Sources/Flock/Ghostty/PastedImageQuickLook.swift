@@ -12,17 +12,19 @@ final class PastedImageQuickLook: NSObject {
 
     final class Item: NSObject, QLPreviewItem {
         let number: Int
+        let title: String
         let url: URL
         let thumbnail: NSImage
 
-        init(number: Int, url: URL, thumbnail: NSImage) {
+        init(number: Int, title: String, url: URL, thumbnail: NSImage) {
             self.number = number
+            self.title = title
             self.url = url
             self.thumbnail = thumbnail
         }
 
         var previewItemURL: URL? { url }
-        var previewItemTitle: String? { "Image \(number)" }
+        var previewItemTitle: String? { title }
     }
 
     private var items: [Item] = []

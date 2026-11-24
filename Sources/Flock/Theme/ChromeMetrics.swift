@@ -270,6 +270,12 @@ enum ChromeMetrics {
         static let chipTextScale: Double = 0.82
         static let chipLitOpacity: Double = 0.35
 
+        /// Off each end, since text can touch either.
+        static let fileChipMarginCells: CGFloat = 0.3
+        static let fileIconGap: CGFloat = 4
+        static let fileIconInset: CGFloat = 2
+        static let fileChipPadding: CGFloat = 5
+
         static let trayInset: CGFloat = 12
         static let cardPadding: CGFloat = 8
         static let thumbGap: CGFloat = 6
