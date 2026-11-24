@@ -62,6 +62,7 @@ final class PastedImagesModel {
     struct File: Equatable {
         let number: Int
         let path: String
+        let icon: NSImage
         /// The label, which its program may have wrapped onto a second row,
         /// and the part of it the chip takes.
         let runs: [CGRect]
@@ -118,6 +119,7 @@ final class PastedImagesModel {
     /// What a number named just before a paste took it, in case the paste turns
     /// out to be another conversation's.
     @ObservationIgnored private var displaced: [Int: String] = [:]
+    @ObservationIgnored private var displacedFiles: [Int: String] = [:]
     /// The last conversation known, which an agent that exits leaves.
     @ObservationIgnored private var shownConversation: String?
     /// One that arrived while the pane was off screen.
@@ -126,6 +128,7 @@ final class PastedImagesModel {
     /// loaded once its label is on screen.
     @ObservationIgnored private var paths: [Int: String] = [:]
     @ObservationIgnored private var filePaths: [Int: String] = [:]
+    @ObservationIgnored private var icons: [String: NSImage] = [:]
     @ObservationIgnored private var fileMatcher = PastedImageMatcher(.text)
     @ObservationIgnored private var loading: Set<Int> = []
     @ObservationIgnored private var touched = Date.distantPast
@@ -143,6 +146,11 @@ final class PastedImagesModel {
     }
 
     var hasConversation: Bool { conversation != nil }
+
+    /// Whether the pane shows a prompt that a paste would land in.
+    var promptIsDrawn: Bool {
+        pane?.screen(true).map { PastedImageLabels(rows: $0.rows).promptRow != nil } ?? false
+    }
 
     /// Called before a dropped file's paste is sent, as `willPaste` is.
     func willDrop(_ path: String) {
@@ -204,10 +212,14 @@ final class PastedImagesModel {
                 if let path = displaced[number] { _ = store().keep(path, as: number, in: previous) }
             }
             let ownFiles = store().files(for: next)
-            for number in Set(shownFiles) where ownFiles[number] == nil { carriedFiles[number] = filePaths[number] }
+            for number in Set(shownFiles) where filePaths[number] != nil && ownFiles[number] == nil {
+                carriedFiles[number] = filePaths[number]
+                if let path = displacedFiles[number] { store().keep(path, asFile: number, in: previous) }
+            }
             matcher.reset()
             fileMatcher.reset()
             displaced = [:]
+            displacedFiles = [:]
         }
         shownConversation = next
         paths = store().images(for: next)
@@ -303,7 +315,7 @@ final class PastedImagesModel {
     func quickLook(_ file: File) {
         let item = PastedImageQuickLook.Item(
             number: Self.fileItem, title: file.name, url: file.url,
-            thumbnail: NSWorkspace.shared.icon(forFile: file.path)
+            thumbnail: file.icon, size: Self.filePreviewSize
         )
         PastedImageQuickLook.shared.show([item], startingAt: Self.fileItem, over: pane?.window()) { [weak self] _ in
             self?.pane?.toScreen(file.chip)
@@ -315,6 +327,8 @@ final class PastedImagesModel {
 
     /// No image's number.
     private static let fileItem = -1
+    /// A file says nothing of its preview's size, and its icon's is tiny.
+    private static let filePreviewSize = CGSize(width: 760, height: 900)
 
     private func visibleThumbFrame(_ number: Int) -> CGRect? {
         guard let tray = trayFrame, let thumb = thumbFrames[number],
@@ -414,18 +428,19 @@ final class PastedImagesModel {
             let tail = label.tail.map { run(row: label.row + 1, column: $0.column, cells: $0.cells) }
             let widest = tail.map { $0.width > head.width ? $0 : head } ?? head
             return File(
-                number: label.number, path: path, runs: [head] + (tail.map { [$0] } ?? []),
+                number: label.number, path: path, icon: icon(of: path), runs: [head] + (tail.map { [$0] } ?? []),
                 chip: widest.insetBy(dx: screen.cell.width * ChromeMetrics.PastedImages.fileChipMarginCells, dy: 0),
                 ground: screen.ground(CGPoint(x: head.minX + 0.75, y: head.minY + 0.75))
             )
         })
     }
 
-    /// Retention counts from the last time an image was on screen, and once a
+    /// Retention counts from the last time one of its files was on screen, and once a
     /// day is close enough for it.
     private func touchIfInUse(_ read: PastedImageLabels) {
         guard let conversation, Date().timeIntervalSince(touched) > Self.touchInterval,
               read.labels.contains(where: { paths[$0.number] != nil })
+                  || read.texts.contains(where: { filePaths[$0.number] != nil })
         else { return }
         touched = Date()
         store().touch(conversation)
@@ -437,12 +452,22 @@ final class PastedImagesModel {
         if let highlighted, !found.contains(where: { $0.number == highlighted }) { highlight(nil) }
     }
 
+    /// Once per file: a scan is every frame, and the file may be on a slow
+    /// volume.
+    private func icon(of path: String) -> NSImage {
+        if let icon = icons[path] { return icon }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        icons[path] = icon
+        return icon
+    }
+
     private func showFiles(_ found: [File]) {
         if found != files { files = found }
         if let highlightedFile, !found.contains(where: { $0.number == highlightedFile }) { highlightFile(nil) }
     }
 
     private func assignFile(_ path: String, to number: Int) {
+        if let held = filePaths[number], held != path { displacedFiles[number] = held }
         filePaths[number] = path
         if let conversation {
             store().keep(path, asFile: number, in: conversation)

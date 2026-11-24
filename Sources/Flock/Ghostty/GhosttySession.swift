@@ -682,22 +682,28 @@ final class GhosttySession {
     /// image as one of its own, after the images: it takes a paste of image
     /// paths for images only when that is all the paste holds.
     func drop(_ pasteboard: NSPasteboard) {
-        guard !isRemoteMachine, FileMention.isRead(by: agent) else { return paste(from: pasteboard) }
+        // A dialog or an editor the agent has up takes a path, not a label.
+        guard !isRemoteMachine, FileMention.isRead(by: agent), pastedImages.promptIsDrawn else {
+            return paste(from: pasteboard)
+        }
         let contents = pasteboard.pasteContents()
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         let others = urls.map(\.path).filter { !contents.imagePaths.contains($0) }
         guard !others.isEmpty else { return paste(from: pasteboard) }
         let images = ClipboardPaste.text(joining: contents.imagePaths.map(ClipboardPaste.escape))
-        let folder = linkFolder?()
-        Task { [weak self] in
+        let earlier = dropping
+        dropping = Task { [weak self] in
+            await earlier?.value
             if let images {
                 self?.paste(images, images: contents.imagePaths)
                 try? await Task.sleep(for: Self.pasteSpacing)
             }
             for path in others {
-                guard let self else { return }
+                // Whatever has the pane once the agent has gone is not handed
+                // the rest.
+                guard let self, FileMention.isRead(by: agent) else { return }
                 drops += 1
-                if let text = FileMention.paste(for: path, folder: folder, drop: drops) {
+                if let text = FileMention.paste(for: path, drop: drops) {
                     pastedImages.willDrop(path)
                     paste(text)
                 } else {
@@ -708,6 +714,7 @@ final class GhosttySession {
         }
     }
 
+    private var dropping: Task<Void, Never>?
     private var drops = 0
     /// Claude Code takes pastes closer together than its own wait for the
     /// rest of one as a single paste.

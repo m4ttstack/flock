@@ -40,10 +40,8 @@ struct PastedImagesOverlay: View {
                 ForEach(Array(model.files.enumerated()), id: \.offset) { _, file in
                     MentionedFileChip(
                         theme: theme, file: file, fontSizePoints: fontSizePoints,
-                        isLit: model.highlightedFile == file.number
+                        isLit: model.highlightedFile == file.number, shade: shade
                     )
-                    .saturation(1 - shade.drain)
-                    .opacity(1 - shade.veil)
                     .transaction { $0.animation = nil }
                 }
                 .allowsHitTesting(false)
@@ -156,20 +154,28 @@ private struct MentionedFileChip: View {
     let file: PastedImagesModel.File
     let fontSizePoints: Double
     let isLit: Bool
+    let shade: SurfaceShade
 
     var body: some View {
         ForEach(Array(file.runs.enumerated()), id: \.offset) { _, run in
-            Rectangle().fill(ground)
+            dimmed(Rectangle().fill(ground))
                 .frame(width: run.width, height: run.height)
                 .offset(x: run.minX, y: run.minY)
         }
-        chip.offset(x: file.chip.minX, y: file.chip.minY)
+        dimmed(chip).offset(x: file.chip.minX, y: file.chip.minY)
+    }
+
+    /// As the surface under it is. Never see-through: the program's own label
+    /// is there.
+    private func dimmed(_ view: some View) -> some View {
+        view.saturation(1 - shade.drain)
+            .overlay(theme.terminalGround.opacity(shade.veil))
     }
 
     private var chip: some View {
         let height = file.chip.height - M.chipRowInset * 2
         return HStack(spacing: M.fileIconGap) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: file.path))
+            Image(nsImage: file.icon)
                 .resizable()
                 .scaledToFit()
                 .frame(width: height - M.fileIconInset, height: height - M.fileIconInset)

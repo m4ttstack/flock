@@ -57,15 +57,15 @@ final class PastedImageLabelsTests: XCTestCase {
     }
 
     func testAPastedTextIsItsOwnKindOfLabel() {
-        let read = PastedImageLabels(rows: ["[Image #1] [Pasted text #2] [Pasted text #3 +12 lines]"])
+        let read = PastedImageLabels(rows: ["[Image #1] [Pasted text #2] [Pasted text #3] [Pasted text #4 +12 lines]"])
         XCTAssertEqual(read.labels.map(\.number), [1])
         XCTAssertEqual(read.texts.map(\.number), [2, 3])
         XCTAssertEqual(read.texts.map(\.column), [11, 28])
-        XCTAssertEqual(read.texts.map(\.cells), [16, 26])
+        XCTAssertEqual(read.texts.map(\.cells), [16, 16])
     }
 
     func testAPastedTextWrappedAtAnySpaceIsOneLabel() {
-        for (first, second) in [("[Pasted", "text #14 +3 lines]"), ("[Pasted text", "#14 +3 lines]"), ("[Pasted text #14 +3", "lines]")] {
+        for (first, second) in [("[Pasted", "text #14]"), ("[Pasted text", "#14]")] {
             let read = PastedImageLabels(rows: [rule, "\u{276F} a \(first)", "  \(second) b", rule])
             XCTAssertEqual(read.texts, [PastedImageLabel(
                 kind: .text, number: 14, row: 1, column: 4, cells: first.count, inPrompt: true,
@@ -364,34 +364,25 @@ final class PaneDropLabelTests: XCTestCase {
 }
 
 final class FileMentionTests: XCTestCase {
-    private func mention(_ path: String, folder: String? = "/Users/acme/app") throws -> String {
-        let paste = try XCTUnwrap(FileMention.paste(for: path, folder: folder, drop: 0))
+    private func mention(_ path: String) throws -> String {
+        let paste = try XCTUnwrap(FileMention.paste(for: path, drop: 0))
         return String(paste[try XCTUnwrap(paste.firstIndex(of: "@"))...])
     }
 
-    func testAFileInsideTheFolderIsNamedFromThere() throws {
-        XCTAssertEqual(try mention("/Users/acme/app/src/a.swift"), "@src/a.swift")
-    }
-
-    func testAFileOutsideItIsNamedInFull() throws {
-        XCTAssertEqual(try mention("/Users/acme/application/a.swift"), "@/Users/acme/application/a.swift")
-        XCTAssertEqual(try mention("/tmp/a.swift", folder: nil), "@/tmp/a.swift")
-    }
-
-    func testAnythingButAPlainPathIsQuoted() throws {
-        XCTAssertEqual(try mention("/tmp/my file.js"), "@\"/tmp/my file.js\"")
-        XCTAssertEqual(try mention("/tmp/@icons/a.js"), "@\"/tmp/@icons/a.js\"")
+    func testAFileIsNamedInFullAndQuoted() throws {
+        XCTAssertEqual(try mention("/Users/acme/app/src/a.swift"), "@\"/Users/acme/app/src/a.swift\"")
+        XCTAssertEqual(try mention("/tmp/my @icons/a.js"), "@\"/tmp/my @icons/a.js\"")
     }
 
     func testAPathTheQuotesCannotHoldIsLeftAlone() {
-        XCTAssertNil(FileMention.paste(for: "/tmp/a\"b.js", folder: nil, drop: 0))
-        XCTAssertNil(FileMention.paste(for: "/tmp/a\nb.js", folder: nil, drop: 0))
+        XCTAssertNil(FileMention.paste(for: "/tmp/a\"b.js", drop: 0))
+        XCTAssertNil(FileMention.paste(for: "/tmp/a\nb.js", drop: 0))
     }
 
     /// What Claude Code folds, and into the label with no line count.
     func testEveryPasteFoldsIntoTheShortestLabel() throws {
         for path in ["/a", "/tmp/" + String(repeating: "long/", count: 300) + "a.js"] {
-            let paste = try XCTUnwrap(FileMention.paste(for: path, folder: nil, drop: 0))
+            let paste = try XCTUnwrap(FileMention.paste(for: path, drop: 0))
             XCTAssertGreaterThan(paste.count, 800)
             XCTAssertFalse(paste.contains(where: \.isNewline))
             XCTAssertEqual(paste, paste.trimmingCharacters(in: .whitespaces))
@@ -399,8 +390,7 @@ final class FileMentionTests: XCTestCase {
     }
 
     func testTheSameFileTwiceIsNotTheSamePaste() {
-        XCTAssertNotEqual(
-            FileMention.paste(for: "/a.js", folder: nil, drop: 1), FileMention.paste(for: "/a.js", folder: nil, drop: 2))
+        XCTAssertNotEqual(FileMention.paste(for: "/a.js", drop: 1), FileMention.paste(for: "/a.js", drop: 2))
     }
 
     func testOnlyAnAgentThatReadsMentionsIsHandedOne() {

@@ -345,7 +345,7 @@ final class PastedImagesTests: XCTestCase {
         "\u{25CF} It exports one icon.", "",
     ] + Array(repeating: "", count: 12) + [
         rule, "\u{276F} see [Pasted text #2] [Pasted text #3]and the one that does not fit [Pasted",
-        "  text #14 +3 lines]", rule, "  acme | medium", "",
+        "  text #14]", rule, "  acme | medium", "",
     ]
 
     private func drop(_ names: [String], into model: PastedImagesModel, on pane: FakePane) {
@@ -367,7 +367,8 @@ final class PastedImagesTests: XCTestCase {
         let second = model(on: pane, store: self.store())
         second.bind(conversation: Self.conversation)
         second.refresh()
-        XCTAssertEqual(second.files, first.files)
+        XCTAssertEqual(second.files.map(\.path), first.files.map(\.path))
+        XCTAssertEqual(second.files.map(\.runs), first.files.map(\.runs))
     }
 
     func testAFileDroppedBeforeItsConversationsIdArrivesMovesToIt() {
@@ -378,6 +379,68 @@ final class PastedImagesTests: XCTestCase {
         drop(["b.js"], into: model, on: pane)
         model.bind(conversation: "acme-after-clear")
         XCTAssertEqual(store.files(for: "acme-after-clear"), [2: "/Users/acme/app/b.js"])
+    }
+
+    func testTheOldConversationGetsItsFileBackWhenADropWasAnothers() {
+        let pane = FakePane()
+        let store = store()
+        store.keep("/Users/acme/app/old.js", asFile: 2, in: Self.conversation)
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        drop(["b.js"], into: model, on: pane)
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.files(for: "acme-after-clear"), [2: "/Users/acme/app/b.js"])
+        XCTAssertEqual(store.files(for: Self.conversation), [2: "/Users/acme/app/old.js"])
+    }
+
+    func testShowingAnOldConversationsFilesKeepsThem() {
+        let old = Date().addingTimeInterval(-PastedImageIndex.maximumAge + 60)
+        store(now: old).keep("/Users/acme/app/b.js", asFile: 2, in: Self.conversation, now: old)
+        let pane = FakePane()
+        pane.rows = Self.droppedScreen
+        let model = model(on: pane, store: store())
+        model.bind(conversation: Self.conversation)
+        model.refresh()
+        XCTAssertEqual(store(now: Date().addingTimeInterval(120)).files(for: Self.conversation).count, 1)
+    }
+
+    func testAPromptIsSeenWithNoLabelOnScreen() {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        pane.rows = [Self.rule, "\u{276F} ", Self.rule]
+        XCTAssertTrue(model.promptIsDrawn)
+        pane.rows = ["Do you want to proceed?", "1. Yes"]
+        XCTAssertFalse(model.promptIsDrawn)
+    }
+
+    /// The program's own label is under the chip, so a dimmed pane's chip is
+    /// dimmed and never see-through.
+    func testAFileChipInADimmedPaneStillCoversItsLabel() async throws {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        drop(["b.js"], into: model, on: pane)
+        let chip = try XCTUnwrap(model.files.first?.chip)
+        let shade = SurfaceShade(drain: 0, veil: 0.44)
+        var images: [NSBitmapImageRep] = []
+        for (rows, name) in [(pane.rows, "label"), ([], "bare")] {
+            images.append(try await render(
+                Scene(theme: .tokyoNight, rows: rows) {
+                    PastedImagesOverlay(
+                        theme: .tokyoNight, model: model, space: "pane", fontSizePoints: 13, shade: shade,
+                        showsTray: false)
+                },
+                name: "dimmed-\(name)"))
+        }
+        for x in stride(from: chip.minX + 4, to: chip.maxX - 4, by: 3) {
+            for y in [chip.minY + 5, chip.midY, chip.maxY - 5] {
+                let colors = try images.map { image -> [UInt8] in
+                    let data = try XCTUnwrap(image.bitmapData)
+                    let offset = Int(y * 2) * image.bytesPerRow + Int(x * 2) * (image.bitsPerPixel / 8)
+                    return [data[offset], data[offset + 1], data[offset + 2]]
+                }
+                XCTAssertEqual(colors[0], colors[1], "the label shows through at \(x), \(y)")
+            }
+        }
     }
 
     func testAWrappedLabelsChipIsOnItsLongerRowAndNothingElseIsPressed() throws {

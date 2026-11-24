@@ -5,7 +5,8 @@ public struct PastedImageLabel: Equatable, Sendable {
     public enum Kind: Sendable {
         /// `[Image #N]`.
         case image
-        /// `[Pasted text #N +M lines]`, which a dropped file arrives as.
+        /// `[Pasted text #N]`, which a dropped file arrives as. A label with a
+        /// line count is some other paste: a drop has no line breaks.
         case text
     }
 
@@ -59,7 +60,7 @@ public struct PastedImageLabels: Equatable, Sendable {
         (kind == .image ? labels : texts).filter { promptRow == nil || $0.inPrompt }.map(\.number)
     }
 
-    private nonisolated(unsafe) static let pattern = /\[(Image|Pasted text) #(\d+)(?: \+\d+ lines)?\]/
+    private nonisolated(unsafe) static let pattern = /\[(Image|Pasted text) #(\d+)\]/
 
     /// `rows` is one string per screen row.
     public init(rows: [String]) {

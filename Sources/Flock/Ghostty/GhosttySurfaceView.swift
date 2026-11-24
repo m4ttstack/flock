@@ -680,6 +680,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             if hoverPoint != nil {
                 session.linkChip.pointerLeftPane()
                 session.pastedImages.highlight(nil)
+                session.pastedImages.highlightFile(nil)
             }
             hoverPoint = nil
             setOverLink(nil)
@@ -735,7 +736,9 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         let image = imageLabel(at: point)
+        let file = image == nil ? session.pastedImages.file(at: point) : nil
         session.pastedImages.highlight(image?.number)
+        session.pastedImages.highlightFile(file?.number)
         if let image, let link = session.pastedImages.images[image.number]?.link {
             session.linkChip.hover(link, anchor: anchor)
             setOverLink(CGRect(
@@ -743,8 +746,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
                 width: image.rect.width, height: ChromeMetrics.LinkChip.underlineHeight))
             return
         }
-        let file = session.pastedImages.file(at: point)
-        session.pastedImages.highlightFile(file?.number)
         if let file {
             session.linkChip.hover(file.link, anchor: anchor)
             setOverLink(CGRect(
@@ -1011,6 +1012,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         session.linkChip.dismiss()
         session.pastedImages.highlight(nil)
+        session.pastedImages.highlightFile(nil)
         // Control-V has an agent read the clipboard itself.
         if session.pastedImages.hasConversation, !session.isRemoteMachine, !event.isARepeat, event.charactersIgnoringModifiers == "v",
            event.modifierFlags.intersection([.control, .command, .option]) == .control {
