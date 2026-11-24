@@ -53,6 +53,8 @@ final class PastedImagesModel {
         let rect: CGRect
         let inPrompt: Bool
         let isAttachmentLine: Bool
+        /// Wrapped onto a second row, where a chip has no room.
+        let isWrapped: Bool
         let ground: Ground?
     }
 
@@ -325,7 +327,7 @@ final class PastedImagesModel {
                 )
                 return Label(
                     number: label.number, rect: rect, inPrompt: label.inPrompt,
-                    isAttachmentLine: label.isAttachmentLine,
+                    isAttachmentLine: label.isAttachmentLine, isWrapped: label.tail != nil,
                     // The corner of the `[` cell, which no glyph reaches.
                     ground: screen.ground(CGPoint(x: rect.minX + 0.75, y: rect.minY + 0.75))
                 )

@@ -23,7 +23,7 @@ struct PastedImagesOverlay: View {
             ZStack(alignment: .topLeading) {
                 Color.clear
                 ForEach(Array(model.labels.enumerated()), id: \.offset) { _, label in
-                    if !label.isAttachmentLine, let image = model.images[label.number] {
+                    if !label.isAttachmentLine, !label.isWrapped, let image = model.images[label.number] {
                         PastedImageChip(
                             theme: theme, label: label, image: image, fontSizePoints: fontSizePoints,
                             isLit: model.highlighted == label.number

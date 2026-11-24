@@ -10,12 +10,31 @@ public struct PastedImageLabel: Equatable, Sendable {
     public let inPrompt: Bool
     /// The program's own line repeating a sent message's attachment.
     public let isAttachmentLine: Bool
+    /// The rest of a label its program wrapped, on the next row.
+    public let tail: Tail?
+
+    public struct Tail: Equatable, Sendable {
+        public let column: Int
+        public let cells: Int
+    }
+
+    init(
+        number: Int, row: Int, column: Int, cells: Int, inPrompt: Bool, isAttachmentLine: Bool, tail: Tail? = nil
+    ) {
+        self.number = number
+        self.row = row
+        self.column = column
+        self.cells = cells
+        self.inPrompt = inPrompt
+        self.isAttachmentLine = isAttachmentLine
+        self.tail = tail
+    }
 }
 
 /// The labels on a pane's screen, read from its text.
 public struct PastedImageLabels: Equatable, Sendable {
     /// What every label starts with, for a cheap look before a full read.
-    public static let marker = "[Image #"
+    public static let marker = "[Image"
 
     public let labels: [PastedImageLabel]
     /// The row of the rule over the prompt, nil where no prompt is drawn.
@@ -29,26 +48,57 @@ public struct PastedImageLabels: Equatable, Sendable {
 
     private nonisolated(unsafe) static let pattern = /\[Image #(\d+)\]/
 
-    /// `rows` is one string per screen row: a label broken by a wrap is not
-    /// found.
+    /// `rows` is one string per screen row.
     public init(rows: [String]) {
         // Claude Code draws its prompt between the last two full-width rules.
         let rules = rows.indices.filter { rows[$0].hasPrefix("\u{2500}\u{2500}\u{2500}\u{2500}") }
         let prompt = rules.count >= 2 ? rules[rules.count - 2]..<rules[rules.count - 1] : nil
         promptRow = prompt?.lowerBound
-        labels = rows.enumerated().flatMap { row, line in
-            (line.contains(Self.marker) ? line.matches(of: Self.pattern) : []).compactMap { match in
+        labels = rows.indices.flatMap { row -> [PastedImageLabel] in
+            let line = rows[row]
+            guard line.contains(Self.marker) else { return [] }
+            let inPrompt = prompt?.contains(row) ?? false
+            let isAttachmentLine = line.drop { $0 == " " }.hasPrefix("\u{23BF}")
+            var found = line.matches(of: Self.pattern).compactMap { match in
                 Int(match.output.1).map { number in
                     PastedImageLabel(
-                        number: number, row: row,
-                        column: line[..<match.range.lowerBound].reduce(0) { $0 + PaneLink.cellWidth(of: $1) },
-                        cells: match.output.0.count,
-                        inPrompt: prompt?.contains(row) ?? false,
-                        isAttachmentLine: line.drop { $0 == " " }.hasPrefix("\u{23BF}")
+                        number: number, row: row, column: Self.cells(line[..<match.range.lowerBound]),
+                        cells: Self.cells(match.output.0), inPrompt: inPrompt, isAttachmentLine: isAttachmentLine
                     )
                 }
             }
+            if row + 1 < rows.count, let wrapped = Self.wrapped(line, onto: rows[row + 1]) {
+                found.append(PastedImageLabel(
+                    number: wrapped.number, row: row, column: wrapped.column, cells: wrapped.cells,
+                    inPrompt: inPrompt, isAttachmentLine: isAttachmentLine, tail: wrapped.tail
+                ))
+            }
+            return found
         }
+    }
+
+    /// The label that runs off the end of `line`. The program wraps at a
+    /// space, which is not drawn, and indents what follows.
+    private static func wrapped(
+        _ line: String, onto next: String
+    ) -> (number: Int, column: Int, cells: Int, tail: PastedImageLabel.Tail)? {
+        guard let start = line.lastIndex(of: "[") else { return nil }
+        var head = line[start...]
+        while head.last?.isWhitespace == true { head = head.dropLast() }
+        guard !head.contains("]") else { return nil }
+        let rest = next.drop { $0.isWhitespace }
+        guard let match = (head + " " + rest).prefixMatch(of: pattern), let number = Int(match.output.1),
+              match.output.0.count > head.count + 1
+        else { return nil }
+        let tail = rest.prefix(match.output.0.count - head.count - 1)
+        return (
+            number, cells(line[..<start]), cells(head),
+            PastedImageLabel.Tail(column: cells(next[..<rest.startIndex]), cells: cells(tail))
+        )
+    }
+
+    private static func cells(_ text: Substring) -> Int {
+        text.reduce(0) { $0 + PaneLink.cellWidth(of: $1) }
     }
 }
 

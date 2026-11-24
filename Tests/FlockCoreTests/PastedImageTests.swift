@@ -39,6 +39,23 @@ final class PastedImageLabelsTests: XCTestCase {
         XCTAssertEqual(read.labels.map(\.isAttachmentLine), [false, true])
     }
 
+    func testALabelWrappedOntoTheNextRowIsOneLabel() {
+        let read = PastedImageLabels(rows: [rule, "\u{276F} [Image #1] see [Image   ", "  #2] and [Image #3]", rule])
+        XCTAssertEqual(read.labels, [
+            PastedImageLabel(number: 1, row: 1, column: 2, cells: 10, inPrompt: true, isAttachmentLine: false),
+            PastedImageLabel(
+                number: 2, row: 1, column: 17, cells: 6, inPrompt: true, isAttachmentLine: false,
+                tail: .init(column: 2, cells: 3)),
+            PastedImageLabel(number: 3, row: 2, column: 10, cells: 10, inPrompt: true, isAttachmentLine: false),
+        ])
+    }
+
+    func testARowThatOnlyLooksCutOffIsNotALabel() {
+        XCTAssertEqual(PastedImageLabels(rows: ["an [Image", "of something #2]"]).labels, [])
+        XCTAssertEqual(PastedImageLabels(rows: ["[Image #1]", "#2]"]).labels.map(\.number), [1])
+        XCTAssertEqual(PastedImageLabels(rows: ["[Image"]).labels, [])
+    }
+
     func testOtherBracketsAreNotLabels() {
         XCTAssertEqual(PastedImageLabels(rows: ["[Image #] [Image 3] [image #4] [Image #5"]).labels, [])
     }

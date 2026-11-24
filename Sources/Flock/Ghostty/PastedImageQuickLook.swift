@@ -105,20 +105,19 @@ final class PastedImageQuickLook: NSObject {
         }
         openedAt = Date()
         openingURL = items[index].url
-        if let window { Responder.install(in: window) }
-        panel.makeKeyAndOrderFront(nil)
-        // After it opens, never before: opening centers it on the screen.
-        guard let window else { return }
-        let anchor = sourceFrame(number)
-            ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
-        panel.setFrame(
-            QuickLookPlacement.frame(
-                image: items[index].thumbnail.size, anchor: anchor, window: window.frame,
-                visibleScreen: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame,
-                chrome: panel.frameRect(forContentRect: .zero).height
-            ),
-            display: true
+        guard let window else { return panel.makeKeyAndOrderFront(nil) }
+        Responder.install(in: window)
+        let target = QuickLookPlacement.frame(
+            image: items[index].thumbnail.size,
+            anchor: sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0),
+            window: window.frame, visibleScreen: (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame,
+            chrome: panel.frameRect(forContentRect: .zero).height
         )
+        // Before as well as after: opening centers the panel on the screen
+        // either way, but without the first it animates to there.
+        panel.setFrame(target, display: false)
+        panel.makeKeyAndOrderFront(nil)
+        if panel.frame != target { panel.setFrame(target, display: true) }
     }
 
     /// The click goes on to what it landed on: the panel is not modal.
