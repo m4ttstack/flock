@@ -126,7 +126,7 @@ private struct PastedImageChip: View {
             Image(nsImage: image.thumbnail)
                 .resizable()
                 .scaledToFill()
-                .frame(width: cell * 2.3, height: height)
+                .frame(width: cell * 2.2, height: height)
                 .clipped()
             Text("Image \(label.number)")
                 .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.82))
@@ -134,13 +134,14 @@ private struct PastedImageChip: View {
                 .fixedSize()
                 .frame(maxWidth: .infinity)
         }
-        .frame(width: label.rect.width, height: height)
+        // Short of its last cell, since text can follow with no space.
+        .frame(width: label.rect.width - cell * 0.55, height: height)
         .background {
             Color(theme.cardColors.ground)
             theme.accent.opacity(isLit ? 0.35 : 0)
         }
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .frame(height: label.rect.height)
+        .frame(width: label.rect.width, height: label.rect.height, alignment: .leading)
         // The row's own color over the program's label, then the chip.
         .background(ground)
     }
