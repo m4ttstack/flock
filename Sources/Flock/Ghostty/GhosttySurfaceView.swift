@@ -395,13 +395,6 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if !rearrangeActive {
             requestWindowFirstResponder()
         }
-        if PastedImageOptions.isOn(PastedImageOptions.hoverKey), !rearrangeActive, event.clickCount == 1,
-           event.modifierFlags.isDisjoint(with: [.shift, .control, .option]),
-           let label = session.pastedImages.label(at: topLeftPoint(event)) {
-            session.pastedImages.open(label.number)
-            leftButtonRoute = nil
-            return
-        }
         if let link = linkUnderPress(event) {
             pendingLinkClick = PendingLinkClick(link: link, down: event)
             leftButtonRoute = nil
@@ -419,7 +412,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         guard wantsFocus, !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
+        if let label = imageLabel(at: topLeftPoint(event)) { return session.pastedImages.images[label.number]?.link }
         return session.link(at: event)
+    }
+
+    private func imageLabel(at point: CGPoint) -> PastedImagesModel.Label? {
+        guard PastedImageOptions.isOn(PastedImageOptions.hoverKey) else { return nil }
+        return session.pastedImages.label(at: point)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -569,7 +568,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func mouseExited(with event: NSEvent) {
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
-        session.pastedImages.hover(nil)
+        session.pastedImages.highlight(nil)
         hoverPoint = nil
         setOverLink(nil)
     }
@@ -584,6 +583,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// first and separately rather than folded into the existing `.drop`
     /// branch below.
     override func mouseMoved(with event: NSEvent) {
+        // The tray is SwiftUI above this view, whose tracking area hears the
+        // pointer there all the same.
+        if session.pastedImages.trayFrame?.contains(topLeftPoint(event)) == true {
+            hoverPoint = nil
+            setOverLink(nil)
+            return
+        }
         // No cursor-update event fires for motion WITHIN a tracking area, so
         // the open hand is re-asserted here or anything that set another
         // cursor mid-hover would stick.
@@ -633,10 +639,10 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             setOverLink(nil)
             return
         }
-        let image = PastedImageOptions.isOn(PastedImageOptions.hoverKey) ? session.pastedImages.label(at: point) : nil
-        session.pastedImages.hover(image)
-        if let image {
-            session.linkChip.dismiss()
+        let image = imageLabel(at: point)
+        session.pastedImages.highlight(image?.number)
+        if let image, let link = session.pastedImages.images[image.number]?.link {
+            session.linkChip.hover(link, anchor: anchor)
             setOverLink(CGRect(
                 x: image.rect.minX, y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
                 width: image.rect.width, height: ChromeMetrics.LinkChip.underlineHeight))
@@ -900,7 +906,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         session.linkChip.dismiss()
-        session.pastedImages.hover(nil)
+        session.pastedImages.highlight(nil)
         // Control-V has the program read the clipboard itself.
         if event.charactersIgnoringModifiers == "v",
            event.modifierFlags.intersection([.control, .command, .option]) == .control {

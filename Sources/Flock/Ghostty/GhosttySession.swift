@@ -781,7 +781,8 @@ final class GhosttySession {
                 askToOpen(url)
             }
         case .file(let url):
-            guard !isRemoteMachine else { return }
+            // A pasted image's file is on this Mac whatever the pane's machine.
+            guard !isRemoteMachine || pastedImages.image(for: link) != nil else { return }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             let runs = isDirectory.boolValue

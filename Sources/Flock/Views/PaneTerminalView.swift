@@ -59,7 +59,7 @@ struct GhosttyPaneTerminalView: View {
     let onBodyDragBegan: (CGPoint) -> Void
 
     @State private var findBarFrame: CGRect?
-    @State private var linkChipSize: CGSize?
+    @State private var linkChipSize: (link: PaneLink, size: CGSize)?
 
     private static let space = "flock.pane.terminal"
 
@@ -134,7 +134,9 @@ struct GhosttyPaneTerminalView: View {
         }
         .overlay(alignment: .topLeading) {
             if let session, PastedImageOptions.isAvailable {
-                PastedImagesOverlay(theme: theme, model: session.pastedImages, space: Self.space)
+                PastedImagesOverlay(
+                    theme: theme, model: session.pastedImages, linkChip: session.linkChip, space: Self.space,
+                    fontSizePoints: fontSizePoints)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -158,7 +160,8 @@ struct GhosttyPaneTerminalView: View {
     /// size, so the first pass lays it out unseen.
     private func linkChip(_ chip: LinkChip, in session: GhosttySession) -> some View {
         GeometryReader { pane in
-            let origin = linkChipSize.map {
+            let measured = linkChipSize.flatMap { $0.link == chip.link ? $0.size : nil }
+            let origin = measured.map {
                 LinkChip.origin(
                     for: chip.anchor, chip: $0, pane: pane.size,
                     gap: ChromeMetrics.LinkChip.gap, inset: ChromeMetrics.LinkChip.inset
@@ -166,6 +169,12 @@ struct GhosttyPaneTerminalView: View {
             }
             LinkChipView(
                 theme: theme, link: chip.link, flash: session.linkChip.flash,
+                preview: PastedImageOptions.isOn(PastedImageOptions.hoverKey)
+                    ? session.pastedImages.image(for: chip.link)?.thumbnail : nil,
+                previewLimit: CGSize(
+                    width: min(460, pane.size.width - 24),
+                    height: min(320, max(chip.anchor.lineTop, pane.size.height - chip.anchor.lineBottom) - 56)
+                ),
                 onOpen: {
                     session.open(chip.link)
                     session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
@@ -183,12 +192,13 @@ struct GhosttyPaneTerminalView: View {
                 }
             )
             .onHover { session.linkChip.chipHover($0) }
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = (chip.link, $0) }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
                 session.linkChip.frame = $0
             }
             .offset(x: origin?.x ?? 0, y: origin?.y ?? 0)
             .opacity(origin == nil ? 0 : 1)
+            .id(String(describing: chip.link))
         }
     }
 }

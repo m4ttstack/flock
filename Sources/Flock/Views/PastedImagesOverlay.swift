@@ -2,20 +2,18 @@ import FlockCore
 import SwiftUI
 
 /// SPIKE: a pane's pasted images, drawn over its terminal as chips in place
-/// of their labels, a tray over the prompt, and a preview under the pointer.
+/// of their labels and a tray over the prompt. The preview is the link
+/// chip's (`LinkChipView`).
 struct PastedImagesOverlay: View {
     let theme: Theme
     let model: PastedImagesModel
+    let linkChip: LinkChipModel
     let space: String
+    let fontSizePoints: Double
 
     @AppStorage(PastedImageOptions.trayKey) private var showsTray = true
-    @AppStorage(PastedImageOptions.hoverKey) private var showsHover = true
     @AppStorage(PastedImageOptions.chipKey) private var showsChips = true
-
-    private static let thumbHeight: CGFloat = 128
-    private static let thumbWidths: ClosedRange<CGFloat> = 80...228
-    private static let gap: CGFloat = 6
-    private static let previewLimit = CGSize(width: 420, height: 280)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { pane in
@@ -24,135 +22,334 @@ struct PastedImagesOverlay: View {
                 if showsChips {
                     ForEach(Array(model.labels.enumerated()), id: \.offset) { _, label in
                         if !label.isAttachmentLine, let image = model.images[label.number] {
-                            chip(label, image).offset(x: label.rect.minX, y: label.rect.minY)
+                            PastedImageChip(
+                                theme: theme, label: label, image: image, fontSizePoints: fontSizePoints,
+                                isLit: model.highlighted == label.number
+                            )
+                            .offset(x: label.rect.minX, y: label.rect.minY)
                         }
                     }
                     .allowsHitTesting(false)
                 }
                 if showsTray, let top = model.promptTop, !trayNumbers.isEmpty {
-                    let scale = trayScale(in: pane.size, top: top)
-                    tray(scale)
-                        .offset(
-                            x: max(Self.gap, pane.size.width - trayWidth(scale) - Self.gap * 2),
-                            y: max(Self.gap, top - Self.thumbHeight * scale - Self.gap * 3)
-                        )
-                }
-                if showsHover, let label = model.hovered, let image = model.images[label.number] {
-                    preview(label, image, in: pane.size).allowsHitTesting(false)
+                    PastedImageTray(
+                        theme: theme, model: model, linkChip: linkChip, space: space,
+                        numbers: trayNumbers,
+                        available: CGSize(width: pane.size.width, height: top)
+                    )
+                    .frame(
+                        width: max(0, pane.size.width - PastedImageTray.inset),
+                        height: max(0, top - PastedImageTray.inset),
+                        alignment: .bottomTrailing
+                    )
+                    .transition(
+                        reduceMotion ? .opacity
+                            : .opacity.combined(with: .offset(y: ChromeMetrics.LinkChip.fadeRise))
+                    )
                 }
             }
-        }
-    }
-
-    private func chip(_ label: PastedImagesModel.Label, _ image: PastedImage) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 4)
-        return HStack(spacing: 4) {
-            Image(nsImage: image.thumbnail)
-                .resizable()
-                .scaledToFill()
-                .frame(width: label.rect.height - 4, height: label.rect.height - 6)
-                .clipShape(RoundedRectangle(cornerRadius: 2))
-            Text("Image \(label.number)")
-                .font(.system(size: label.rect.height * 0.6, weight: .medium))
-                .foregroundStyle(theme.textStrong)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .padding(.horizontal, 3)
-        .frame(width: label.rect.width, height: label.rect.height)
-        .background {
-            // Opaque: the program's own label is under here.
-            shape.fill(theme.terminalGround)
-            shape.fill(theme.accent.opacity(0.22))
-            shape.strokeBorder(theme.accent.opacity(0.6), lineWidth: 1)
+            .animation(
+                trayNumbers.isEmpty
+                    ? .easeIn(duration: ChromeMetrics.LinkChip.fadeOut)
+                    : .easeOut(duration: ChromeMetrics.LinkChip.fade),
+                value: trayNumbers
+            )
         }
     }
 
     private var trayNumbers: [Int] {
         Set(model.labels.filter { $0.inPrompt && model.images[$0.number] != nil }.map(\.number)).sorted()
     }
+}
+
+/// `[Image #N]` in the same cells: the text in the terminal's own font, and
+/// the three cells its brackets and `#` leave shared by the thumbnail and
+/// the space around it.
+private struct PastedImageChip: View {
+    let theme: Theme
+    let label: PastedImagesModel.Label
+    let image: PastedImage
+    let fontSizePoints: Double
+    let isLit: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.tiny)
+        let cell = label.rect.width / CGFloat("[Image #\(label.number)]".count)
+        HStack(spacing: 0) {
+            Image(nsImage: image.thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: cell * 1.7, height: max(4, label.rect.height - 6))
+                .clipShape(RoundedRectangle(cornerRadius: 2))
+                .padding(.leading, cell * 0.4)
+            Spacer(minLength: 0)
+            Text("Image \(label.number)")
+                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints))
+                .foregroundStyle(theme.textStrong)
+                .fixedSize()
+                .padding(.trailing, cell * 0.4)
+        }
+        .frame(width: label.rect.width, height: label.rect.height)
+        .background {
+            // Opaque: the program's own label is under here.
+            shape.fill(theme.terminalGround)
+            shape.fill(theme.accent.opacity(isLit ? 0.42 : 0.22))
+            shape.strokeBorder(theme.accent.opacity(isLit ? 1 : 0.6), lineWidth: 1)
+        }
+    }
+}
+
+/// The images in the prompt. It grows leftward until `maxWidth`, then
+/// scrolls.
+private struct PastedImageTray: View {
+    let theme: Theme
+    let model: PastedImagesModel
+    let linkChip: LinkChipModel
+    let space: String
+    let numbers: [Int]
+    let available: CGSize
+
+    static let inset: CGFloat = 12
+    private static let thumbHeight: CGFloat = 128
+    private static let thumbWidths: ClosedRange<CGFloat> = 80...228
+    private static let gap: CGFloat = 6
+    private static let maxWidth: CGFloat = 720
+
+    @State private var position = ScrollPosition(edge: .trailing)
+    @State private var offset: CGFloat = 0
+    @State private var pointerInside = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Self.gap) {
+                ForEach(numbers, id: \.self) { number in
+                    if let image = model.images[number] {
+                        PastedImageThumb(
+                            theme: theme, number: number, image: image,
+                            size: CGSize(width: thumbWidth(number), height: thumbHeight),
+                            isLit: model.highlighted == number,
+                            space: space,
+                            onHover: { frame in hover(number, image, frame) },
+                            onOpen: { model.open(number) }
+                        )
+                        .transition(.opacity)
+                    }
+                }
+            }
+            .padding(Self.gap)
+        }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in offset = x }
+        .frame(width: viewport, height: thumbHeight + Self.gap * 2)
+        .clipShape(shape)
+        .overlay(alignment: .leading) { arrow(forward: false) }
+        .overlay(alignment: .trailing) { arrow(forward: true) }
+        .background {
+            shape.fill(theme.chrome).shadow(color: .black.opacity(0.28), radius: 10, y: 4)
+        }
+        .overlay { shape.strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth).allowsHitTesting(false) }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.trayFrame = $0 }
+        .onHover { pointerInside = $0 }
+        .onDisappear { model.trayFrame = nil }
+        .onChange(of: numbers) { old, new in
+            guard new.count > old.count else { return }
+            withAnimation(motion) { position.scrollTo(edge: .trailing) }
+        }
+        .onChange(of: model.highlighted) { _, number in
+            guard let number, numbers.contains(number), !pointerInside else { return }
+            reveal(number)
+        }
+    }
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: ChromeRadius.container) }
+    private var motion: Animation? { reduceMotion ? nil : .easeOut(duration: 0.22) }
+
+    private var thumbHeight: CGFloat {
+        max(32, min(Self.thumbHeight, available.height - Self.inset * 2 - Self.gap * 2))
+    }
 
     private func thumbWidth(_ number: Int) -> CGFloat {
         guard let size = model.images[number]?.thumbnail.size, size.height > 0 else { return Self.thumbWidths.lowerBound }
-        let width = Self.thumbHeight * size.width / size.height
-        return min(max(width, Self.thumbWidths.lowerBound), Self.thumbWidths.upperBound)
+        let scale = thumbHeight / Self.thumbHeight
+        let width = thumbHeight * size.width / size.height
+        return min(max(width, Self.thumbWidths.lowerBound * scale), Self.thumbWidths.upperBound * scale)
     }
 
-    private func trayWidth(_ scale: CGFloat) -> CGFloat {
-        trayNumbers.reduce(Self.gap) { $0 + thumbWidth($1) * scale + Self.gap }
+    private var content: CGFloat {
+        numbers.reduce(Self.gap) { $0 + thumbWidth($1) + Self.gap }
     }
 
-    /// Full size until the thumbnails outgrow the pane.
-    private func trayScale(in pane: CGSize, top: CGFloat) -> CGFloat {
-        let gaps = CGFloat(trayNumbers.count + 1) * Self.gap
-        let images = trayWidth(1) - gaps
-        let width = (pane.width - gaps - Self.gap * 4) / max(1, images)
-        let height = (top - Self.gap * 4) / Self.thumbHeight
-        return max(0.2, min(1, width, height))
+    private var viewport: CGFloat {
+        max(60, min(content, Self.maxWidth, available.width - Self.inset * 2))
     }
 
-    private func tray(_ scale: CGFloat) -> some View {
-        HStack(spacing: Self.gap) {
-            ForEach(trayNumbers, id: \.self) { number in
-                if let image = model.images[number] {
-                    Button { model.open(number) } label: {
-                        Image(nsImage: image.thumbnail)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: thumbWidth(number) * scale, height: Self.thumbHeight * scale)
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.rule, lineWidth: 1))
-                            .overlay(alignment: .bottomTrailing) {
-                                Text("\(number)")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(theme.textStrong)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(Capsule().fill(theme.chrome))
-                                    .padding(3)
-                            }
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open image \(number)")
-                }
+    private var overflow: CGFloat { max(0, content - viewport) }
+
+    /// Each thumbnail's span in the scrolled content.
+    private var spans: [(number: Int, range: ClosedRange<CGFloat>)] {
+        var x = Self.gap
+        return numbers.map { number in
+            let start = x
+            x += thumbWidth(number) + Self.gap
+            return (number, start...(x - Self.gap))
+        }
+    }
+
+    /// How many thumbnails lie wholly past an edge, partly shown ones aside.
+    private func hidden(forward: Bool) -> Int {
+        spans.filter { forward ? $0.range.lowerBound >= offset + viewport : $0.range.upperBound <= offset }.count
+    }
+
+    private func scroll(to x: CGFloat) {
+        withAnimation(motion) { position.scrollTo(x: min(max(0, x), overflow)) }
+    }
+
+    private func reveal(_ number: Int) {
+        guard overflow > 0, let span = spans.first(where: { $0.number == number })?.range else { return }
+        let margin: CGFloat = 40
+        if span.lowerBound < offset {
+            scroll(to: span.lowerBound - margin)
+        } else if span.upperBound > offset + viewport {
+            scroll(to: span.upperBound + margin - viewport)
+        }
+    }
+
+    private func hover(_ number: Int, _ image: PastedImage, _ frame: CGRect?) {
+        guard let frame else {
+            guard model.highlighted == number else { return }
+            model.highlight(nil)
+            linkChip.pointerLeftPane()
+            return
+        }
+        model.highlight(number)
+        guard PastedImageOptions.isOn(PastedImageOptions.hoverKey) else { return }
+        linkChip.hover(
+            image.link,
+            anchor: LinkChip.Anchor(x: frame.midX, lineTop: frame.minY - Self.gap, lineBottom: frame.maxY + Self.gap)
+        )
+    }
+
+    @ViewBuilder
+    private func arrow(forward: Bool) -> some View {
+        let canMove = forward ? offset < overflow - 1 : offset > 1
+        if canMove {
+            PastedImageArrow(theme: theme, forward: forward, count: hidden(forward: forward)) {
+                scroll(to: offset + (forward ? 1 : -1) * viewport * 0.8)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxHeight: .infinity)
+            .background(
+                LinearGradient(
+                    colors: [theme.chrome, theme.chrome.opacity(0)],
+                    startPoint: forward ? .trailing : .leading, endPoint: forward ? .leading : .trailing
+                )
+                .clipShape(shape)
+                .allowsHitTesting(false)
+            )
+            .transition(.opacity)
+        }
+    }
+}
+
+private struct PastedImageThumb: View {
+    let theme: Theme
+    let number: Int
+    let image: PastedImage
+    let size: CGSize
+    /// The pointer is on this image, here or on its label in the terminal.
+    let isLit: Bool
+    let space: String
+    /// The thumbnail's frame in `space`, nil once the pointer is off it.
+    let onHover: (CGRect?) -> Void
+    let onOpen: () -> Void
+
+    @State private var frame = CGRect.zero
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: onOpen) {
+            Image(nsImage: image.thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .clipped()
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(Style(theme: theme, number: number, isLit: isLit))
+        .focusEffectDisabled()
+        .pointerStyle(.link)
+        .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: isLit)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { frame = $0 }
+        .onHover { onHover($0 ? frame : nil) }
+        .contextMenu {
+            Button("Open", action: onOpen)
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: image.path)])
+            }
+            Button("Copy Image") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([URL(fileURLWithPath: image.path) as NSURL])
             }
         }
-        .padding(Self.gap)
-        .background(card)
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.trayFrame = $0 }
-        .onDisappear { model.trayFrame = nil }
+        .accessibilityLabel("Image \(number)")
     }
 
-    private func preview(
-        _ label: PastedImagesModel.Label, _ image: PastedImage, in pane: CGSize
-    ) -> some View {
-        let source = image.thumbnail.size
-        let limit = CGSize(
-            width: max(40, min(Self.previewLimit.width, pane.width - 32)),
-            height: max(40, min(Self.previewLimit.height, max(label.rect.minY, pane.height - label.rect.maxY) - 32))
-        )
-        let scale = min(1, limit.width / max(1, source.width), limit.height / max(1, source.height))
-        let size = CGSize(width: source.width * scale, height: source.height * scale)
-        let outer = CGSize(width: size.width + Self.gap * 2, height: size.height + Self.gap * 2)
-        let fitsAbove = label.rect.minY - outer.height - Self.gap >= 0
-        return Image(nsImage: image.thumbnail)
-            .resizable()
-            .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .padding(Self.gap)
-            .background(card)
-            .offset(
-                x: max(Self.gap, min(label.rect.minX, pane.width - outer.width - Self.gap)),
-                y: fitsAbove ? label.rect.minY - outer.height - Self.gap : label.rect.maxY + Self.gap
-            )
-    }
+    private struct Style: ButtonStyle {
+        let theme: Theme
+        let number: Int
+        let isLit: Bool
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var card: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(theme.chrome)
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.rule, lineWidth: 1))
-            .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
+        func makeBody(configuration: Configuration) -> some View {
+            let shape = RoundedRectangle(cornerRadius: ChromeRadius.control)
+            configuration.label
+                .overlay { if configuration.isPressed { Color.black.opacity(0.18) } }
+                .clipShape(shape)
+                .overlay {
+                    shape.strokeBorder(isLit ? theme.accent : theme.rule, lineWidth: isLit ? 2 : 1)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Text("\(number)")
+                        .font(ChromeType.linkChip)
+                        .foregroundStyle(isLit ? theme.chrome : theme.textStrong)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(isLit ? theme.accent : theme.chrome))
+                        .overlay(Capsule().strokeBorder(isLit ? .clear : theme.rule, lineWidth: 1))
+                        .padding(5)
+                }
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+                .animation(GridControlFade.animation(reduceMotion: reduceMotion), value: configuration.isPressed)
+        }
+    }
+}
+
+/// Pages the tray one way, and says how many images are out of sight there.
+private struct PastedImageArrow: View {
+    let theme: Theme
+    let forward: Bool
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        GridControlButton(
+            theme: theme, shape: AnyShape(Capsule()), restFill: theme.chrome,
+            restForeground: theme.textStrong, action: action
+        ) {
+            HStack(spacing: 3) {
+                if forward, count > 0 { Text("\(count)").font(ChromeType.linkChip) }
+                Image(systemName: forward ? "chevron.right" : "chevron.left").font(ChromeType.linkChipSymbol)
+                if !forward, count > 0 { Text("\(count)").font(ChromeType.linkChip) }
+            }
+            .padding(.horizontal, 8)
+            .frame(minWidth: 26, minHeight: 26)
+        }
+        .overlay(Capsule().strokeBorder(theme.rule, lineWidth: 1).allowsHitTesting(false))
+        .shadow(color: .black.opacity(0.2), radius: 4, y: 1)
+        .pointerStyle(.link)
+        .focusEffectDisabled()
+        .accessibilityLabel(forward ? "Next images" : "Previous images")
     }
 }
 

@@ -19,6 +19,8 @@ struct PastedImage {
     let path: String
     let thumbnail: NSImage
 
+    var link: PaneLink { .file(URL(fileURLWithPath: path)) }
+
     static func load(_ path: String) -> PastedImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -59,7 +61,8 @@ final class PastedImagesModel {
     private(set) var images: [Int: PastedImage] = [:]
     /// The top of the prompt box's upper rule.
     private(set) var promptTop: CGFloat?
-    private(set) var hovered: Label?
+    /// The image the pointer is on, by its label or its thumbnail.
+    private(set) var highlighted: Int?
 
     @ObservationIgnored var trayFrame: CGRect?
     @ObservationIgnored var readScreen: (() -> Screen?)?
@@ -87,8 +90,12 @@ final class PastedImagesModel {
         labels.first { $0.rect.contains(point) && images[$0.number] != nil }
     }
 
-    func hover(_ label: Label?) {
-        if hovered != label { hovered = label }
+    func highlight(_ number: Int?) {
+        if highlighted != number { highlighted = number }
+    }
+
+    func image(for link: PaneLink) -> PastedImage? {
+        images.values.first { $0.link == link }
     }
 
     func open(_ number: Int) {
@@ -119,7 +126,7 @@ final class PastedImagesModel {
             if Date() > pendingDeadline { pending = [] }
         }
         if found != labels { labels = found }
-        if let hovered, !found.contains(hovered) { self.hovered = nil }
+        if let highlighted, !found.contains(where: { $0.number == highlighted }) { highlight(nil) }
         return !images.isEmpty || !pending.isEmpty
     }
 
