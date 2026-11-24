@@ -11,7 +11,7 @@ final class HerdrBuildOfferTests: XCTestCase {
         XCTAssertTrue(HerdrBuildOffer.shouldOffer(state: outdated, dismissedFor: nil))
         for state: HerdrBuildState? in [
             nil, .missing(installPath: "/p"), .current(version: "0.9.5-ms.2"), .notWritable(installPath: "/p"),
-            .listUnavailable(installed: nil),
+            .listUnavailable(installed: nil), .checking(installed: nil),
         ] {
             XCTAssertFalse(HerdrBuildOffer.shouldOffer(state: state, dismissedFor: nil))
             XCTAssertFalse(HerdrBuildOffer.hasAction(for: state))

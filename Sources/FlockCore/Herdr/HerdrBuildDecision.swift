@@ -9,18 +9,21 @@ public enum HerdrBuildState: Equatable, Sendable {
     case outdated(installPath: String, installed: String?, newest: String)
     case current(version: String)
     case notWritable(installPath: String)
+    /// No fetch of the list has finished yet.
+    case checking(installed: String?)
     /// The list could not be read, or has no build for this Mac's CPU.
     case listUnavailable(installed: String?)
 }
 
 public enum HerdrBuildDecision {
     public static func decide(
-        binaryExists: Bool, version: HerdrBuildVersion?, sha256: String?, list: HerdrBuildList?, arch: HerdrArch,
-        installPath: String, isWritable: Bool
+        binaryExists: Bool, version: HerdrBuildVersion?, sha256: String?, list: HerdrBuildList?, listPending: Bool,
+        arch: HerdrArch, installPath: String, isWritable: Bool
     ) -> HerdrBuildState {
         guard binaryExists else { return isWritable ? .missing(installPath: installPath) : .notWritable(installPath: installPath) }
         guard let list, let newestAsset = list.newest.assets[arch] else {
-            return .listUnavailable(installed: version?.display)
+            return list == nil && listPending
+                ? .checking(installed: version?.display) : .listUnavailable(installed: version?.display)
         }
         let newest = list.newest.version
         if let sha256, sha256 == newestAsset.sha256 { return .current(version: newest.display) }

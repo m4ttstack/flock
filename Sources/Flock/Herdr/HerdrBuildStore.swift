@@ -77,6 +77,8 @@ final class HerdrBuildStore {
     /// When a fetch last brought back a list. A failed fetch leaves it, so
     /// the next refresh tries again.
     @ObservationIgnored private var lastListFetch: Date?
+    /// Until the first fetch ends, however it ends.
+    @ObservationIgnored private var listPending = true
     @ObservationIgnored private var listRefreshRunning = false
     @ObservationIgnored private var listFetchesStarted = 0
     @ObservationIgnored private var listFetchApplied = 0
@@ -210,10 +212,13 @@ final class HerdrBuildStore {
     func refreshList() async {
         listFetchesStarted += 1
         let fetch = listFetchesStarted
-        guard let fetched = await fetchList(), fetch > listFetchApplied else { return }
-        listFetchApplied = fetch
-        lastListFetch = now()
-        if list != fetched { list = fetched }
+        let fetched = await fetchList()
+        listPending = false
+        if let fetched, fetch > listFetchApplied {
+            listFetchApplied = fetch
+            lastListFetch = now()
+            if list != fetched { list = fetched }
+        }
         decide()
     }
 
@@ -240,8 +245,8 @@ final class HerdrBuildStore {
     private func decide() {
         guard let probe = lastProbe else { return }
         let decided = HerdrBuildDecision.decide(
-            binaryExists: probe.exists, version: probe.version, sha256: probe.sha256, list: list, arch: arch,
-            installPath: probeTarget, isWritable: probe.isWritable
+            binaryExists: probe.exists, version: probe.version, sha256: probe.sha256, list: list,
+            listPending: listPending, arch: arch, installPath: probeTarget, isWritable: probe.isWritable
         )
         if state != decided { state = decided }
     }

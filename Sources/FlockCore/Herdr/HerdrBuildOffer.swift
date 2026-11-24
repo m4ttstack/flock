@@ -15,7 +15,7 @@ public enum HerdrBuildOffer {
     public static func dismissalToken(for state: HerdrBuildState) -> String? {
         switch state {
         case .stock(_, _, let newest), .outdated(_, _, let newest): newest
-        case .missing, .current, .notWritable, .listUnavailable: nil
+        case .missing, .current, .notWritable, .checking, .listUnavailable: nil
         }
     }
 

@@ -155,6 +155,7 @@ final class HerdrBuildFixture {
         binary: Data?,
         name: String = "default",
         list: HerdrBuildList? = HerdrBuildFixture.standardList,
+        listNeverLands: Bool = false,
         transport: HerdrDownloadTransport = BytesTransport(body: HerdrBuildFixture.ms2),
         runner: HerdrCommandRunner = QuietHerdrRunner(),
         server: HerdrServerBinary = .unknown,
@@ -169,7 +170,10 @@ final class HerdrBuildFixture {
         return HerdrBuildStore(
             resolveBinaryPath: { FileManager.default.fileExists(atPath: installPath) ? installPath : nil },
             defaultInstallPath: installPath,
-            fetchList: { list },
+            fetchList: {
+                if listNeverLands { try? await Task.sleep(for: .seconds(3600)) }
+                return list
+            },
             downloader: HerdrBuildDownloader(cacheDirectory: root.appendingPathComponent(cache), transport: transport),
             defaults: defaults,
             readVersionOutput: HerdrVersionFixture.read,

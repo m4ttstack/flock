@@ -25,6 +25,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(
             HerdrBuildCopy.body(for: .listUnavailable(installed: nil)),
             "flock couldn't read the herdr build list, so it can't check for a newer build.")
+        XCTAssertEqual(HerdrBuildCopy.body(for: .checking(installed: "0.9.5")), "Checking for a newer build\u{2026}")
         XCTAssertEqual(HerdrBuildCopy.heading, "herdr")
         XCTAssertEqual(HerdrBuildCopy.rowTitle, "mattstack build")
     }
@@ -36,6 +37,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .current(version: "v")))
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .notWritable(installPath: p)))
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .listUnavailable(installed: nil)))
+        XCTAssertNil(HerdrBuildCopy.actionTitle(for: .checking(installed: nil)))
     }
 
     func testConfirmations() {
@@ -105,7 +107,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         ] + [
             HerdrBuildState.missing(installPath: p), .stock(installPath: p, installed: "a", newest: "n"),
             .outdated(installPath: p, installed: "a", newest: "n"), .current(version: "v"), .notWritable(installPath: p),
-            .listUnavailable(installed: nil),
+            .listUnavailable(installed: nil), .checking(installed: nil),
         ].map(c.body(for:))
         for text in all {
             for banned in ["Restore", "backup", "herdr.dev", "herdr update"] {

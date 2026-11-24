@@ -79,12 +79,13 @@ final class HerdrBuildStoreTests: XCTestCase {
         }
     }
 
-    /// Answers the first fetch with no list at once, then holds every later
-    /// one open until the test answers it, in any order.
+    /// Holds each fetch open until the test answers it, in any order.
+    /// `answersFirst` answers the first with no list at once instead.
     private final class GatedLists: @unchecked Sendable {
         private let lock = NSLock()
-        private var first = true
+        private var first: Bool
         private var waiting: [CheckedContinuation<HerdrBuildList?, Never>] = []
+        init(answersFirst: Bool = true) { first = answersFirst }
         var pending: Int { lock.withLock { waiting.count } }
         func next() async -> HerdrBuildList? {
             let isFirst = lock.withLock {
@@ -441,6 +442,38 @@ final class HerdrBuildStoreTests: XCTestCase {
         await settle(retrying)
         XCTAssertNil(retrying.lastErrorMessage)
         XCTAssertEqual(binaryBytes(), ms2)
+    }
+
+    func testTheRowSaysCheckingUntilTheFirstListFetchFails() async throws {
+        let gated = GatedLists(answersFirst: false)
+        let store = try makeStore(binary: stock, fetchList: { await gated.next() })
+        await waitUntil { gated.pending == 1 }
+        XCTAssertEqual(store.state, .checking(installed: "0.9.5"))
+        XCTAssertFalse(store.showsBanner)
+        store.requestInstall(source: .settings)
+        XCTAssertNil(store.pendingConfirmation)
+
+        gated.answer(0, with: nil)
+        await settle(store)
+        XCTAssertEqual(store.state, .listUnavailable(installed: "0.9.5"))
+
+        store.refresh()
+        await waitUntil { gated.pending == 2 }
+        XCTAssertEqual(store.state, .listUnavailable(installed: "0.9.5"), "only the first fetch reads as checking")
+        gated.answer(1, with: standardList())
+        await settle(store)
+        XCTAssertEqual(store.state, .stock(installPath: installPath, installed: "0.9.5", newest: "0.9.5-ms.2"))
+    }
+
+    func testTheRowSaysCheckingUntilTheFirstListFetchLands() async throws {
+        let gated = GatedLists(answersFirst: false)
+        let store = try makeStore(binary: ms2, fetchList: { await gated.next() })
+        await waitUntil { gated.pending == 1 }
+        XCTAssertEqual(store.state, .checking(installed: "0.9.5-ms.2"))
+
+        gated.answer(0, with: standardList())
+        await settle(store)
+        XCTAssertEqual(store.state, .current(version: "0.9.5-ms.2"))
     }
 
     func testChecksumMismatchChangesNothing() async throws {

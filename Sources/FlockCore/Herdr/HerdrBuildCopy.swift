@@ -22,6 +22,8 @@ public enum HerdrBuildCopy {
             return "Up to date."
         case .notWritable(let installPath):
             return "flock can't write to \(displayPath(installPath)) from this account, so it leaves herdr alone."
+        case .checking:
+            return "Checking for a newer build\u{2026}"
         case .listUnavailable:
             return "flock couldn't read the herdr build list, so it can't check for a newer build."
         }
@@ -31,7 +33,7 @@ public enum HerdrBuildCopy {
         switch state {
         case .missing, .stock: "Install"
         case .outdated: "Update"
-        case .current, .notWritable, .listUnavailable: nil
+        case .current, .notWritable, .checking, .listUnavailable: nil
         }
     }
 
