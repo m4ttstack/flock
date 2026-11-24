@@ -196,13 +196,13 @@ private struct Harness {
 
     func makeWindow(size: CGSize) -> NSWindow {
         let missionDefaults = UserDefaults(suiteName: "flock-mission-\(UUID().uuidString)")!
-        // Resolves to no herdr, so the patch banner stays off and this
-        // measures the same chrome on every machine. A real probe would make
-        // the result depend on whichever herdr the host happens to have.
+        // Resolves to no herdr, so no build banner shows and this measures
+        // the same chrome on every machine. A real probe would make the
+        // result depend on whichever herdr the host happens to have.
         let root = MainWindow(
             viewModel: viewModel,
             sessionLabel: "latency",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil })
+            herdrBuildStore: HerdrBuildFixture.inert()
         )
             .environment(themeStore)
             .environment(textSize)

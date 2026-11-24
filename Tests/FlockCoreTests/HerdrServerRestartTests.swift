@@ -6,38 +6,6 @@ import XCTest
 /// The probe reads this test process and a socket it listens on itself;
 /// nothing here starts or connects to a herdr.
 final class HerdrServerRestartTests: XCTestCase {
-    private let installed = HerdrMousePatchRowState.installed(backupPath: "/tmp/herdr.flock-original")
-
-    func testOnlyACurrentServerChangingPatchWithTheServerOnAnotherBinaryNeedsARestart() {
-        XCTAssertTrue(HerdrServerRestart.isNeeded(state: installed, patchChangesServer: true, server: .other))
-        XCTAssertFalse(HerdrServerRestart.isNeeded(state: installed, patchChangesServer: true, server: .onDisk))
-        XCTAssertFalse(HerdrServerRestart.isNeeded(state: installed, patchChangesServer: true, server: .unknown))
-        XCTAssertFalse(HerdrServerRestart.isNeeded(state: installed, patchChangesServer: false, server: .other))
-        let others: [HerdrMousePatchRowState?] = [
-            nil, .supportedByHerdr, .unsupportedVersion, .notWritable(installPath: "/tmp/herdr"),
-            .patchable(installPath: "/tmp/herdr", version: "0.9.5"),
-            .outdated(installPath: "/tmp/herdr", version: "0.9.5", release: "0.9.5-r2", backupPath: "/tmp/b"),
-        ]
-        for state in others {
-            XCTAssertFalse(
-                HerdrServerRestart.isNeeded(state: state, patchChangesServer: true, server: .other), "\(String(describing: state))"
-            )
-        }
-    }
-
-    func testOnlyTheServerSideRevisionsChangeTheServer() throws {
-        let current = try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.5", arch: .arm64))
-        XCTAssertEqual(current.revision, 4)
-        XCTAssertTrue(current.changesServer)
-        let third = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 3 })
-        XCTAssertTrue(third.changesServer)
-        let second = try XCTUnwrap(HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 2 })
-        XCTAssertTrue(second.changesServer)
-        XCTAssertFalse(try XCTUnwrap(HerdrMousePatchCatalog.entry(for: "0.9.4", arch: .arm64)).changesServer)
-        let first = HerdrMousePatchCatalog.releases.first { $0.version == "0.9.5" && $0.revision == 1 }
-        XCTAssertEqual(first?.changesServer, false)
-    }
-
     func testAFailedHandoffQuotesHerdrsMessage() {
         XCTAssertEqual(
             HerdrServerRestart.failureReason(
@@ -50,27 +18,9 @@ final class HerdrServerRestartTests: XCTestCase {
     }
 
     func testTheServerRestartCopySaysPanesKeepRunningAndTheManualWayEndsThem() {
-        XCTAssertEqual(
-            HerdrMousePatchCopy.restartDetail(for: .updated, restartsServer: true),
-            "Restart herdr to finish; panes keep running."
-        )
-        XCTAssertEqual(HerdrMousePatchCopy.restartDetail(for: .updated), "Restart Flock so your panes pick it up.")
-        XCTAssertEqual(
-            HerdrMousePatchCopy.restartDetail(for: .herdrUpdated(.reinstalled), restartsServer: true),
-            "Restart herdr to finish; panes keep running."
-        )
-        XCTAssertEqual(
-            HerdrMousePatchCopy.restartDetail(for: .herdrUpdated(.reinstalling), restartsServer: true),
-            "Reinstalling mouse support, then restart Flock so your panes reconnect."
-        )
-        XCTAssertEqual(HerdrMousePatchCopy.restartHeadline(for: .serverBehind), "herdr's server is out of date")
-        XCTAssertEqual(HerdrMousePatchCopy.restartDetail(for: .serverBehind), "A restart keeps your panes running.")
-        XCTAssertTrue(HerdrMousePatchCopy.offersRestart(for: .serverBehind))
-        XCTAssertEqual(HerdrMousePatchCopy.restartActionTitle(restartsServer: true), "Restart herdr")
-        XCTAssertEqual(HerdrMousePatchCopy.restartActionTitle(restartsServer: false), "Restart Flock")
-        XCTAssertTrue(HerdrMousePatchCopy.serverRestartConfirmation.message.contains("Shells and agents keep running."))
+        XCTAssertTrue(HerdrBuildCopy.serverRestartConfirmation.message.contains("Shells and agents keep running."))
         XCTAssertTrue(
-            HerdrMousePatchCopy.serverRestartFailure("herdr's server didn't restart.")
+            HerdrBuildCopy.serverRestartFailure("herdr's server didn't restart.")
                 .hasSuffix("That ends every pane's shell and agent.")
         )
     }

@@ -22,7 +22,7 @@ struct MainWindow: View {
     @Environment(ChatSidebarStore.self) private var chatSidebar: ChatSidebarStore?
     let viewModel: SessionViewModel
     let sessionLabel: String
-    let herdrMousePatchStore: HerdrMousePatchStore
+    let herdrBuildStore: HerdrBuildStore
     var isDevBuild = BuildFlavor.isDev
     var machineNotice: MachineNotice? = nil
 
@@ -34,8 +34,8 @@ struct MainWindow: View {
         viewModel.resolvedFocusedPaneID.flatMap { viewModel.model?.panes[$0]?.agent != nil ? $0 : nil }
     }
 
-    private var bannerConfirmation: HerdrMousePatchStore.PendingConfirmation? {
-        herdrMousePatchStore.pendingConfirmation.flatMap { $0.source == .banner ? $0 : nil }
+    private var bannerConfirmation: HerdrBuildStore.PendingConfirmation? {
+        herdrBuildStore.pendingConfirmation.flatMap { $0.source == .banner ? $0 : nil }
     }
 
     private var tabPanes: Set<String> {
@@ -62,18 +62,18 @@ struct MainWindow: View {
     @ViewBuilder
     private var banners: some View {
         if let banner = viewModel.unsupportedBanner {
-            UnsupportedBanner(theme: theme, mismatch: banner)
+            UnsupportedBanner(theme: theme, mismatch: banner, isRemoteMachine: viewModel.isRemoteMachine)
         }
         // Below the protocol banner deliberately: a herdr too old to talk
         // to at all outranks an optional capability of one that works.
-        // The patch is for this Mac's herdr, which a machine session's
-        // panes do not run on.
+        // The build is this Mac's herdr, which a machine session's panes
+        // do not run on.
         if viewModel.isRemoteMachine {
             EmptyView()
-        } else if let reason = herdrMousePatchStore.bannerRestartPrompt {
-            HerdrMousePatchRestartBanner(theme: theme, store: herdrMousePatchStore, reason: reason)
-        } else if herdrMousePatchStore.showsBanner {
-            HerdrMousePatchBanner(theme: theme, store: herdrMousePatchStore)
+        } else if let reason = herdrBuildStore.bannerRestartPrompt {
+            HerdrRestartBanner(theme: theme, store: herdrBuildStore, reason: reason)
+        } else if herdrBuildStore.showsBanner {
+            HerdrBuildBanner(theme: theme, store: herdrBuildStore)
         }
     }
 
@@ -242,7 +242,7 @@ struct MainWindow: View {
         .modifier(GroupCloseCard(theme: theme, viewModel: viewModel))
         .modifier(CloseWarningCard(theme: theme, viewModel: viewModel))
         .modifier(TopBarRefusalCard(theme: theme, viewModel: viewModel))
-        .modifier(MousePatchBannerCard(theme: theme, store: herdrMousePatchStore, pending: bannerConfirmation))
+        .modifier(HerdrBuildBannerCard(theme: theme, store: herdrBuildStore, pending: bannerConfirmation))
     }
 }
 
@@ -306,10 +306,10 @@ private struct TopBarRefusalCard: ViewModifier {
 /// Naming the exact path being replaced is the point of it, so it is shown
 /// every time. Only the banner's own requests: the Settings row presents its
 /// own.
-private struct MousePatchBannerCard: ViewModifier {
+private struct HerdrBuildBannerCard: ViewModifier {
     let theme: Theme
-    let store: HerdrMousePatchStore
-    let pending: HerdrMousePatchStore.PendingConfirmation?
+    let store: HerdrBuildStore
+    let pending: HerdrBuildStore.PendingConfirmation?
 
     func body(content: Content) -> some View {
         content.modifier(ConfirmCardPresenter(
@@ -318,7 +318,7 @@ private struct MousePatchBannerCard: ViewModifier {
             content: { pending in
                 ConfirmCardContent(
                     action: pending.confirmation.title, message: AttributedString(pending.confirmation.message),
-                    confirmTitle: pending.confirmation.confirmButtonTitle, identifier: "flock.herdrMousePatch.banner"
+                    confirmTitle: pending.confirmation.confirmButtonTitle, identifier: "flock.herdrBuild.banner"
                 )
             },
             answer: { _, answer in
@@ -403,7 +403,7 @@ struct TitleBar: View {
     /// Present only in Flock Dev, which is the only flavor `FlockApp` hands one.
     @Environment(DevBuildWatcher.self) private var devBuild: DevBuildWatcher?
     @Environment(DevRebuild.self) private var devRebuild: DevRebuild?
-    @Environment(HerdrUpdateStore.self) private var herdrUpdate: HerdrUpdateStore?
+    @Environment(HerdrBuildStore.self) private var herdrBuild: HerdrBuildStore?
     @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
     @Environment(\.openSettings) private var openSettings
 
@@ -441,13 +441,12 @@ struct TitleBar: View {
 
     private var hasNotices: Bool {
         devBuild?.newerBuildReady == true || (devRebuild.map { $0.state != .idle } ?? false) || noticeColor != nil || machineNotice != nil
-            || herdrUpdateNotice != nil
+            || herdrUpdate != nil
     }
 
-    /// An update compares this Mac's herdr with the connected server and
-    /// hands off to it, which a machine's server is not.
-    private var herdrUpdateNotice: HerdrUpdateNotice? {
-        viewModel?.isRemoteMachine == true ? nil : herdrUpdate?.displayedNotice
+    /// The build is this Mac's herdr, which a machine's panes do not run on.
+    private var herdrUpdate: String? {
+        viewModel?.isRemoteMachine == true ? nil : herdrBuild?.availableUpdate
     }
 
     /// One even gap between whichever of these show, so a missing one leaves
@@ -464,8 +463,8 @@ struct TitleBar: View {
                     } else if let devRebuild {
                         DevRebuildPill(theme: theme, state: devRebuild.state, openLog: devRebuild.openLog)
                     }
-                    if let notice = herdrUpdateNotice {
-                        HerdrUpdatePill(theme: theme, notice: notice, updating: herdrUpdate?.updatePhase == .updating) {
+                    if let newest = herdrUpdate {
+                        HerdrUpdatePill(theme: theme, newest: newest) {
                             settingsSelection?.tab = .herdr
                             openSettings()
                         }
@@ -588,21 +587,26 @@ private struct RestartForNewBuildButton: View {
     }
 }
 
-/// The unprompted offer to patch herdr for mouse events. An offer, not a
-/// fault, so it carries the accent rather than the red the protocol banner
-/// uses: nothing is broken here, there is simply something flock can do.
+/// The unprompted offer to install or update the mattstack build. An offer,
+/// not a fault, so it carries the accent rather than the red the protocol
+/// banner uses: nothing is broken here, there is simply something flock can do.
 ///
 /// Install routes through the store's ordinary request, so the
 /// replace-this-path confirmation still appears. This shortens the walk to
 /// the settings row; it does not skip the step that names the binary about
 /// to be replaced.
-private struct HerdrMousePatchBanner: View {
+private struct HerdrBuildBanner: View {
     let theme: Theme
-    let store: HerdrMousePatchStore
+    let store: HerdrBuildStore
+
+    private var isUpdate: Bool {
+        if case .outdated = store.state { return true }
+        return false
+    }
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Banner.spacing) {
-            Image(systemName: "cursorarrow.click")
+            Image(systemName: isUpdate ? "arrow.up.circle" : "cursorarrow.click")
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.accent)
             if let message = store.bannerErrorMessage {
@@ -611,16 +615,19 @@ private struct HerdrMousePatchBanner: View {
                     .foregroundStyle(theme.red)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .accessibilityIdentifier("flock.herdrMousePatch.banner.error")
+                    .accessibilityIdentifier("flock.herdrBuild.banner.error")
             } else {
-                Text(HerdrMousePatchOffer.bannerHeadline(for: store.state))
+                Text(HerdrBuildOffer.bannerHeadline(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textStrong)
-                Text(HerdrMousePatchOffer.bannerDetail(for: store.state))
+                    .lineLimit(1)
+                    .fixedSize()
+                Text(HerdrBuildOffer.bannerDetail(for: store.state))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(HerdrBuildOffer.bannerDetail(for: store.state))
             }
             Spacer(minLength: ChromeMetrics.Banner.spacing)
             trailing
@@ -628,7 +635,7 @@ private struct HerdrMousePatchBanner: View {
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
-        .accessibilityIdentifier("flock.herdrMousePatch.banner")
+        .accessibilityIdentifier("flock.herdrBuild.banner")
     }
 
     @ViewBuilder
@@ -639,16 +646,16 @@ private struct HerdrMousePatchBanner: View {
         case .installing:
             busy("Installing...", fraction: 1)
         case .idle:
-            Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissBannerOffer() }
+            Button(HerdrBuildOffer.bannerDismissTitle) { store.dismissBannerOffer() }
                 .buttonStyle(.plain)
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
-            if !store.herdrUpdateInProgress, HerdrMousePatchOffer.hasAction(for: store.state) {
-                BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle(for: store.state)) {
+                .accessibilityIdentifier("flock.herdrBuild.banner.dismiss")
+            if !store.serverRestarting, HerdrBuildOffer.hasAction(for: store.state) {
+                BannerPillButton(theme: theme, title: HerdrBuildOffer.bannerActionTitle(for: store.state)) {
                     store.requestInstall(source: .banner)
                 }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+                .accessibilityIdentifier("flock.herdrBuild.banner.install")
             }
         }
     }
@@ -658,12 +665,14 @@ private struct HerdrMousePatchBanner: View {
     /// banner at the height it has with Install showing.
     private func busy(_ title: String, fraction: Double) -> some View {
         ZStack(alignment: .trailing) {
-            BannerPillButton(theme: theme, title: HerdrMousePatchOffer.bannerActionTitle(for: store.state)) {}
+            BannerPillButton(theme: theme, title: HerdrBuildOffer.bannerActionTitle(for: store.state)) {}
                 .hidden()
             HStack(spacing: ChromeMetrics.Banner.spacing) {
                 Text(title)
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
+                    .lineLimit(1)
+                    .fixedSize()
                 Capsule()
                     .fill(theme.accent.opacity(0.25))
                     .frame(width: 96, height: 6)
@@ -676,16 +685,16 @@ private struct HerdrMousePatchBanner: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(Text("\(Int(fraction * 100)) percent"))
-        .accessibilityIdentifier("flock.herdrMousePatch.banner.progress")
+        .accessibilityIdentifier("flock.herdrBuild.banner.progress")
     }
 }
 
 /// Restart herdr goes through the store's confirmation, which says the
 /// panes keep running and that Flock restarts after.
-private struct HerdrMousePatchRestartBanner: View {
+private struct HerdrRestartBanner: View {
     let theme: Theme
-    let store: HerdrMousePatchStore
-    let reason: HerdrMousePatchCopy.RestartReason
+    let store: HerdrBuildStore
+    let reason: HerdrBuildCopy.RestartReason
 
     private var restartsServer: Bool { store.needsServerRestart }
 
@@ -695,20 +704,20 @@ private struct HerdrMousePatchRestartBanner: View {
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.accent)
             if let message = store.serverRestartError {
-                Label(HerdrMousePatchCopy.serverRestartFailedBanner, systemImage: "exclamationmark.triangle.fill")
+                Label(HerdrBuildCopy.serverRestartFailedBanner, systemImage: "exclamationmark.triangle.fill")
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.red)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(message)
-                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.error")
+                    .accessibilityIdentifier("flock.herdrBuild.restartBanner.error")
             } else {
-                Text(HerdrMousePatchCopy.restartHeadline(for: reason))
+                Text(HerdrBuildCopy.restartHeadline(for: reason))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textStrong)
                     .lineLimit(1)
                     .fixedSize()
-                Text(HerdrMousePatchCopy.restartDetail(for: reason, restartsServer: restartsServer))
+                Text(HerdrBuildCopy.restartDetail(for: reason, restartsServer: restartsServer))
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
                     .lineLimit(1)
@@ -720,28 +729,28 @@ private struct HerdrMousePatchRestartBanner: View {
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
-        .accessibilityIdentifier("flock.herdrMousePatch.restartBanner")
+        .accessibilityIdentifier("flock.herdrBuild.restartBanner")
     }
 
     @ViewBuilder
     private var trailing: some View {
-        let title = HerdrMousePatchCopy.restartActionTitle(restartsServer: restartsServer)
+        let title = HerdrBuildCopy.restartActionTitle(restartsServer: restartsServer)
         if store.serverRestarting {
             ZStack(alignment: .trailing) {
                 BannerPillButton(theme: theme, title: title) {}
                     .hidden()
-                Text(HerdrMousePatchCopy.serverRestartProgressTitle)
+                Text(HerdrBuildCopy.serverRestartProgressTitle)
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
             }
-            .accessibilityIdentifier("flock.herdrMousePatch.banner.restarting")
-        } else if HerdrMousePatchCopy.offersRestart(for: reason) {
+            .accessibilityIdentifier("flock.herdrBuild.banner.restarting")
+        } else {
             if reason == .serverBehind {
-                Button(HerdrMousePatchOffer.bannerDismissTitle) { store.dismissServerBehindBanner() }
+                Button(HerdrBuildOffer.bannerDismissTitle) { store.dismissServerBehindBanner() }
                     .buttonStyle(.plain)
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
-                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.dismiss")
+                    .accessibilityIdentifier("flock.herdrBuild.restartBanner.dismiss")
             }
             BannerPillButton(theme: theme, title: title) {
                 if restartsServer {
@@ -750,10 +759,7 @@ private struct HerdrMousePatchRestartBanner: View {
                     AppRelaunch.relaunch()
                 }
             }
-            .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
-        } else {
-            BannerPillButton(theme: theme, title: title) {}
-                .hidden()
+            .accessibilityIdentifier("flock.herdrBuild.banner.restart")
         }
     }
 }
@@ -777,22 +783,33 @@ private struct BannerPillButton: View {
     }
 }
 
+/// Settings updates this Mac's herdr from the build list; `herdr update`
+/// would put stock herdr in its place.
 private struct UnsupportedBanner: View {
     let theme: Theme
     let mismatch: ProtocolMismatch
+    let isRemoteMachine: Bool
+
+    @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Banner.spacing) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.red)
-            Text(
-                "herdr is too old for flock (found protocol \(mismatch.found), "
-                    + "need \(mismatch.required)). Run `herdr update`."
-            )
-            .font(ChromeType.banner)
-            .foregroundStyle(theme.textStrong)
+            Text(HerdrBuildCopy.protocolTooOld(found: mismatch.found, required: mismatch.required, onMachine: isRemoteMachine))
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textStrong)
+                .accessibilityIdentifier("flock.herdrBuild.unsupportedBanner")
             Spacer(minLength: 0)
+            if !isRemoteMachine {
+                BannerPillButton(theme: theme, title: HerdrBuildCopy.protocolTooOldActionTitle) {
+                    settingsSelection?.tab = .herdr
+                    openSettings()
+                }
+                .accessibilityIdentifier("flock.herdrBuild.unsupportedBanner.settings")
+            }
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)

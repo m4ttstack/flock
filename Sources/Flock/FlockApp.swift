@@ -73,9 +73,8 @@ struct FlockApp: App {
     @State private var devBuildWatcher: DevBuildWatcher? = BuildFlavor.isDev ? DevBuildWatcher() : nil
     @State private var devRebuild: DevRebuild?
     @State private var herdProgressStore: HerdProgressStore
-    @State private var herdrToolStore = HerdrToolStore()
-    @State private var herdrMousePatchStore: HerdrMousePatchStore
-    @State private var herdrUpdateStore: HerdrUpdateStore
+    @State private var herdrToolStore: HerdrToolStore
+    @State private var herdrBuildStore: HerdrBuildStore
     @State private var serverPicker: ServerPicker
     @State private var profilePicker: ProfilePickerContext
     @State private var settingsTabSelection = SettingsTabSelection()
@@ -194,12 +193,11 @@ struct FlockApp: App {
         FlockAppDelegate.onOpenURL = { url in
             FlockLinkOpener.open(url, session: { controller.session }, board: boardStore)
         }
-        let herdrMousePatchStore = HerdrMousePatchStore(
-            serverSocketPath: { controller.session.isRemoteMachine ? nil : controller.socketPath }
-        )
-        _herdrMousePatchStore = State(initialValue: herdrMousePatchStore)
-        _herdrUpdateStore = State(initialValue: HerdrUpdateStore(
-            patchStore: herdrMousePatchStore, installedVersion: { controller.session.viewModel.model?.herdrVersion }
+        let herdrToolStore = HerdrToolStore()
+        _herdrToolStore = State(initialValue: herdrToolStore)
+        _herdrBuildStore = State(initialValue: HerdrBuildStore(
+            serverSocketPath: { controller.session.isRemoteMachine ? nil : controller.socketPath },
+            onBinaryPathChanged: { herdrToolStore.recheckIfMissing() }
         ))
         _serverPicker = State(initialValue: ServerPicker(
             list: HerdrSessionLister.list,
@@ -369,7 +367,7 @@ struct FlockApp: App {
     /// gets the not-running screen.
     @ViewBuilder private var sessionContent: some View {
         if showsMissingHerdr {
-            NoHerdrScreen(theme: themeStore.active)
+            MissingHerdrScreen(theme: themeStore.active, store: herdrBuildStore)
         } else if case .notRunning = viewModel.connectionState, !session.isRemoteMachine {
             NoHerdrScreen(
                 theme: themeStore.active, copy: notRunningCopy,
@@ -383,7 +381,7 @@ struct FlockApp: App {
             MainWindow(
                 viewModel: viewModel,
                 sessionLabel: session.address.label,
-                herdrMousePatchStore: herdrMousePatchStore,
+                herdrBuildStore: herdrBuildStore,
                 machineNotice: machineNotice
             )
             .environment(\.machineFolderLister, machineFolderLister)
@@ -482,6 +480,9 @@ struct FlockApp: App {
                     guard canChangeServer else { return }
                     session.serverSwitcher.note(currentSocket: socket, home: NSHomeDirectory())
                 }
+                // Inside the `.id` below as well: two sessions whose connections
+                // read the same never fire the connection change further down.
+                .onAppear { herdrBuildStore.checkServer() }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
@@ -495,7 +496,7 @@ struct FlockApp: App {
                 .environment(boardStore)
                 .environment(cswapStore)
                 .environment(devBuildWatcher)
-                .environment(herdrUpdateStore)
+                .environment(herdrBuildStore)
                 .environment(settingsTabSelection)
                 .environment(profilePicker)
                 .environment(devRebuild)
@@ -539,7 +540,6 @@ struct FlockApp: App {
                 .task { await boardStore.refresh() }
                 .task { await cswapStore.refresh() }
                 .task { devBuildWatcher?.start() }
-                .task { await herdrUpdateStore.checkIfDue() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                     viewModel.appLeftFront()
                 }
@@ -548,15 +548,15 @@ struct FlockApp: App {
                     viewModel.appCameToFront()
                     Task { await boardStore.refresh() }
                     Task { await cswapStore.refresh() }
-                    Task { await herdrUpdateStore.checkIfDue() }
-                    herdrMousePatchStore.refresh()
+                    herdrBuildStore.refresh()
+                    herdrToolStore.recheckIfMissing()
                     devBuildWatcher?.check()
                 }
-                // A hand-run `herdr update` replaces the binary under a row
-                // that would otherwise keep describing the old one.
-                .onChange(of: viewModel.model?.herdrVersion) { herdrMousePatchStore.refresh() }
+                // herdr replaced by hand changes the binary under a row that
+                // would otherwise keep describing the old one.
+                .onChange(of: viewModel.model?.herdrVersion) { herdrBuildStore.refresh() }
                 .onChange(of: herdrStore.connection) {
-                    herdrMousePatchStore.checkServer()
+                    herdrBuildStore.checkServer()
                     if case .notRunning = herdrStore.connection { return }
                     session.isStartingHerdr = false
                     session.herdrStartFailure = nil
@@ -906,7 +906,7 @@ struct FlockApp: App {
 
         Settings {
             FlockSettingsView(
-                herdrMousePatchStore: herdrMousePatchStore,
+                herdrBuildStore: herdrBuildStore,
                 notificationLifetimeStore: notificationLifetimeStore,
                 missionBottomLineStore: missionBottomLineStore,
                 overviewReturnStore: overviewReturnStore,
@@ -921,7 +921,6 @@ struct FlockApp: App {
                 rtModalTextSizeStore: rtModalTextSizeStore,
                 commandLineToolStore: commandLineToolStore,
                 herdrVersion: viewModel.model?.herdrVersion,
-                herdrUpdateStore: herdrUpdateStore,
                 serverPicker: serverPicker,
                 profiles: controller.profiles,
                 isLocked: controller.isLocked,

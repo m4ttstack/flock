@@ -28,6 +28,6 @@ final class LocalHerdrVersion {
     nonisolated static func readInstalled() -> String? {
         ToolPath.resolve("herdr")
             .flatMap { HerdrVersionReader().read(binaryPath: $0) }
-            .flatMap { HerdrMousePatchVersion.parse(versionOutput: $0) }
+            .flatMap { HerdrBuildVersion.parse(versionOutput: $0)?.display }
     }
 }

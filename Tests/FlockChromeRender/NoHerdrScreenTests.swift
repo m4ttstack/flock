@@ -15,7 +15,7 @@ final class NoHerdrScreenTests: XCTestCase {
     func testTheShippedCopy() {
         XCTAssertEqual(NoHerdrScreen.headline, "You can't have a flock without a herdr!")
         XCTAssertEqual(NoHerdrScreen.body, "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.")
-        XCTAssertEqual(NoHerdrScreen.hint, "Install herdr, then relaunch flock.")
+        XCTAssertEqual(NoHerdrScreen.hint, "flock can install the mattstack build of herdr for you.")
     }
 
     func testTheNotRunningCopy() {
@@ -133,12 +133,53 @@ final class NoHerdrScreenTests: XCTestCase {
         }
     }
 
-    /// Nil is every call site today: no button should draw, and nothing
-    /// should claim a click where one would sit.
+    /// The missing screen's Install button, then the install running, then
+    /// a failed one with its reason under the button. Each stays inside the
+    /// window's floor. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    func testTheMissingScreenInstallsTheBuild() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
+        for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {
+            for stage in ["install", "installing", "failed"] {
+                let transport: HerdrDownloadTransport = switch stage {
+                case "installing": HangingTransport()
+                default: BytesTransport(body: Data("<html>Not Found</html>".utf8))
+                }
+                let store = try fixture.store(
+                    binary: nil, name: "\(stage)-\(theme.id)", transport: transport, cache: "cache-\(stage)-\(theme.id)"
+                )
+                await HerdrBuildFixture.settle(store)
+                XCTAssertEqual(store.state, .missing(installPath: fixture.installPath("\(stage)-\(theme.id)")), stage)
+                defer { store.installTask?.cancel() }
+                if stage != "install" { store.installMissing() }
+                XCTAssertNil(store.pendingConfirmation, "\(stage): the missing screen's install asked again")
+                if stage == "failed" { await store.installTask?.value }
+                let screen = MissingHerdrScreen(theme: theme, store: store)
+                let window = hostWindow(screen)
+                await settle(window)
+                switch stage {
+                case "install": XCTAssertEqual(store.phase, .idle)
+                case "installing": XCTAssertEqual(store.phase, .downloading(0.4))
+                default: XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+                }
+                let image = try snapshot(window)
+                if let directory {
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("no-herdr-\(stage)-\(theme.id).png")
+                    try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
+                }
+                XCTAssertEqual(NSHostingView(rootView: screen).fittingSize, Self.size, "\(stage): the screen grew past its floor")
+                window.close()
+            }
+        }
+    }
+
+    /// Without a primary action no button draws, and nothing claims a click
+    /// where one would sit.
     func testNoPrimaryActionMeansNoButtonAtAll() {
         let withoutAction = fittingHeight(NoHerdrScreen(theme: .tokyoNight).content)
         let withAction = fittingHeight(
-            NoHerdrScreen(theme: .tokyoNight, primaryAction: .init(title: "Patch herdr", perform: {})).content
+            NoHerdrScreen(theme: .tokyoNight, primaryAction: .init(title: "Install herdr", perform: {})).content
         )
         XCTAssertGreaterThan(
             withAction, withoutAction,

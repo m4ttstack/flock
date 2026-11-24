@@ -2,9 +2,9 @@ import FlockCore
 import Foundation
 import Observation
 
-/// Resolves once, off the main actor, whether herdr is on this Mac, and
-/// caches the answer for the app's life -- the same shape `ChatStore` uses
-/// for its own binary probe. Starts optimistic (`isFound = true`): herdr
+/// Resolves off the main actor whether herdr is on this Mac -- the same shape
+/// `ChatStore` uses for its own binary probe. Once found, the answer holds
+/// for the app's life. Starts optimistic (`isFound = true`): herdr
 /// being present is the ordinary case, and only that default keeps a normal
 /// launch from ever showing the missing-herdr screen for the probe's own
 /// brief window.
@@ -17,9 +17,26 @@ final class HerdrToolStore {
     /// no production call site touches it.
     @ObservationIgnored private(set) var probeTask: Task<Void, Never> = Task {}
 
+    @ObservationIgnored private let probe: () async -> Bool
+
     init(probe: @escaping () async -> Bool = HerdrToolLocator.probeBinaryFound) {
-        probeTask = Task { [weak self] in
+        self.probe = probe
+        recheck()
+    }
+
+    /// A herdr that vanishes mid-session leaves its server running on the
+    /// deleted binary, so a session that started never falls back to the
+    /// missing screen.
+    func recheckIfMissing() {
+        guard !isFound else { return }
+        recheck()
+    }
+
+    private func recheck() {
+        probeTask.cancel()
+        probeTask = Task { [weak self, probe] in
             let found = await probe()
+            guard !Task.isCancelled else { return }
             self?.isFound = found
         }
     }

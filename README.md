@@ -34,7 +34,9 @@ Known issues:
 ## Requirements
 
 - macOS 15 or later, on Apple silicon or Intel
-- [herdr](https://github.com/herdrdev/herdr) 0.9 or later, on your `PATH`
+- herdr: Flock runs on the mattstack build from the
+  [m4ttstack/herdr](https://github.com/m4ttstack/herdr) fork's build list, and
+  installs it for you if herdr is missing
 
 ## Installation
 
@@ -138,10 +140,10 @@ command palette (<kbd>⌘</kbd><kbd>K</kbd>) lists each command with its key.
 - **rt Modal Text Size:** the size each rt command's modal opens at.
   <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> change it while that
   modal is up.
-- **herdr > Mouse support:** herdr 0.9.1 does not pass clicks and scrolling
-  through to its panes from a client like Flock. Flock carries a build of the
-  same herdr version that does, and can install it for you, keeping your
-  original to restore later.
+- **herdr > mattstack build:** installs the mattstack build of herdr from the
+  [m4ttstack/herdr](https://github.com/m4ttstack/herdr) fork's build list, and
+  updates it when a newer build is out. Flock asks before it replaces the
+  herdr you have, and keeps no copy of it to restore.
 
 ## Works with rt
 

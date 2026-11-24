@@ -55,8 +55,8 @@ stop_server() {
     pid="$(cat "$pidfile" 2>/dev/null || true)"
     comm="$(ps -p "${pid:-0}" -o comm= 2>/dev/null || true)"
     # A recorded pid outlives the process it named and the number gets reused,
-    # so the command is checked before the signal: the patched build is named
-    # herdr-mouse-cli, which this matches too.
+    # so the command is checked before the signal. The match is loose because
+    # the binary can sit under any name that contains herdr.
     case "$comm" in
       *herdr*)
         kill "$pid" 2>/dev/null || true

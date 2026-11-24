@@ -41,7 +41,7 @@ final class HerdrVersionReaderTests: XCTestCase {
         let output = reader.read(binaryPath: path)
 
         XCTAssertEqual(output, "herdr 0.9.5\n")
-        XCTAssertEqual(output.flatMap { HerdrMousePatchVersion.parse(versionOutput: $0) }, "0.9.5")
+        XCTAssertEqual(output.flatMap { HerdrBuildVersion.parse(versionOutput: $0) }?.display, "0.9.5")
     }
 
     func testANonZeroExitIsNoAnswer() throws {

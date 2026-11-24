@@ -258,7 +258,7 @@ struct ArrangeHarness {
         let board = BoardStore(sources: .unconfigured, userDefaults: defaults)
         let root = MainWindow(
             viewModel: viewModel, sessionLabel: "render",
-            herdrMousePatchStore: HerdrMousePatchStore(resolveBinaryPath: { nil }),
+            herdrBuildStore: HerdrBuildFixture.inert(),
             isDevBuild: false
         )
         .environment(nil as DevBuildWatcher?)
