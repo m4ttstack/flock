@@ -1,8 +1,17 @@
 import Foundation
 
 protocol HerdrCommandRunner: Sendable {
-    /// Runs `executable` with `arguments`; returns exit status and combined output.
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String)
+    /// Runs `executable` with `arguments`; returns exit status and combined
+    /// output. `socketPath` names the herdr server to act on; nil leaves the
+    /// environment's, which follows the session Flock is on when the process
+    /// starts rather than when it was asked for.
+    func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String)
+}
+
+extension HerdrCommandRunner {
+    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+        await run(executable, arguments, socketPath: nil)
+    }
 }
 
 /// stdin is /dev/null: herdr's prompts check for a terminal and take their
@@ -16,7 +25,7 @@ struct ProcessHerdrCommandRunner: HerdrCommandRunner {
     var deadline: Duration = .seconds(600)
     var environment: @Sendable () -> [String: String] = { ToolPath.childEnvironment() }
 
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+    func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("flock-herdr-run-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: log) }
         guard FileManager.default.createFile(atPath: log.path, contents: nil),
@@ -26,7 +35,9 @@ struct ProcessHerdrCommandRunner: HerdrCommandRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.environment = environment()
+        var environment = environment()
+        if let socketPath { environment["HERDR_SOCKET_PATH"] = socketPath }
+        process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = handle
         process.standardError = handle

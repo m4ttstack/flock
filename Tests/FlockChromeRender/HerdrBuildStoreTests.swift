@@ -42,6 +42,7 @@ final class HerdrBuildStoreTests: XCTestCase {
     private final class StubRunner: HerdrCommandRunner, @unchecked Sendable {
         private let lock = NSLock()
         private var recorded: [[String]] = []
+        private var recordedSockets: [String?] = []
         let status: Int32
         let output: String
         init(status: Int32 = 0, output: String = "live handoff complete; server log: /tmp/herdr-server.log\n") {
@@ -49,8 +50,12 @@ final class HerdrBuildStoreTests: XCTestCase {
             self.output = output
         }
         var calls: [[String]] { lock.withLock { recorded } }
-        func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-            lock.withLock { recorded.append([executable] + arguments) }
+        var sockets: [String?] { lock.withLock { recordedSockets } }
+        func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
+            lock.withLock {
+                recorded.append([executable] + arguments)
+                recordedSockets.append(socketPath)
+            }
             return (status, output)
         }
     }
@@ -60,7 +65,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         private let lock = NSLock()
         private var waiting: CheckedContinuation<(status: Int32, output: String), Never>?
         var isWaiting: Bool { lock.withLock { waiting != nil } }
-        func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+        func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
             await withCheckedContinuation { continuation in lock.withLock { waiting = continuation } }
         }
         func finish(status: Int32) {
@@ -205,6 +210,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         runner: HerdrCommandRunner = StubRunner(),
         server: ServerStub = ServerStub(.unknown),
         socket: String? = nil,
+        onServer: PathBox? = nil,
         clock: Clock = Clock(),
         versionReads: Counter? = nil,
         relaunch: (() -> Void)? = nil,
@@ -227,7 +233,7 @@ final class HerdrBuildStoreTests: XCTestCase {
             },
             arch: .arm64,
             now: { clock.now },
-            serverSocketPath: { socket },
+            serverSocketPath: { onServer?.path ?? socket },
             probeServer: { server.probe(socket: $0, binary: $1) },
             runner: runner,
             relaunch: relaunch ?? { XCTFail("relaunched") },
@@ -709,7 +715,10 @@ final class HerdrBuildStoreTests: XCTestCase {
         await settle(store)
 
         store.requestServerRestart(source: .banner)
-        XCTAssertEqual(store.pendingConfirmation?.action, .restartServer)
+        XCTAssertEqual(
+            store.pendingConfirmation?.action,
+            .restartServer(HerdrServerRestart.Offer(socketPath: socket, binaryPath: installPath, version: "0.9.5-ms.2"))
+        )
         XCTAssertEqual(store.pendingConfirmation?.confirmation, HerdrBuildCopy.serverRestartConfirmation)
         XCTAssertEqual(relaunches.count, 0, "nothing runs before the confirmation")
         store.confirmPendingAction()
@@ -720,8 +729,112 @@ final class HerdrBuildStoreTests: XCTestCase {
             runner.calls,
             [[installPath, "server", "live-handoff", "--import-exe", installPath, "--expected-version", "0.9.5-ms.2"]]
         )
+        XCTAssertEqual(runner.sockets, [socket], "the handoff did not name the confirmed server")
         XCTAssertEqual(relaunches.count, 1)
         XCTAssertNil(store.serverRestartError)
+    }
+
+    private let otherSocket = "/tmp/acme/other/herdr.sock"
+
+    func testARestartConfirmedForOneServerNeverRestartsAnother() async throws {
+        let runner = StubRunner()
+        let onServer = PathBox(socket)
+        let store = try makeStore(
+            binary: ms2, runner: runner, server: ServerStub(.other), onServer: onServer, relaunch: {}
+        )
+        await settle(store)
+        store.requestServerRestart(source: .settings)
+        XCTAssertNotNil(store.pendingConfirmation)
+
+        // The server switched to is out of date too, so only its socket tells the two apart.
+        onServer.path = otherSocket
+        store.checkServer()
+        await settle(store)
+        XCTAssertTrue(store.needsServerRestart)
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+
+        XCTAssertNil(store.pendingConfirmation)
+        XCTAssertFalse(store.serverRestarting)
+        XCTAssertEqual(runner.calls, [])
+
+        store.requestServerRestart(source: .settings)
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+        XCTAssertEqual(runner.sockets, [otherSocket])
+    }
+
+    func testARestartConfirmedBeforeTheNewServerIsProbedRestartsNothing() async throws {
+        let runner = StubRunner()
+        let onServer = PathBox(socket)
+        let store = try makeStore(
+            binary: ms2, runner: runner, server: ServerStub(.other), onServer: onServer, relaunch: {}
+        )
+        await settle(store)
+        store.requestServerRestart(source: .banner)
+
+        onServer.path = otherSocket
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+
+        XCTAssertFalse(store.serverRestarting)
+        XCTAssertEqual(runner.calls, [])
+    }
+
+    func testAServerNotYetProbedIsNotOfferedTheLastOnesRestart() async throws {
+        let onServer = PathBox(socket)
+        let store = try makeStore(binary: ms2, server: ServerStub(.other), onServer: onServer)
+        await settle(store)
+        XCTAssertTrue(store.needsServerRestart)
+
+        onServer.path = otherSocket
+        XCTAssertFalse(store.needsServerRestart)
+        XCTAssertNil(store.restartPrompt)
+        store.requestServerRestart(source: .banner)
+        XCTAssertNil(store.pendingConfirmation)
+
+        store.checkServer()
+        await settle(store)
+        XCTAssertTrue(store.needsServerRestart)
+    }
+
+    func testARestartConfirmedForABuildSinceReplacedRestartsNothing() async throws {
+        let runner = StubRunner()
+        let lists = ListSource([standardList()])
+        let store = try makeStore(
+            binary: ms2, lists: lists, runner: runner, server: ServerStub(.other), socket: socket, relaunch: {}
+        )
+        await settle(store)
+        store.requestServerRestart(source: .settings)
+        XCTAssertNotNil(store.pendingConfirmation)
+
+        lists.set(ms3List)
+        try writeBinary(ms3)
+        store.refresh()
+        await store.refreshList()
+        await settle(store)
+        XCTAssertTrue(store.needsServerRestart, "the replacement needs a restart of its own")
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+
+        XCTAssertNil(store.pendingConfirmation)
+        XCTAssertEqual(runner.calls, [])
+    }
+
+    func testARestartConfirmationOutlivesAProbeThatFindsTheSameServer() async throws {
+        let runner = StubRunner()
+        let store = try makeStore(
+            binary: ms2, runner: runner, server: ServerStub(.other), socket: socket, relaunch: {}
+        )
+        await settle(store)
+        store.requestServerRestart(source: .settings)
+
+        store.refresh()
+        await settle(store)
+        store.confirmPendingAction()
+        await store.serverRestartTask?.value
+
+        XCTAssertEqual(runner.sockets, [socket])
     }
 
     func testARefusedHandoffKeepsFlockRunningAndSaysHowToFinishByHand() async throws {

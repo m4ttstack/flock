@@ -27,6 +27,8 @@ final class HerdrBuildStore {
     private(set) var binaryPath: String?
     private(set) var binaryVersion: HerdrBuildVersion?
     private(set) var serverBinary: HerdrServerBinary = .unknown
+    /// The server `serverBinary` answers for.
+    private var serverBinarySocket: String?
     /// A live handoff is running; Flock relaunches when it lands.
     private(set) var serverRestarting = false
     private(set) var serverRestartError: String?
@@ -42,7 +44,7 @@ final class HerdrBuildStore {
     /// The banner and the Settings row both watch this store, and each
     /// presents only the confirmations it asked for.
     struct PendingConfirmation: Equatable {
-        enum Action: Equatable { case install(InstallOffer), restartServer }
+        enum Action: Equatable { case install(InstallOffer), restartServer(HerdrServerRestart.Offer) }
         enum Source: Equatable { case banner, settings }
         let action: Action
         let confirmation: HerdrBuildCopy.Confirmation
@@ -160,9 +162,14 @@ final class HerdrBuildStore {
 
     /// The build on disk changes herdr's server, but the server still runs
     /// an older binary, so that half is missing until herdr restarts.
-    var needsServerRestart: Bool {
-        guard case .current = state, serverBinary == .other else { return false }
-        return list?.build(matching: binaryVersion, sha256: lastProbe?.sha256)?.changesServer == true
+    var needsServerRestart: Bool { serverRestartOffer != nil }
+
+    private var serverRestartOffer: HerdrServerRestart.Offer? {
+        HerdrServerRestart.offer(
+            state: state, build: list?.build(matching: binaryVersion, sha256: lastProbe?.sha256), server: serverBinary,
+            probedSocket: serverBinarySocket, currentSocket: serverSocketPath(), binaryPath: binaryPath,
+            version: binaryVersion
+        )
     }
 
     /// Nil while an install runs: a relaunch would end it part way.
@@ -268,6 +275,7 @@ final class HerdrBuildStore {
         serverCheckTask?.cancel()
         guard let binaryPath, let socket = serverSocketPath() else {
             if serverBinary != .unknown { serverBinary = .unknown }
+            if serverBinarySocket != nil { serverBinarySocket = nil }
             return
         }
         let probeServer = probeServer
@@ -278,6 +286,7 @@ final class HerdrBuildStore {
             // restart: an unreadable one says nothing about it.
             if found == .onDisk, serverRestartError != nil { serverRestartError = nil }
             if found != serverBinary { serverBinary = found }
+            if socket != serverBinarySocket { serverBinarySocket = socket }
         }
     }
 
@@ -343,9 +352,9 @@ final class HerdrBuildStore {
     }
 
     func requestServerRestart(source: PendingConfirmation.Source) {
-        guard needsServerRestart, !serverRestarting, phase == .idle else { return }
+        guard let offer = serverRestartOffer, !serverRestarting, phase == .idle else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
+            action: .restartServer(offer), confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
         )
     }
 
@@ -367,22 +376,25 @@ final class HerdrBuildStore {
             bannerErrorMessage = nil
             missingInstall = nil
             performInstall(build: build, decidedFrom: offer.probe, startedFromBanner: pending.source == .banner)
-        case .restartServer:
+        case .restartServer(let offer):
+            // As above, for a dialog left open across a switch of servers.
+            guard serverRestartOffer == offer else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
-            performServerRestart()
+            performServerRestart(offer)
         }
     }
 
     /// `--expected-version` makes the new server refuse the handoff, and the
     /// old one keep running, if the binary on disk changed in between.
-    private func performServerRestart() {
-        guard needsServerRestart, !serverRestarting, let binaryPath, let version = binaryVersion?.display else { return }
+    private func performServerRestart(_ offer: HerdrServerRestart.Offer) {
         serverRestartError = nil
         serverRestarting = true
         serverRestartTask = Task { [runner] in
             let result = await runner.run(
-                binaryPath, HerdrLiveHandoff.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
+                offer.binaryPath,
+                HerdrLiveHandoff.liveHandoffArguments(binaryPath: offer.binaryPath, expectedVersion: offer.version),
+                socketPath: offer.socketPath
             )
             if HerdrLiveHandoff.handedOff(status: result.status, output: result.output) {
                 relaunch()

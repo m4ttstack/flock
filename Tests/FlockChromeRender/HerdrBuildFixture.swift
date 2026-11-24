@@ -34,20 +34,20 @@ final class OnceThenHangingTransport: HerdrDownloadTransport, @unchecked Sendabl
 }
 
 struct QuietHerdrRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+    func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
         (0, "")
     }
 }
 
 struct HangingHerdrRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+    func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
         try? await Task.sleep(for: .seconds(3600))
         return (1, "")
     }
 }
 
 struct RefusingHandoffRunner: HerdrCommandRunner {
-    func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
+    func run(_ executable: String, _ arguments: [String], socketPath: String?) async -> (status: Int32, output: String) {
         (1, #"{"error":{"code":"handoff_failed","message":"handoff replacement server did not become ready"}}"#)
     }
 }

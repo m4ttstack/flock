@@ -11,6 +11,16 @@ final class HerdrCommandRunnerTests: XCTestCase {
         XCTAssertEqual(result.output, "live handoff complete\n")
     }
 
+    func testARunNamesTheSocketItIsGiven() async {
+        let runner = ProcessHerdrCommandRunner(
+            deadline: .seconds(10), environment: { ["HERDR_SOCKET_PATH": "/tmp/acme/now.sock", "ACME": "1"] }
+        )
+        let named = await runner.run("/usr/bin/env", [], socketPath: "/tmp/acme/confirmed.sock")
+        XCTAssertEqual(Set(named.output.split(separator: "\n")), ["HERDR_SOCKET_PATH=/tmp/acme/confirmed.sock", "ACME=1"])
+        let inherited = await runner.run("/usr/bin/env", [])
+        XCTAssertEqual(Set(inherited.output.split(separator: "\n")), ["HERDR_SOCKET_PATH=/tmp/acme/now.sock", "ACME=1"])
+    }
+
     func testARunPastItsDeadlineIsStoppedAndReadsAsTimedOut() async {
         let runner = ProcessHerdrCommandRunner(deadline: .milliseconds(200), environment: { [:] })
         let started = Date()
