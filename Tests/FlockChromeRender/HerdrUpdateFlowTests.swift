@@ -43,7 +43,7 @@ final class HerdrUpdateFlowTests: XCTestCase {
     }
 
     /// Holds the reinstall's download until the test lets it go.
-    private final class GatedTransport: HerdrPatchTransport, @unchecked Sendable {
+    private final class GatedTransport: HerdrDownloadTransport, @unchecked Sendable {
         let body: Data
         private let lock = NSLock()
         private var started = false
@@ -58,7 +58,7 @@ final class HerdrUpdateFlowTests: XCTestCase {
         }
     }
 
-    private final class CountingTransport: HerdrPatchTransport, @unchecked Sendable {
+    private final class CountingTransport: HerdrDownloadTransport, @unchecked Sendable {
         var downloads = 0
         let body: Data
         init(body: Data) { self.body = body }
@@ -68,7 +68,7 @@ final class HerdrUpdateFlowTests: XCTestCase {
         }
     }
 
-    private struct HangingTransport: HerdrPatchTransport {
+    private struct HangingTransport: HerdrDownloadTransport {
         func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
             progress(0.4)
             try await Task.sleep(for: .seconds(3600))
@@ -98,13 +98,13 @@ final class HerdrUpdateFlowTests: XCTestCase {
     }
 
     private func makeStores(
-        runner: StubRunner, transport: HerdrPatchTransport, running: String = "0.9.4"
+        runner: StubRunner, transport: HerdrDownloadTransport, running: String = "0.9.4"
     ) async -> (update: HerdrUpdateStore, patch: HerdrMousePatchStore) {
         let shas = ["0.9.4": sha(oldPatched), "0.9.5": sha(newPatched)]
         let patch = HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
             catalog: { version in shas[version].map { HerdrMousePatchEntry(version: version, sha256: $0) } },
-            downloader: HerdrMousePatchDownloader(cacheDirectory: root.appendingPathComponent("cache"), transport: transport),
+            downloader: HerdrBuildDownloader(cacheDirectory: root.appendingPathComponent("cache"), transport: transport),
             readVersionOutput: HerdrVersionFixture.read
         )
         let update = HerdrUpdateStore(

@@ -2,7 +2,7 @@ import CryptoKit
 import FlockCore
 import XCTest
 
-private final class StubTransport: HerdrPatchTransport, @unchecked Sendable {
+private final class StubTransport: HerdrDownloadTransport, @unchecked Sendable {
     var body: Data?
     var error: Error?
     private(set) var calls = 0
@@ -15,7 +15,13 @@ private final class StubTransport: HerdrPatchTransport, @unchecked Sendable {
     }
 }
 
-final class HerdrMousePatchDownloaderTests: XCTestCase {
+private extension HerdrBuildDownloader {
+    func fetch(request: HerdrBuildDownloaderTests.Request) async throws -> String {
+        try await fetch(url: request.url, sha256: request.sha256, fileName: request.fileName, progress: { _ in })
+    }
+}
+
+final class HerdrBuildDownloaderTests: XCTestCase {
     private var cache: URL!
     private let good = Data("herdr 0.9.5 terminal.mouse_capture".utf8)
 
@@ -27,35 +33,41 @@ final class HerdrMousePatchDownloaderTests: XCTestCase {
         try? FileManager.default.removeItem(at: cache)
     }
 
-    private func entry(for data: Data) -> HerdrMousePatchEntry {
-        HerdrMousePatchEntry(version: "0.9.5", sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(), arch: .arm64)
+    struct Request {
+        let sha256: String
+        let fileName = "herdr-0.9.5-ms.1-arm64"
+        let url = URL(string: "https://github.com/m4ttstack/herdr/releases/download/v0.9.5-ms.1/herdr-macos-aarch64")!
+    }
+
+    private func entry(for data: Data) -> Request {
+        Request(sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
     }
 
     func testAMatchingDownloadLandsInTheCacheAndIsReturned() async throws {
         let transport = StubTransport()
         transport.body = good
-        let path = try await HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport)
-            .fetch(entry(for: good), progress: { _ in })
-        XCTAssertEqual(path, cache.appendingPathComponent("herdr-mouse-patch-0.9.5-arm64").path)
+        let path = try await HerdrBuildDownloader(cacheDirectory: cache, transport: transport)
+            .fetch(request: entry(for: good))
+        XCTAssertEqual(path, cache.appendingPathComponent("herdr-0.9.5-ms.1-arm64").path)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), good)
     }
 
     func testAVerifiedCachedFileIsReusedWithoutDownloading() async throws {
         let transport = StubTransport()
         transport.body = good
-        let downloader = HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport)
-        _ = try await downloader.fetch(entry(for: good), progress: { _ in })
-        _ = try await downloader.fetch(entry(for: good), progress: { _ in })
+        let downloader = HerdrBuildDownloader(cacheDirectory: cache, transport: transport)
+        _ = try await downloader.fetch(request: entry(for: good))
+        _ = try await downloader.fetch(request: entry(for: good))
         XCTAssertEqual(transport.calls, 1)
     }
 
     func testACachedFileCorruptedOnDiskIsDownloadedAgain() async throws {
         let transport = StubTransport()
         transport.body = good
-        let downloader = HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport)
-        let path = try await downloader.fetch(entry(for: good), progress: { _ in })
+        let downloader = HerdrBuildDownloader(cacheDirectory: cache, transport: transport)
+        let path = try await downloader.fetch(request: entry(for: good))
         try Data("corrupted".utf8).write(to: URL(fileURLWithPath: path))
-        let again = try await downloader.fetch(entry(for: good), progress: { _ in })
+        let again = try await downloader.fetch(request: entry(for: good))
         XCTAssertEqual(transport.calls, 2)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: again)), good)
     }
@@ -63,35 +75,35 @@ final class HerdrMousePatchDownloaderTests: XCTestCase {
     func testATruncatedDownloadFailsAndLeavesNothingBehind() async throws {
         let transport = StubTransport()
         transport.body = good.prefix(10)
-        await assertFails(.checksumMismatch, HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
+        await assertFails(.checksumMismatch, HerdrBuildDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: cache.path), [])
     }
 
     func testAnErrorPageInPlaceOfTheBinaryFailsTheChecksum() async throws {
         let transport = StubTransport()
         transport.body = Data("<html>Not Found</html>".utf8)
-        await assertFails(.checksumMismatch, HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
+        await assertFails(.checksumMismatch, HerdrBuildDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
     }
 
     func testPartialsStrandedByAnEarlierQuitAreSweptBeforeDownloading() async throws {
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-        let stranded = cache.appendingPathComponent("herdr-mouse-patch-0.9.5-arm64.partial-\(UUID().uuidString)")
-        let otherVersion = cache.appendingPathComponent("herdr-mouse-patch-0.9.4-arm64.partial-\(UUID().uuidString)")
+        let stranded = cache.appendingPathComponent("herdr-0.9.5-ms.1-arm64.partial-\(UUID().uuidString)")
+        let otherVersion = cache.appendingPathComponent("herdr-0.9.4-ms.1-arm64.partial-\(UUID().uuidString)")
         try Data(repeating: 0, count: 1024).write(to: stranded)
         try Data(repeating: 0, count: 1024).write(to: otherVersion)
         let transport = StubTransport()
         transport.body = good
 
-        _ = try await HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport).fetch(entry(for: good), progress: { _ in })
+        _ = try await HerdrBuildDownloader(cacheDirectory: cache, transport: transport).fetch(request: entry(for: good))
 
         XCTAssertEqual(
             try FileManager.default.contentsOfDirectory(atPath: cache.path).sorted(),
-            [otherVersion.lastPathComponent, "herdr-mouse-patch-0.9.5-arm64"].sorted()
+            [otherVersion.lastPathComponent, "herdr-0.9.5-ms.1-arm64"].sorted()
         )
     }
 
     func testTheProgressThrottlePassesOnlyMovesOfAPercentAndTheEnd() {
-        let throttle = HerdrPatchProgressThrottle()
+        let throttle = HerdrDownloadProgressThrottle()
         let passed = [0, 0.001, 0.005, 0.0101, 0.015, 0.03, 0.995, 0.999, 1, 1].filter { throttle.shouldReport($0) }
         XCTAssertEqual(passed, [0, 0.0101, 0.03, 0.995, 1])
     }
@@ -99,18 +111,18 @@ final class HerdrMousePatchDownloaderTests: XCTestCase {
     func testATransportErrorReportsTransport() async throws {
         let transport = StubTransport()
         transport.error = URLError(.notConnectedToInternet)
-        await assertFails(.transport, HerdrMousePatchDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
+        await assertFails(.transport, HerdrBuildDownloader(cacheDirectory: cache, transport: transport), entry(for: good))
     }
 
     private func assertFails(
-        _ expected: HerdrMousePatchDownloader.Failure, _ downloader: HerdrMousePatchDownloader, _ entry: HerdrMousePatchEntry,
+        _ expected: HerdrBuildDownloader.Failure, _ downloader: HerdrBuildDownloader, _ entry: Request,
         line: UInt = #line
     ) async {
         do {
-            _ = try await downloader.fetch(entry, progress: { _ in })
+            _ = try await downloader.fetch(request: entry)
             XCTFail("expected \(expected)", line: line)
         } catch {
-            XCTAssertEqual(error as? HerdrMousePatchDownloader.Failure, expected, line: line)
+            XCTAssertEqual(error as? HerdrBuildDownloader.Failure, expected, line: line)
         }
     }
 }

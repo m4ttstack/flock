@@ -13,7 +13,7 @@ final class HerdrServerRestartStoreTests: XCTestCase {
     private let patched = Data("herdr 0.9.5 terminal.mouse_capture host_theme build".utf8)
     private let olderRevision = Data("herdr 0.9.5 terminal.mouse_capture older revision".utf8)
 
-    private final class FileTransport: HerdrPatchTransport, @unchecked Sendable {
+    private final class FileTransport: HerdrDownloadTransport, @unchecked Sendable {
         let body: Data
         init(body: Data) { self.body = body }
         func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
@@ -93,7 +93,7 @@ final class HerdrServerRestartStoreTests: XCTestCase {
                     version: $0, sha256: sha, revision: 2, superseded: superseded, changesServer: changesServer
                 )
             },
-            downloader: HerdrMousePatchDownloader(
+            downloader: HerdrBuildDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: patched)
             ),
             defaults: defaults ?? self.defaults,

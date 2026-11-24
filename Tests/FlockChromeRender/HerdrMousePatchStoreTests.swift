@@ -11,7 +11,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
     nonisolated(unsafe) private var root: URL!
     nonisolated(unsafe) private var binaryPath: String!
 
-    private final class FileTransport: HerdrPatchTransport, @unchecked Sendable {
+    private final class FileTransport: HerdrDownloadTransport, @unchecked Sendable {
         var body: Data
         init(body: Data) { self.body = body }
         func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
@@ -48,7 +48,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
             catalog: {
                 catalogued ? HerdrMousePatchEntry(version: $0, sha256: sha, revision: revision, superseded: superseded) : nil
             },
-            downloader: HerdrMousePatchDownloader(
+            downloader: HerdrBuildDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"), transport: FileTransport(body: body ?? patched)
             ),
             defaults: defaults,
@@ -277,7 +277,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         XCTAssertEqual(store.phase, .idle)
     }
 
-    private struct UpdatingTransport: HerdrPatchTransport {
+    private struct UpdatingTransport: HerdrDownloadTransport {
         let body: Data
         let binaryPath: String
         let newer: Data
@@ -295,7 +295,7 @@ final class HerdrMousePatchStoreTests: XCTestCase {
         let store = HerdrMousePatchStore(
             resolveBinaryPath: { [binaryPath] in binaryPath },
             catalog: { HerdrMousePatchEntry(version: $0, sha256: sha) },
-            downloader: HerdrMousePatchDownloader(
+            downloader: HerdrBuildDownloader(
                 cacheDirectory: root.appendingPathComponent("cache"),
                 transport: UpdatingTransport(body: patched, binaryPath: binaryPath, newer: newer)
             ),

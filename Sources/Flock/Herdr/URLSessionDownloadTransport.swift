@@ -1,7 +1,7 @@
 import FlockCore
 import Foundation
 
-struct URLSessionPatchTransport: HerdrPatchTransport {
+struct URLSessionDownloadTransport: HerdrDownloadTransport {
     struct HTTPStatus: Error { let code: Int }
 
     var session: URLSession = .shared
@@ -32,12 +32,12 @@ private final class ProgressDelegate: NSObject, URLSessionDownloadDelegate, Send
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
 }
 
-extension HerdrMousePatchDownloader {
-    static var standard: HerdrMousePatchDownloader {
+extension HerdrBuildDownloader {
+    static var standard: HerdrBuildDownloader {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let directory = caches
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "flock")
-            .appendingPathComponent("herdr-patches")
-        return HerdrMousePatchDownloader(cacheDirectory: directory, transport: URLSessionPatchTransport())
+            .appendingPathComponent("herdr-builds")
+        return HerdrBuildDownloader(cacheDirectory: directory, transport: URLSessionDownloadTransport())
     }
 }

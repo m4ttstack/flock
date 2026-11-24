@@ -15,11 +15,11 @@ private final class StubProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
-final class URLSessionPatchTransportTests: XCTestCase {
-    private func transport() -> URLSessionPatchTransport {
+final class URLSessionDownloadTransportTests: XCTestCase {
+    private func transport() -> URLSessionDownloadTransport {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubProtocol.self]
-        return URLSessionPatchTransport(session: URLSession(configuration: config))
+        return URLSessionDownloadTransport(session: URLSession(configuration: config))
     }
 
     private var destination: URL {

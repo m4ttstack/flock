@@ -272,7 +272,7 @@ final class HerdrMousePatchInstallerTests: XCTestCase {
 
         XCTAssertTrue(probe.hasVerbs)
         XCTAssertTrue(probe.hasBackup)
-        XCTAssertEqual(probe.sha256, try HerdrMousePatchDownloader.sha256(ofFileAt: URL(fileURLWithPath: binaryPath)))
+        XCTAssertEqual(probe.sha256, try HerdrBuildDownloader.sha256(ofFileAt: URL(fileURLWithPath: binaryPath)))
     }
 
     /// Only a binary with the verbs can be an outdated patch, so a stock

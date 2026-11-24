@@ -49,7 +49,7 @@ final class HerdrMousePatchStore {
     @ObservationIgnored var serverRestartTask: Task<Void, Never>?
     @ObservationIgnored private let resolveBinaryPath: () -> String?
     @ObservationIgnored private let catalog: (String) -> HerdrMousePatchEntry?
-    @ObservationIgnored private let downloader: HerdrMousePatchDownloader
+    @ObservationIgnored private let downloader: HerdrBuildDownloader
     @ObservationIgnored private let fileManager: FileManager
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let probe: (String, FileManager) -> HerdrMousePatchInstaller.Probe
@@ -89,7 +89,7 @@ final class HerdrMousePatchStore {
     init(
         resolveBinaryPath: @escaping () -> String? = { ToolPath.resolve("herdr") },
         catalog: @escaping (String) -> HerdrMousePatchEntry? = HerdrMousePatchCatalog.entry(for:),
-        downloader: HerdrMousePatchDownloader = .standard,
+        downloader: HerdrBuildDownloader = .standard,
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard,
         readVersionOutput: @escaping (String) -> String? = { HerdrVersionReader().read(binaryPath: $0) },
@@ -370,12 +370,12 @@ final class HerdrMousePatchStore {
             reprobe()
             return
         }
-        let throttle = HerdrPatchProgressThrottle()
+        let throttle = HerdrDownloadProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager] in
             defer { phase = .idle; reprobe() }
             do {
-                let artifact = try await downloader.fetch(entry) { fraction in
+                let artifact = try await downloader.fetch(url: entry.url, sha256: entry.sha256, fileName: entry.fileName) { fraction in
                     guard throttle.shouldReport(fraction) else { return }
                     Task { @MainActor in if case .downloading = self.phase { self.phase = .downloading(fraction) } }
                 }
@@ -441,9 +441,9 @@ final class HerdrMousePatchStore {
             return "flock's saved copy of the original herdr is missing, so it left this one alone."
         case HerdrMousePatchInstaller.RevertError.backupMissing:
             return "No backup is available to revert to."
-        case HerdrMousePatchDownloader.Failure.transport:
+        case HerdrBuildDownloader.Failure.transport:
             return "Couldn't download the patch. Check your connection and try again."
-        case HerdrMousePatchDownloader.Failure.checksumMismatch:
+        case HerdrBuildDownloader.Failure.checksumMismatch:
             return "The download didn't match what flock expected. Nothing was changed."
         case is HerdrChanged:
             return "herdr changed while the patch downloaded. Nothing was changed."

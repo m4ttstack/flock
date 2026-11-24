@@ -4,14 +4,14 @@ import CryptoKit
 import SwiftUI
 import XCTest
 
-private struct BytesTransport: HerdrPatchTransport {
+private struct BytesTransport: HerdrDownloadTransport {
     let body: Data
     func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
         try body.write(to: destination)
     }
 }
 
-private struct HangingTransport: HerdrPatchTransport {
+private struct HangingTransport: HerdrDownloadTransport {
     func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
         progress(0.4)
         try await Task.sleep(for: .seconds(3600))
@@ -2934,7 +2934,7 @@ final class ChromeRenderTests: XCTestCase {
             let store = HerdrMousePatchStore(
                 resolveBinaryPath: { herdr },
                 catalog: { HerdrMousePatchEntry(version: $0, sha256: patchedSHA) },
-                downloader: HerdrMousePatchDownloader(
+                downloader: HerdrBuildDownloader(
                     cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: patched)
                 ),
                 defaults: defaults,
@@ -2985,12 +2985,12 @@ final class ChromeRenderTests: XCTestCase {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
             for stage in ["downloading", "failed"] {
-                let transport: HerdrPatchTransport = stage == "downloading"
+                let transport: HerdrDownloadTransport = stage == "downloading"
                     ? HangingTransport() : BytesTransport(body: Data("<html>Not Found</html>".utf8))
                 let store = HerdrMousePatchStore(
                     resolveBinaryPath: { herdr },
                     catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
-                    downloader: HerdrMousePatchDownloader(
+                    downloader: HerdrBuildDownloader(
                         cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)-\(stage)"), transport: transport
                     ),
                     defaults: defaults,
@@ -3133,7 +3133,7 @@ final class ChromeRenderTests: XCTestCase {
                             version: $0, sha256: currentSHA, revision: 2, superseded: [olderSHA], changesServer: true
                         )
                     },
-                    downloader: HerdrMousePatchDownloader(
+                    downloader: HerdrBuildDownloader(
                         cacheDirectory: herdrDir.appendingPathComponent("cache-\(id)"), transport: BytesTransport(body: current)
                     ),
                     defaults: defaults,
@@ -3223,7 +3223,7 @@ final class ChromeRenderTests: XCTestCase {
             let store = HerdrMousePatchStore(
                 resolveBinaryPath: { herdr },
                 catalog: { HerdrMousePatchEntry(version: $0, sha256: String(repeating: "0", count: 64)) },
-                downloader: HerdrMousePatchDownloader(
+                downloader: HerdrBuildDownloader(
                     cacheDirectory: root.appendingPathComponent("cache"), transport: HangingTransport()
                 ),
                 readVersionOutput: HerdrVersionFixture.read
@@ -5954,7 +5954,7 @@ extension ChromeRenderTests {
             let patch = HerdrMousePatchStore(
                 resolveBinaryPath: { herdr },
                 catalog: { HerdrMousePatchEntry(version: $0, sha256: newPatchedSHA) },
-                downloader: HerdrMousePatchDownloader(
+                downloader: HerdrBuildDownloader(
                     cacheDirectory: root.appendingPathComponent("cache"), transport: BytesTransport(body: newPatched)
                 ),
                 readVersionOutput: HerdrVersionFixture.read
