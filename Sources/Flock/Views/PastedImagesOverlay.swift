@@ -12,7 +12,8 @@ struct PastedImagesOverlay: View {
     @AppStorage(PastedImageOptions.hoverKey) private var showsHover = true
     @AppStorage(PastedImageOptions.chipKey) private var showsChips = true
 
-    private static let thumb = CGSize(width: 84, height: 56)
+    private static let thumbHeight: CGFloat = 128
+    private static let thumbWidths: ClosedRange<CGFloat> = 80...228
     private static let gap: CGFloat = 6
     private static let previewLimit = CGSize(width: 420, height: 280)
 
@@ -22,17 +23,18 @@ struct PastedImagesOverlay: View {
                 Color.clear
                 if showsChips {
                     ForEach(Array(model.labels.enumerated()), id: \.offset) { _, label in
-                        if let image = model.images[label.number] {
+                        if !label.isAttachmentLine, let image = model.images[label.number] {
                             chip(label, image).offset(x: label.rect.minX, y: label.rect.minY)
                         }
                     }
                     .allowsHitTesting(false)
                 }
                 if showsTray, let top = model.promptTop, !trayNumbers.isEmpty {
-                    tray
+                    let scale = trayScale(in: pane.size, top: top)
+                    tray(scale)
                         .offset(
-                            x: max(Self.gap, pane.size.width - trayWidth - Self.gap * 2),
-                            y: max(Self.gap, top - trayHeight)
+                            x: max(Self.gap, pane.size.width - trayWidth(scale) - Self.gap * 2),
+                            y: max(Self.gap, top - Self.thumbHeight * scale - Self.gap * 3)
                         )
                 }
                 if showsHover, let label = model.hovered, let image = model.images[label.number] {
@@ -70,13 +72,26 @@ struct PastedImagesOverlay: View {
         Set(model.labels.filter { $0.inPrompt && model.images[$0.number] != nil }.map(\.number)).sorted()
     }
 
-    private var trayWidth: CGFloat {
-        CGFloat(trayNumbers.count) * (Self.thumb.width + Self.gap) + Self.gap
+    private func thumbWidth(_ number: Int) -> CGFloat {
+        guard let size = model.images[number]?.thumbnail.size, size.height > 0 else { return Self.thumbWidths.lowerBound }
+        let width = Self.thumbHeight * size.width / size.height
+        return min(max(width, Self.thumbWidths.lowerBound), Self.thumbWidths.upperBound)
     }
 
-    private var trayHeight: CGFloat { Self.thumb.height + Self.gap * 3 }
+    private func trayWidth(_ scale: CGFloat) -> CGFloat {
+        trayNumbers.reduce(Self.gap) { $0 + thumbWidth($1) * scale + Self.gap }
+    }
 
-    private var tray: some View {
+    /// Full size until the thumbnails outgrow the pane.
+    private func trayScale(in pane: CGSize, top: CGFloat) -> CGFloat {
+        let gaps = CGFloat(trayNumbers.count + 1) * Self.gap
+        let images = trayWidth(1) - gaps
+        let width = (pane.width - gaps - Self.gap * 4) / max(1, images)
+        let height = (top - Self.gap * 4) / Self.thumbHeight
+        return max(0.2, min(1, width, height))
+    }
+
+    private func tray(_ scale: CGFloat) -> some View {
         HStack(spacing: Self.gap) {
             ForEach(trayNumbers, id: \.self) { number in
                 if let image = model.images[number] {
@@ -84,7 +99,7 @@ struct PastedImagesOverlay: View {
                         Image(nsImage: image.thumbnail)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: Self.thumb.width, height: Self.thumb.height)
+                            .frame(width: thumbWidth(number) * scale, height: Self.thumbHeight * scale)
                             .clipShape(RoundedRectangle(cornerRadius: 5))
                             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(theme.rule, lineWidth: 1))
                             .overlay(alignment: .bottomTrailing) {

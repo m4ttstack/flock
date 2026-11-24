@@ -46,6 +46,8 @@ final class PastedImagesModel {
         /// In the pane's top-left space, points.
         let rect: CGRect
         let inPrompt: Bool
+        /// Claude Code's own line repeating a sent message's attachment.
+        let isAttachmentLine: Bool
     }
 
     struct Screen {
@@ -139,7 +141,8 @@ final class PastedImagesModel {
                         x: CGFloat(column) * screen.cell.width, y: CGFloat(row) * screen.cell.height,
                         width: CGFloat(match.output.0.count) * screen.cell.width, height: screen.cell.height
                     ),
-                    inPrompt: prompt?.contains(row) ?? false
+                    inPrompt: prompt?.contains(row) ?? false,
+                    isAttachmentLine: line.drop { $0 == " " }.hasPrefix("\u{23BF}")
                 ))
             }
         }
