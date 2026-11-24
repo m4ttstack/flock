@@ -462,6 +462,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if !rearrangeActive {
             requestWindowFirstResponder()
         }
+        // The rest of a multiple click on an image is not the terminal's.
+        if event.clickCount > 1, !rearrangeActive, imageLabel(at: topLeftPoint(event)) != nil {
+            leftButtonRoute = nil
+            return
+        }
         if let link = linkUnderPress(event) {
             pendingLinkClick = PendingLinkClick(link: link, down: event)
             leftButtonRoute = nil

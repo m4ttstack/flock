@@ -36,6 +36,13 @@ final class PastedImageQuickLook: NSObject {
     func show(
         _ shown: [Item], startingAt number: Int, over window: NSWindow?, sourceFrame: @escaping (Int) -> NSRect?
     ) {
+        // A reload while the panel is up or still opening runs its opening
+        // animation again.
+        guard Date().timeIntervalSince(openedAt) > Self.openingTime else { return }
+        if let panel = QLPreviewPanel.shared(), panel.isVisible, panel.dataSource === self,
+           (panel.currentPreviewItem as? Item)?.number == number, items.map(\.url) == shown.map(\.url) {
+            return
+        }
         items = shown.filter { FileManager.default.fileExists(atPath: $0.url.path) }
         guard let index = items.firstIndex(where: { $0.number == number }), let panel = QLPreviewPanel.shared() else {
             items = []
@@ -50,6 +57,7 @@ final class PastedImageQuickLook: NSObject {
             panel.currentPreviewItemIndex = index
             return
         }
+        openedAt = Date()
         let before = panel.frame
         let source = sourceFrame(number)
         let target = window.map { Self.frame(for: items[index], above: source, in: $0, panel: panel) }
@@ -90,6 +98,8 @@ final class PastedImageQuickLook: NSObject {
     }
 
     private var startIndex = 0
+    private var openedAt = Date.distantPast
+    private static let openingTime: TimeInterval = 0.6
 
     func begin() {
         guard let panel = QLPreviewPanel.shared() else { return }
