@@ -37,7 +37,7 @@ struct HerdrBuildRow: View {
                 LabeledContent {
                     if store.serverRestarting {
                         ProgressView().controlSize(.small)
-                            .accessibilityIdentifier("flock.settings.herdrMousePatch.restarting")
+                            .accessibilityIdentifier("flock.settings.herdrBuild.restarting")
                     } else {
                         Button(HerdrBuildCopy.restartActionTitle(restartsServer: restartsServer)) {
                             if restartsServer {
@@ -46,7 +46,7 @@ struct HerdrBuildRow: View {
                                 AppRelaunch.relaunch()
                             }
                         }
-                        .accessibilityIdentifier("flock.settings.herdrMousePatch.restart")
+                        .accessibilityIdentifier("flock.settings.herdrBuild.restart")
                     }
                 } label: {
                     Text(HerdrBuildCopy.restartHeadline(for: reason))
@@ -56,12 +56,12 @@ struct HerdrBuildRow: View {
             if let message = store.serverRestartError {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                    .accessibilityIdentifier("flock.settings.herdrMousePatch.restartError")
+                    .accessibilityIdentifier("flock.settings.herdrBuild.restartError")
             }
             if let message = store.lastErrorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                    .accessibilityIdentifier("flock.settings.herdrMousePatch.error")
+                    .accessibilityIdentifier("flock.settings.herdrBuild.error")
             }
         }
         .confirmationDialog(
@@ -76,9 +76,9 @@ struct HerdrBuildRow: View {
             Button(pending.confirmation.confirmButtonTitle) {
                 store.confirmPendingAction()
             }
-            .accessibilityIdentifier("flock.settings.herdrMousePatch.confirm")
+            .accessibilityIdentifier("flock.settings.herdrBuild.confirm")
             Button("Cancel", role: .cancel) { store.cancelPendingConfirmation() }
-                .accessibilityIdentifier("flock.settings.herdrMousePatch.cancel")
+                .accessibilityIdentifier("flock.settings.herdrBuild.cancel")
         } message: { pending in
             Text(pending.confirmation.message)
         }
@@ -90,7 +90,7 @@ struct HerdrBuildRow: View {
         case .downloading(let fraction):
             ProgressView(value: fraction) { Text("Downloading...") }
                 .frame(width: 120)
-                .accessibilityIdentifier("flock.settings.herdrMousePatch.progress")
+                .accessibilityIdentifier("flock.settings.herdrBuild.progress")
         case .installing:
             ProgressView().controlSize(.small)
         case .idle:
@@ -104,7 +104,7 @@ struct HerdrBuildRow: View {
                     }
                 }
                 .disabled(store.serverRestarting)
-                .accessibilityIdentifier("flock.settings.herdrMousePatch.action")
+                .accessibilityIdentifier("flock.settings.herdrBuild.action")
             }
         }
     }

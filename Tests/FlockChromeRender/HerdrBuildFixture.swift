@@ -1,6 +1,7 @@
 import CryptoKit
 import FlockCore
 import Foundation
+import XCTest
 
 struct BytesTransport: HerdrDownloadTransport {
     let body: Data
@@ -69,14 +70,17 @@ final class HerdrBuildFixture {
     }
 
     /// No herdr on disk and no list, so no banner, pill or restart shows:
-    /// what every window that is not about herdr wants.
+    /// what every window that is not about herdr wants. Its defaults suite
+    /// is removed when the running test finishes.
     static func inert() -> HerdrBuildStore {
-        HerdrBuildStore(
+        let suite = "flock-herdr-fixture-inert-\(UUID().uuidString)"
+        InertSuiteSweeper.shared.add(suite)
+        return HerdrBuildStore(
             resolveBinaryPath: { nil },
             defaultInstallPath: FileManager.default.temporaryDirectory
                 .appendingPathComponent("flock-no-herdr-\(UUID().uuidString)/herdr").path,
             fetchList: { nil },
-            defaults: UserDefaults(suiteName: "flock-herdr-fixture-inert")!,
+            defaults: UserDefaults(suiteName: suite)!,
             readVersionOutput: { _ in nil },
             arch: .arm64,
             runner: QuietHerdrRunner(),
@@ -166,5 +170,33 @@ final class HerdrBuildFixture {
         await store.listTask?.value
         await store.installTask?.value
         await store.serverCheckTask?.value
+    }
+}
+
+/// `inert()` is called from harnesses that hold no test case, so the suites
+/// it makes are removed by watching for the end of whichever test is running.
+private final class InertSuiteSweeper: NSObject, XCTestObservation, @unchecked Sendable {
+    static let shared = InertSuiteSweeper()
+
+    private let lock = NSLock()
+    private var suites: [String] = []
+    private var observing = false
+
+    @MainActor
+    func add(_ suite: String) {
+        let register = lock.withLock {
+            suites.append(suite)
+            defer { observing = true }
+            return !observing
+        }
+        if register { XCTestObservationCenter.shared.addTestObserver(self) }
+    }
+
+    func testCaseDidFinish(_ testCase: XCTestCase) {
+        let finished = lock.withLock {
+            defer { suites.removeAll() }
+            return suites
+        }
+        for suite in finished { UserDefaults().removePersistentDomain(forName: suite) }
     }
 }

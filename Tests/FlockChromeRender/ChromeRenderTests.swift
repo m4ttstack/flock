@@ -2870,6 +2870,10 @@ final class ChromeRenderTests: XCTestCase {
             }
             if let state = buildStates[name] {
                 let elements = await accessibilityElements(in: window)
+                XCTAssertTrue(
+                    elements.contains { !$0.identifier.isEmpty },
+                    "\(name): the accessibility walk found no identified element, so the checks below prove nothing"
+                )
                 XCTAssertEqual(
                     elements.first { $0.identifier == "flock.settings.herdrBuild.body" }?.text, HerdrBuildCopy.body(for: state),
                     "\(name): the row does not read the state's body"
@@ -2879,7 +2883,7 @@ final class ChromeRenderTests: XCTestCase {
                     "\(name): a Restore button is drawn"
                 )
                 XCTAssertEqual(
-                    elements.contains { $0.identifier == "flock.settings.herdrMousePatch.action" },
+                    elements.contains { $0.identifier == "flock.settings.herdrBuild.action" },
                     HerdrBuildCopy.actionTitle(for: state) != nil, "\(name): the action button does not match the state"
                 )
                 // The system alert draws nothing offscreen, so its words are
@@ -2941,6 +2945,34 @@ final class ChromeRenderTests: XCTestCase {
                 }
                 window.close()
             }
+        }
+    }
+
+    /// A herdr too old to talk to: the banner says so in red and points to
+    /// Settings, with a pill that opens it, never to `herdr update`. PNGs go
+    /// to `FLOCK_CHROME_RENDER_DIR`.
+    func testTheProtocolBannerPointsToSettings() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let pillBand = CGRect(x: Self.windowSize.width - 160, y: ChromeMetrics.TitleBar.height, width: 160, height: 60)
+        let iconBand = CGRect(x: 0, y: ChromeMetrics.TitleBar.height, width: Self.windowSize.width / 2, height: 60)
+
+        for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
+            let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
+            let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
+            harness.viewModel.update(model: try Fixture.herdModel(), connection: .unsupported(.protocolTooOld(found: 19, required: 22)))
+            XCTAssertEqual(harness.viewModel.unsupportedBanner, ProtocolMismatch(found: 19, required: 22))
+            let window = harness.makeWindow(size: Self.windowSize)
+            await settle(window)
+            let image = try snapshot(window)
+            if let directory {
+                try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-protocol-banner-\(scheme)-\(id).png"))
+            }
+            XCTAssertGreaterThan(count(theme.palette.red.hex, in: iconBand, of: image), 20, "\(scheme): no red warning")
+            XCTAssertGreaterThan(
+                count(theme.palette.accent.hex, in: pillBand, of: image), 200, "\(scheme): no Open Settings pill at the right"
+            )
+            window.close()
         }
     }
 
@@ -5806,9 +5838,16 @@ extension ChromeRenderTests {
     /// its identifier and the text it reads as. SwiftUI builds the tree only
     /// for an assistive client, which enhanced UI stands in for.
     private func accessibilityElements(in window: NSWindow) async -> [(identifier: String, text: String)] {
-        let wasEnhanced = NSApp.value(forKey: "accessibilityEnhancedUserInterface") as? Bool ?? false
-        NSApp.setValue(true, forKey: "accessibilityEnhancedUserInterface")
-        defer { NSApp.setValue(wasEnhanced, forKey: "accessibilityEnhancedUserInterface") }
+        // AppKit has no public property for it; this key is the one an
+        // assistive client sets, and a missing setter fails here, not later.
+        let key = "accessibilityEnhancedUserInterface"
+        guard NSApp.responds(to: NSSelectorFromString("setAccessibilityEnhancedUserInterface:")) else {
+            XCTFail("NSApplication no longer takes \(key)")
+            return []
+        }
+        let wasEnhanced = NSApp.value(forKey: key) as? Bool ?? false
+        NSApp.setValue(true, forKey: key)
+        defer { NSApp.setValue(wasEnhanced, forKey: key) }
         await settle(window)
         var found: [(identifier: String, text: String)] = []
         var pending: [Any] = window.contentView.map { [$0] } ?? []

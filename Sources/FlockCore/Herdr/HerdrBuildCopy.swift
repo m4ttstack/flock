@@ -120,6 +120,15 @@ public enum HerdrBuildCopy {
     public static let integrationFailed =
         "herdr is installed, but its Claude integration didn't install. Run herdr integration install claude in a terminal."
 
+    /// A machine session's herdr is that machine's, which this Mac's
+    /// Settings cannot update.
+    public static func protocolTooOld(found: Int, required: Int, onMachine: Bool) -> String {
+        let lead = "herdr is too old for flock (found protocol \(found), need \(required))."
+        return lead + (onMachine ? " Update herdr on that machine." : " Update it in Settings.")
+    }
+
+    public static let protocolTooOldActionTitle = "Open Settings"
+
     public static func pillTitle(newest: String) -> String { "herdr \(newest)" }
     public static let pillHelp = "A newer herdr is available. Open Settings to update."
 }

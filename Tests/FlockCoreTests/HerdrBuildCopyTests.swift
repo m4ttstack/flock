@@ -79,6 +79,17 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(HerdrBuildCopy.pillHelp, "A newer herdr is available. Open Settings to update.")
     }
 
+    /// Settings installs from the build list; `herdr update` would install stock herdr.
+    func testTheProtocolBannerPointsToSettings() {
+        XCTAssertEqual(
+            HerdrBuildCopy.protocolTooOld(found: 19, required: 22, onMachine: false),
+            "herdr is too old for flock (found protocol 19, need 22). Update it in Settings.")
+        XCTAssertEqual(
+            HerdrBuildCopy.protocolTooOld(found: 19, required: 22, onMachine: true),
+            "herdr is too old for flock (found protocol 19, need 22). Update herdr on that machine.")
+        XCTAssertEqual(HerdrBuildCopy.protocolTooOldActionTitle, "Open Settings")
+    }
+
     func testNoRestoreOrBackupWording() {
         let c = HerdrBuildCopy.self
         let all: [String] = [
@@ -89,13 +100,15 @@ final class HerdrBuildCopyTests: XCTestCase {
             c.integrationFailed, c.pillHelp, c.pillTitle(newest: "n"),
             c.installConfirmation(installPath: p, newest: "n").message, c.updateConfirmation(installPath: p, newest: "n").message,
             c.restartDetail(for: .installed), c.restartDetail(for: .serverBehind),
+            c.protocolTooOld(found: 19, required: 22, onMachine: false), c.protocolTooOld(found: 19, required: 22, onMachine: true),
+            c.protocolTooOldActionTitle,
         ] + [
             HerdrBuildState.missing(installPath: p), .stock(installPath: p, installed: "a", newest: "n"),
             .outdated(installPath: p, installed: "a", newest: "n"), .current(version: "v"), .notWritable(installPath: p),
             .listUnavailable(installed: nil),
         ].map(c.body(for:))
         for text in all {
-            for banned in ["Restore", "backup", "herdr.dev"] {
+            for banned in ["Restore", "backup", "herdr.dev", "herdr update"] {
                 XCTAssertFalse(text.contains(banned), "\(banned) in \(text)")
             }
         }

@@ -62,7 +62,7 @@ struct MainWindow: View {
     @ViewBuilder
     private var banners: some View {
         if let banner = viewModel.unsupportedBanner {
-            UnsupportedBanner(theme: theme, mismatch: banner)
+            UnsupportedBanner(theme: theme, mismatch: banner, isRemoteMachine: viewModel.isRemoteMachine)
         }
         // Below the protocol banner deliberately: a herdr too old to talk
         // to at all outranks an optional capability of one that works.
@@ -318,7 +318,7 @@ private struct HerdrBuildBannerCard: ViewModifier {
             content: { pending in
                 ConfirmCardContent(
                     action: pending.confirmation.title, message: AttributedString(pending.confirmation.message),
-                    confirmTitle: pending.confirmation.confirmButtonTitle, identifier: "flock.herdrMousePatch.banner"
+                    confirmTitle: pending.confirmation.confirmButtonTitle, identifier: "flock.herdrBuild.banner"
                 )
             },
             answer: { _, answer in
@@ -615,7 +615,7 @@ private struct HerdrBuildBanner: View {
                     .foregroundStyle(theme.red)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .accessibilityIdentifier("flock.herdrMousePatch.banner.error")
+                    .accessibilityIdentifier("flock.herdrBuild.banner.error")
             } else {
                 Text(HerdrBuildOffer.bannerHeadline(for: store.state))
                     .font(ChromeType.banner)
@@ -635,7 +635,7 @@ private struct HerdrBuildBanner: View {
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
-        .accessibilityIdentifier("flock.herdrMousePatch.banner")
+        .accessibilityIdentifier("flock.herdrBuild.banner")
     }
 
     @ViewBuilder
@@ -650,12 +650,12 @@ private struct HerdrBuildBanner: View {
                 .buttonStyle(.plain)
                 .font(ChromeType.banner)
                 .foregroundStyle(theme.textLabel)
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.dismiss")
+                .accessibilityIdentifier("flock.herdrBuild.banner.dismiss")
             if !store.serverRestarting, HerdrBuildOffer.hasAction(for: store.state) {
                 BannerPillButton(theme: theme, title: HerdrBuildOffer.bannerActionTitle(for: store.state)) {
                     store.requestInstall(source: .banner)
                 }
-                .accessibilityIdentifier("flock.herdrMousePatch.banner.install")
+                .accessibilityIdentifier("flock.herdrBuild.banner.install")
             }
         }
     }
@@ -685,7 +685,7 @@ private struct HerdrBuildBanner: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(Text("\(Int(fraction * 100)) percent"))
-        .accessibilityIdentifier("flock.herdrMousePatch.banner.progress")
+        .accessibilityIdentifier("flock.herdrBuild.banner.progress")
     }
 }
 
@@ -710,7 +710,7 @@ private struct HerdrRestartBanner: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(message)
-                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.error")
+                    .accessibilityIdentifier("flock.herdrBuild.restartBanner.error")
             } else {
                 Text(HerdrBuildCopy.restartHeadline(for: reason))
                     .font(ChromeType.banner)
@@ -729,7 +729,7 @@ private struct HerdrRestartBanner: View {
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
         .boundedBackground(theme.accent.opacity(0.12))
-        .accessibilityIdentifier("flock.herdrMousePatch.restartBanner")
+        .accessibilityIdentifier("flock.herdrBuild.restartBanner")
     }
 
     @ViewBuilder
@@ -743,14 +743,14 @@ private struct HerdrRestartBanner: View {
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
             }
-            .accessibilityIdentifier("flock.herdrMousePatch.banner.restarting")
+            .accessibilityIdentifier("flock.herdrBuild.banner.restarting")
         } else {
             if reason == .serverBehind {
                 Button(HerdrBuildOffer.bannerDismissTitle) { store.dismissServerBehindBanner() }
                     .buttonStyle(.plain)
                     .font(ChromeType.banner)
                     .foregroundStyle(theme.textLabel)
-                    .accessibilityIdentifier("flock.herdrMousePatch.restartBanner.dismiss")
+                    .accessibilityIdentifier("flock.herdrBuild.restartBanner.dismiss")
             }
             BannerPillButton(theme: theme, title: title) {
                 if restartsServer {
@@ -759,7 +759,7 @@ private struct HerdrRestartBanner: View {
                     AppRelaunch.relaunch()
                 }
             }
-            .accessibilityIdentifier("flock.herdrMousePatch.banner.restart")
+            .accessibilityIdentifier("flock.herdrBuild.banner.restart")
         }
     }
 }
@@ -783,22 +783,33 @@ private struct BannerPillButton: View {
     }
 }
 
+/// Settings updates this Mac's herdr from the build list; `herdr update`
+/// would put stock herdr in its place.
 private struct UnsupportedBanner: View {
     let theme: Theme
     let mismatch: ProtocolMismatch
+    let isRemoteMachine: Bool
+
+    @Environment(SettingsTabSelection.self) private var settingsSelection: SettingsTabSelection?
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: ChromeMetrics.Banner.spacing) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(ChromeType.bannerSymbol)
                 .foregroundStyle(theme.red)
-            Text(
-                "herdr is too old for flock (found protocol \(mismatch.found), "
-                    + "need \(mismatch.required)). Run `herdr update`."
-            )
-            .font(ChromeType.banner)
-            .foregroundStyle(theme.textStrong)
+            Text(HerdrBuildCopy.protocolTooOld(found: mismatch.found, required: mismatch.required, onMachine: isRemoteMachine))
+                .font(ChromeType.banner)
+                .foregroundStyle(theme.textStrong)
+                .accessibilityIdentifier("flock.herdrBuild.unsupportedBanner")
             Spacer(minLength: 0)
+            if !isRemoteMachine {
+                BannerPillButton(theme: theme, title: HerdrBuildCopy.protocolTooOldActionTitle) {
+                    settingsSelection?.tab = .herdr
+                    openSettings()
+                }
+                .accessibilityIdentifier("flock.herdrBuild.unsupportedBanner.settings")
+            }
         }
         .padding(.horizontal, ChromeMetrics.Banner.horizontalPadding)
         .padding(.vertical, ChromeMetrics.Banner.verticalPadding)
