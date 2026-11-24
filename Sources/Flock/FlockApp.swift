@@ -480,6 +480,9 @@ struct FlockApp: App {
                     guard canChangeServer else { return }
                     session.serverSwitcher.note(currentSocket: socket, home: NSHomeDirectory())
                 }
+                // Inside the `.id` below as well: two sessions whose connections
+                // read the same never fire the connection change further down.
+                .onAppear { herdrBuildStore.checkServer() }
                 .environment(themeStore)
                 .environment(terminalTextSizeStore)
                 .environment(rtModalSizeStore)
