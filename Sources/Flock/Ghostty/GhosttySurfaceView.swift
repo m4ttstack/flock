@@ -3,6 +3,7 @@ import AppKit
 import CoreImage
 import GhosttyKit
 import FlockCore
+import QuickLookUI
 import UniformTypeIdentifiers
 
 /// How far a terminal is set back: the share of its colour drained, and of
@@ -247,6 +248,18 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         applyBackgroundColor()
         registerForDraggedTypes(Self.dropTypes)
+    }
+
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.hasItems }
+    }
+
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.begin() }
+    }
+
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.end() }
     }
 
     private static let dropTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]

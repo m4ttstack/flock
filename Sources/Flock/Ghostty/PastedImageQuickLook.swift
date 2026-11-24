@@ -3,8 +3,9 @@ import FlockCore
 import QuickLookUI
 
 /// Pasted images in the Quick Look panel, which AppKit keeps one of. The panel
-/// takes its contents from whichever responder accepts control of it, so each
-/// window it opens over carries one (`Responder`) that hands it this.
+/// takes its contents from whichever responder accepts control of it: the
+/// terminal with the keyboard (`GhosttySurfaceView`), or failing one, the end
+/// of the window's chain (`Responder`).
 @MainActor
 final class PastedImageQuickLook: NSObject {
     static let shared = PastedImageQuickLook()
@@ -35,10 +36,10 @@ final class PastedImageQuickLook: NSObject {
     private var queued: Task<Void, Never>?
     private static let openingTime: TimeInterval = 0.6
 
-    private var hasItems: Bool { !items.isEmpty }
+    var hasItems: Bool { !items.isEmpty }
 
-    /// At the end of a window's responder chain, so the panel finds it
-    /// wherever in the window the keyboard is.
+    /// At the end of a window's responder chain, for a click on the tray while
+    /// something other than a terminal has the keyboard.
     private final class Responder: NSResponder {
         private nonisolated(unsafe) static var key: UInt8 = 0
 
@@ -128,7 +129,7 @@ final class PastedImageQuickLook: NSObject {
         panel.orderOut(nil)
     }
 
-    private func begin() {
+    func begin() {
         guard let panel = QLPreviewPanel.shared() else { return }
         panel.dataSource = self
         panel.delegate = self
@@ -141,7 +142,7 @@ final class PastedImageQuickLook: NSObject {
         }
     }
 
-    private func end() {
+    func end() {
         guard let panel = QLPreviewPanel.shared() else { return }
         if let clickOut { NSEvent.removeMonitor(clickOut) }
         clickOut = nil
