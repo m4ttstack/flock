@@ -372,6 +372,7 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertEqual(store.missingInstall, .running)
         await settle(store)
         XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+        XCTAssertEqual(store.missingInstall, .failed(HerdrBuildCopy.checksumMismatch))
         XCTAssertNil(store.installedWithError, "nothing was installed")
         XCTAssertEqual(store.state, .missing(installPath: installPath))
 
@@ -415,6 +416,14 @@ final class HerdrBuildStoreTests: XCTestCase {
     }
 
     func testARetryThatFailsWithNoHerdrStaysOnTheMissingScreen() async throws {
+        try await assertAFailedRetryKeepsTheMissingScreen(from: .missingScreen)
+    }
+
+    func testARetryFromSettingsThatFailsWithNoHerdrStaysOnTheMissingScreen() async throws {
+        try await assertAFailedRetryKeepsTheMissingScreen(from: .settings)
+    }
+
+    private func assertAFailedRetryKeepsTheMissingScreen(from source: HerdrBuildStore.MissingInstallSource) async throws {
         let tools = await toolStore()
         let lists = ListSource([standardList()])
         let store = try makeStore(
@@ -430,7 +439,8 @@ final class HerdrBuildStoreTests: XCTestCase {
 
         lists.set(ms3List)
         await store.refreshList()
-        store.installMissing(source: .missingScreen)
+        store.installMissing(source: source)
+        XCTAssertTrue(showsMissingScreen(tools, store), "the retry took the screen away while it ran")
         await settle(store)
 
         XCTAssertNil(store.binaryPath)
@@ -438,6 +448,11 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertEqual(
             MissingHerdrScreen(theme: .tokyoNight, store: store).errorMessage, HerdrBuildCopy.checksumMismatch
         )
+
+        try writeBinary(ms3)
+        store.refresh()
+        await settle(store)
+        XCTAssertFalse(showsMissingScreen(tools, store), "a herdr installed by hand did not lift the screen")
     }
 
     func testContinueWaitsForARunningInstall() async throws {

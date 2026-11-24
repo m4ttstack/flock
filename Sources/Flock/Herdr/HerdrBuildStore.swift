@@ -19,7 +19,7 @@ final class HerdrBuildStore {
     /// say so even when the failure took away the state that offered it.
     private(set) var bannerErrorMessage: String?
     /// Non-nil keeps the missing-herdr screen up over a herdr already on disk.
-    /// Never set by an install from Settings, which may run over a live
+    /// Never raised by an install from Settings, which may run over a live
     /// session whose herdr was removed.
     private(set) var missingInstall: MissingInstall?
     private(set) var restartReason: HerdrBuildCopy.RestartReason?
@@ -343,7 +343,9 @@ final class HerdrBuildStore {
     func installMissing(source: MissingInstallSource) {
         guard phase == .idle, case .missing = state, let lastProbe else { return }
         lastErrorMessage = nil
-        missingInstall = source == .missingScreen ? .running : nil
+        // Already held, the missing screen is up on the hold alone, so an
+        // install from Settings must not drop it.
+        if source == .missingScreen || missingInstall != nil { missingInstall = .running }
         performInstall(build: list?.newest, decidedFrom: lastProbe, startedFromBanner: false)
     }
 
