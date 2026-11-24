@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 6, SwiftUI, XCTest, CryptoKit, xcodegen.
 
-**Spec:** `/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/happy-oyster/docs/superpowers/specs/2026-11-23-herdr-fork-design.md`, section 5 (Flock) and section 2 (the build list). Build list format: `/Users/matt/Documents/GitHub/herdr-ms` branch `mattstack/0.9.5`, `ms/manifests.sh` and `ms/tests/manifests.sh` (read with `git show`).
+**Spec:** the mattstack herdr fork design (`docs/superpowers/specs/2026-11-23-herdr-fork-design.md` in the mattstack repo), section 5 (Flock) and section 2 (the build list). Build list format: `m4ttstack/herdr` branch `mattstack/0.9.5`, `ms/manifests.sh` and `ms/tests/manifests.sh`.
 
 ## Global Constraints
 
