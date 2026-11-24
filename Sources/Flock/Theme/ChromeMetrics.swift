@@ -306,6 +306,8 @@ enum ChromeMetrics {
         static let previewReserve = CGSize(width: 32, height: 72)
 
         static let zoomDuration: Double = 0.2
+        static let chromeFadeIn: Double = 0.18
+        static let chromeFadeOut: Double = 0.1
         static let previewTitlebarInset: CGFloat = 8
 
         static let dropDim: Double = 0.62

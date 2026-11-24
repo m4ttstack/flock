@@ -101,9 +101,14 @@ final class PastedImageQuickLook: NSObject {
         panel.orderFront(nil)
         animate(from: source, to: pictureFrame) { [weak self] in
             guard let self, generation == opened else { return }
-            panel.alphaValue = 1
+            // Over the picture that just landed, which it draws in the same
+            // place: only the chrome is seen to fade in.
             panel.makeKeyAndOrderFront(nil)
-            loadPreview()
+            fadePanel(to: 1) { [weak self] in
+                guard let self, generation == opened else { return }
+                endZoom()
+                loadPreview()
+            }
         }
     }
 
@@ -114,14 +119,22 @@ final class PastedImageQuickLook: NSObject {
         let from = pictureFrame
         let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
         unwatch()
-        panel.orderOut(nil)
         unloadPreview()
         window?.makeKey()
         guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderOut(nil)
             endZoom()
             return
         }
-        animate(from: from, to: back) {}
+        let closed = generation
+        animate(from: from, to: back) { [weak self] in
+            guard let self, generation == closed else { return }
+            endZoom()
+        }
+        fadePanel(to: 0) { [weak self] in
+            guard let self, generation == closed else { return }
+            panel.orderOut(nil)
+        }
     }
 
     private func step(_ by: Int) {
@@ -275,10 +288,19 @@ final class PastedImageQuickLook: NSObject {
             zoom.animator().setFrame(to, display: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                done()
                 guard let self, self.zoom === zoom else { return }
-                self.endZoom()
+                done()
             }
+        }
+    }
+
+    private func fadePanel(to alpha: CGFloat, then done: @escaping @MainActor () -> Void) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = alpha > 0 ? M.chromeFadeIn : M.chromeFadeOut
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = alpha
+        } completionHandler: {
+            MainActor.assumeIsolated { done() }
         }
     }
 
