@@ -18,6 +18,13 @@ struct NoHerdrScreen: View {
         let hint: String
     }
 
+    /// What went wrong, and the command that finishes the job when there is one.
+    struct Notice: Equatable {
+        let title: String
+        var detail: String?
+        var command: String?
+    }
+
     static let missing = Copy(
         headline: "You can't have a flock without a herdr!",
         body: "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.",
@@ -27,6 +34,10 @@ struct NoHerdrScreen: View {
         headline: "Oops! Doesn't look like herdr has started.",
         body: "flock shows your herdr session, and no herdr server is running yet.",
         hint: "Start it here, or run herdr in a terminal."
+    )
+
+    static let missingInstalled = Copy(
+        headline: HerdrBuildCopy.missingInstalledHeadline, body: HerdrBuildCopy.missingInstalledBody, hint: ""
     )
 
     static func notRunning(for address: HerdrServerAddress, isOverride: Bool) -> Copy {
@@ -64,8 +75,8 @@ struct NoHerdrScreen: View {
     let theme: Theme
     var copy: Copy = Self.missing
     var primaryAction: PrimaryAction?
-    /// Under the button: why its last press did not land.
-    var errorMessage: String?
+    /// Over the button: why its last press did not land.
+    var notice: Notice?
 
     var body: some View {
         content
@@ -102,19 +113,16 @@ struct NoHerdrScreen: View {
                     .foregroundStyle(theme.textLabel)
                     .multilineTextAlignment(.center)
             }
+            if let notice {
+                NoHerdrNoticeCard(theme: theme, notice: notice)
+                    .padding(.top, ChromeMetrics.NoHerdr.noticeTopPadding)
+            }
             if let primaryAction {
                 Button(primaryAction.title, action: primaryAction.perform)
                     .buttonStyle(NoHerdrPrimaryActionStyle(theme: theme))
                     .disabled(primaryAction.isDisabled)
                     .padding(.top, ChromeMetrics.NoHerdr.primaryActionTopPadding)
                     .accessibilityIdentifier("flock.noHerdr.primaryAction")
-            }
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(ChromeType.noHerdrHint)
-                    .foregroundStyle(theme.red)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("flock.noHerdr.error")
             }
         }
         .padding(.horizontal, ChromeMetrics.NoHerdr.horizontalPadding)
@@ -123,30 +131,129 @@ struct NoHerdrScreen: View {
 
 /// The screen for no herdr on this Mac. Its button installs the newest
 /// mattstack build at once: pressing it is the consent, since nothing on
-/// disk is replaced.
+/// disk is replaced. An install that put herdr on disk and still failed says
+/// so here until Continue.
 struct MissingHerdrScreen: View {
     let theme: Theme
     let store: HerdrBuildStore
 
     var body: some View {
-        NoHerdrScreen(theme: theme, primaryAction: action, errorMessage: errorMessage)
+        NoHerdrScreen(theme: theme, copy: copy, primaryAction: action, notice: errorMessage.map(Self.notice(for:)))
     }
 
-    private var action: NoHerdrScreen.PrimaryAction {
+    var copy: NoHerdrScreen.Copy {
+        store.installedWithError == nil ? NoHerdrScreen.missing : NoHerdrScreen.missingInstalled
+    }
+
+    var action: NoHerdrScreen.PrimaryAction {
+        if store.installedWithError != nil {
+            return .init(title: HerdrBuildCopy.missingContinueTitle, perform: store.dismissMissingInstall)
+        }
         let busy = store.phase != .idle
         var installable = false
         if case .missing = store.state { installable = true }
         return .init(
             title: busy ? HerdrBuildCopy.missingInstallingTitle : HerdrBuildCopy.missingInstallTitle,
             isDisabled: busy || !installable,
-            perform: store.installMissing
+            perform: { store.installMissing(source: .missingScreen) }
         )
     }
 
-    private var errorMessage: String? {
-        if let message = store.lastErrorMessage { return message }
+    static func notice(for message: String) -> NoHerdrScreen.Notice {
+        guard message == HerdrBuildCopy.integrationFailed else { return .init(title: message) }
+        return .init(
+            title: HerdrBuildCopy.integrationFailedTitle,
+            detail: HerdrBuildCopy.integrationFailedDetail,
+            command: HerdrBuildCopy.integrationCommand
+        )
+    }
+
+    var errorMessage: String? {
+        if let message = store.installedWithError ?? store.lastErrorMessage { return message }
         guard let state = store.state, case .notWritable = state else { return nil }
         return HerdrBuildCopy.body(for: state)
+    }
+}
+
+/// The reason in plain words beside a red mark, over a faint red wash, with
+/// the command to run set apart so it can be copied rather than retyped.
+struct NoHerdrNoticeCard: View {
+    let theme: Theme
+    let notice: NoHerdrScreen.Notice
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: ChromeMetrics.NoHerdr.noticeSymbolGap) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(ChromeType.noHerdrNoticeTitle)
+                .foregroundStyle(theme.red)
+            VStack(alignment: .leading, spacing: ChromeMetrics.NoHerdr.noticeLineSpacing) {
+                Text(notice.title)
+                    .font(ChromeType.noHerdrNoticeTitle)
+                    .foregroundStyle(theme.textStrong)
+                if let detail = notice.detail {
+                    Text(detail)
+                        .font(ChromeType.noHerdrNoticeDetail)
+                        .foregroundStyle(theme.textDim)
+                }
+                if let command = notice.command {
+                    NoHerdrCommandRow(theme: theme, command: command)
+                        .padding(.top, ChromeMetrics.NoHerdr.noticeCommandTopPadding)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: notice.command == nil ? nil : .infinity, alignment: .leading)
+        }
+        .padding(ChromeMetrics.NoHerdr.noticePadding)
+        .frame(maxWidth: notice.command == nil ? nil : ChromeMetrics.NoHerdr.noticeWidth)
+
+        .background(
+            RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.noticeCornerRadius)
+                .fill(theme.red.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.noticeCornerRadius)
+                        .strokeBorder(theme.red.opacity(0.3), lineWidth: ChromeMetrics.ruleWidth)
+                )
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("flock.noHerdr.error")
+    }
+}
+
+private struct NoHerdrCommandRow: View {
+    let theme: Theme
+    let command: String
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: ChromeMetrics.NoHerdr.noticeSymbolGap) {
+            Text(command)
+                .font(ChromeType.noHerdrCommand)
+                .foregroundStyle(theme.textStrong)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+                copied = true
+            } label: {
+                Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    .font(ChromeType.noHerdrHint)
+                    .foregroundStyle(copied ? theme.green : theme.accent)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("flock.noHerdr.copyCommand")
+        }
+        .padding(.horizontal, ChromeMetrics.NoHerdr.commandHorizontalPadding)
+        .frame(height: ChromeMetrics.NoHerdr.actionHeight)
+        .background(
+            RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.actionCornerRadius)
+                .fill(theme.chrome)
+                .overlay(
+                    RoundedRectangle(cornerRadius: ChromeMetrics.NoHerdr.actionCornerRadius)
+                        .strokeBorder(theme.rule, lineWidth: ChromeMetrics.ruleWidth)
+                )
+        )
     }
 }
 

@@ -22,6 +22,8 @@ public enum HerdrBuildCopy {
             return "Up to date."
         case .notWritable(let installPath):
             return "flock can't write to \(displayPath(installPath)) from this account, so it leaves herdr alone."
+        case .checking:
+            return "Checking for a newer build\u{2026}"
         case .listUnavailable:
             return "flock couldn't read the herdr build list, so it can't check for a newer build."
         }
@@ -31,7 +33,7 @@ public enum HerdrBuildCopy {
         switch state {
         case .missing, .stock: "Install"
         case .outdated: "Update"
-        case .current, .notWritable, .listUnavailable: nil
+        case .current, .notWritable, .checking, .listUnavailable: nil
         }
     }
 
@@ -111,12 +113,19 @@ public enum HerdrBuildCopy {
     public static let missingInstallTitle = "Install herdr"
     public static let missingInstallingTitle = "Installing herdr\u{2026}"
 
+    public static let missingInstalledHeadline = "herdr is installed"
+    public static let missingInstalledBody = "flock is ready to open your session."
+    public static let missingContinueTitle = "Continue"
+
     public static let downloadFailed = "Couldn't download herdr. Check your connection and try again."
     public static let checksumMismatch = "The download didn't match the build list. Nothing was changed."
     public static let listUnreadable = "flock couldn't read the herdr build list. Check your connection and try again."
     public static let herdrChanged = "herdr changed while the new build downloaded. Nothing was changed."
     public static let notWritable = "herdr's install location is not writable."
     public static let renameFailed = "Couldn't move the new build into place. Nothing was changed."
+    public static let integrationFailedTitle = "The Claude integration didn't install"
+    public static let integrationFailedDetail = "Run this in a terminal to finish setting it up."
+    public static let integrationCommand = "herdr integration install claude"
     public static let integrationFailed =
         "herdr is installed, but its Claude integration didn't install. Run herdr integration install claude in a terminal."
 

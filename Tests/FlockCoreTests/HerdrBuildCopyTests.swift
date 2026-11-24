@@ -25,6 +25,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(
             HerdrBuildCopy.body(for: .listUnavailable(installed: nil)),
             "flock couldn't read the herdr build list, so it can't check for a newer build.")
+        XCTAssertEqual(HerdrBuildCopy.body(for: .checking(installed: "0.9.5")), "Checking for a newer build\u{2026}")
         XCTAssertEqual(HerdrBuildCopy.heading, "herdr")
         XCTAssertEqual(HerdrBuildCopy.rowTitle, "mattstack build")
     }
@@ -36,6 +37,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .current(version: "v")))
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .notWritable(installPath: p)))
         XCTAssertNil(HerdrBuildCopy.actionTitle(for: .listUnavailable(installed: nil)))
+        XCTAssertNil(HerdrBuildCopy.actionTitle(for: .checking(installed: nil)))
     }
 
     func testConfirmations() {
@@ -66,6 +68,9 @@ final class HerdrBuildCopyTests: XCTestCase {
         XCTAssertEqual(HerdrBuildCopy.missingHint, "flock can install the mattstack build of herdr for you.")
         XCTAssertEqual(HerdrBuildCopy.missingInstallTitle, "Install herdr")
         XCTAssertEqual(HerdrBuildCopy.missingInstallingTitle, "Installing herdr\u{2026}")
+        XCTAssertEqual(HerdrBuildCopy.missingInstalledHeadline, "herdr is installed")
+        XCTAssertEqual(HerdrBuildCopy.missingInstalledBody, "flock is ready to open your session.")
+        XCTAssertEqual(HerdrBuildCopy.missingContinueTitle, "Continue")
         XCTAssertEqual(HerdrBuildCopy.downloadFailed, "Couldn't download herdr. Check your connection and try again.")
         XCTAssertEqual(HerdrBuildCopy.checksumMismatch, "The download didn't match the build list. Nothing was changed.")
         XCTAssertEqual(HerdrBuildCopy.listUnreadable, "flock couldn't read the herdr build list. Check your connection and try again.")
@@ -96,6 +101,7 @@ final class HerdrBuildCopyTests: XCTestCase {
             c.heading, c.rowTitle, c.restartActionTitle, c.serverRestartActionTitle, c.serverRestartProgressTitle,
             c.serverRestartConfirmation.title, c.serverRestartConfirmation.message, c.serverRestartFailedBanner,
             c.serverRestartFailure("x"), c.missingHint, c.missingInstallTitle, c.missingInstallingTitle,
+            c.missingInstalledHeadline, c.missingInstalledBody, c.missingContinueTitle,
             c.downloadFailed, c.checksumMismatch, c.listUnreadable, c.herdrChanged, c.notWritable, c.renameFailed,
             c.integrationFailed, c.pillHelp, c.pillTitle(newest: "n"),
             c.installConfirmation(installPath: p, newest: "n").message, c.updateConfirmation(installPath: p, newest: "n").message,
@@ -105,7 +111,7 @@ final class HerdrBuildCopyTests: XCTestCase {
         ] + [
             HerdrBuildState.missing(installPath: p), .stock(installPath: p, installed: "a", newest: "n"),
             .outdated(installPath: p, installed: "a", newest: "n"), .current(version: "v"), .notWritable(installPath: p),
-            .listUnavailable(installed: nil),
+            .listUnavailable(installed: nil), .checking(installed: nil),
         ].map(c.body(for:))
         for text in all {
             for banned in ["Restore", "backup", "herdr.dev", "herdr update"] {

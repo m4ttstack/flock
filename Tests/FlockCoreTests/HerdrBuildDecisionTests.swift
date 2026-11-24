@@ -8,11 +8,12 @@ final class HerdrBuildDecisionTests: XCTestCase {
 
     private func decide(
         exists: Bool = true, _ version: String? = nil, sha: String? = nil, list: HerdrBuildList? = nil,
-        useList: Bool = true, writable: Bool = true
+        useList: Bool = true, listPending: Bool = false, writable: Bool = true
     ) -> HerdrBuildState {
         HerdrBuildDecision.decide(
             binaryExists: exists, version: version.flatMap { HerdrBuildVersion($0) }, sha256: sha,
-            list: useList ? (list ?? self.list) : nil, arch: .arm64, installPath: path, isWritable: writable
+            list: useList ? (list ?? self.list) : nil, listPending: listPending, arch: .arm64, installPath: path,
+            isWritable: writable
         )
     }
 
@@ -28,6 +29,21 @@ final class HerdrBuildDecisionTests: XCTestCase {
         XCTAssertEqual(decide("0.9.5", useList: false), .listUnavailable(installed: "0.9.5"))
     }
 
+    func testNoListYetIsChecking() {
+        XCTAssertEqual(decide("0.9.5", useList: false, listPending: true), .checking(installed: "0.9.5"))
+        XCTAssertEqual(decide(nil, useList: false, listPending: true), .checking(installed: nil))
+    }
+
+    func testAMissingHerdrIsMissingBeforeTheListIsRead() {
+        XCTAssertEqual(decide(exists: false, useList: false, listPending: true), .missing(installPath: path))
+        XCTAssertEqual(
+            decide(exists: false, useList: false, listPending: true, writable: false), .notWritable(installPath: path))
+    }
+
+    func testAListInHandDecidesWhateverIsPending() {
+        XCTAssertEqual(decide("0.9.5-ms.2", listPending: true), .current(version: "0.9.5-ms.2"))
+    }
+
     func testListWithoutThisArchIsUnavailable() {
         let build = HerdrBuildList.Build(
             version: HerdrBuildVersion("0.9.5-ms.2")!, changesServer: true,
@@ -35,6 +51,7 @@ final class HerdrBuildDecisionTests: XCTestCase {
         )
         let noArm = HerdrBuildList(newest: build, builds: [build], flockPatchSha256: [])
         XCTAssertEqual(decide("0.9.5", list: noArm), .listUnavailable(installed: "0.9.5"))
+        XCTAssertEqual(decide("0.9.5", list: noArm, listPending: true), .listUnavailable(installed: "0.9.5"))
     }
 
     func testNewestShaIsCurrent() {

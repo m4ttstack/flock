@@ -2633,10 +2633,10 @@ final class ChromeRenderTests: XCTestCase {
         let herdrFixture = try HerdrBuildFixture()
         defer { herdrFixture.remove() }
         func makeBuildStore(
-            _ binary: Data, name: String, list: HerdrBuildList? = HerdrBuildFixture.standardList
+            _ binary: Data, name: String, list: HerdrBuildList? = HerdrBuildFixture.standardList, listNeverLands: Bool = false
         ) async throws -> HerdrBuildStore {
-            let store = try herdrFixture.store(binary: binary, name: name, list: list)
-            await HerdrBuildFixture.settle(store)
+            let store = try herdrFixture.store(binary: binary, name: name, list: list, listNeverLands: listNeverLands)
+            if !listNeverLands { await HerdrBuildFixture.settle(store) }
             return store
         }
         let currentBuild = try await makeBuildStore(HerdrBuildFixture.ms2, name: "shared")
@@ -2665,15 +2665,17 @@ final class ChromeRenderTests: XCTestCase {
             ("outdated", HerdrBuildFixture.ms1, HerdrBuildFixture.standardList,
              { .outdated(installPath: $0, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2") }),
             ("list-unavailable", HerdrBuildFixture.ms2, nil, { _ in .listUnavailable(installed: "0.9.5-ms.2") }),
+            ("checking", HerdrBuildFixture.ms2, nil, { _ in .checking(installed: "0.9.5-ms.2") }),
             ("outdated-confirm", HerdrBuildFixture.ms1, HerdrBuildFixture.standardList,
              { .outdated(installPath: $0, installed: "0.9.5-ms.1", newest: "0.9.5-ms.2") }),
         ]
         var buildStates: [String: HerdrBuildState] = [:]
         var buildStores: [String: HerdrBuildStore] = [:]
+        defer { buildStores.values.forEach { $0.listTask?.cancel() } }
         for (kind, binary, list, expected) in buildKinds {
             for (scheme, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 let name = "herdr-build-\(kind)-\(scheme)"
-                let store = try await makeBuildStore(binary, name: name, list: list)
+                let store = try await makeBuildStore(binary, name: name, list: list, listNeverLands: kind == "checking")
                 let state = expected(herdrFixture.installPath(name))
                 XCTAssertEqual(store.state, state, name)
                 if kind == "outdated-confirm" {

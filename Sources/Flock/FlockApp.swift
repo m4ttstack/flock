@@ -359,7 +359,9 @@ struct FlockApp: App {
     private var loaderBlocksInput: Bool { switchLoader.blocksInput && !showsMissingHerdr }
 
     private var showsMissingHerdr: Bool {
-        HerdrAvailability.shouldShowMissingScreen(herdrBinaryFound: herdrToolStore.isFound)
+        HerdrAvailability.shouldShowMissingScreen(
+            herdrBinaryFound: herdrToolStore.isFound, installOnScreen: herdrBuildStore.missingInstall != nil
+        )
     }
 
     /// What the switch loader covers, and what shows through as it fades. A

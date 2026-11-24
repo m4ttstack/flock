@@ -18,11 +18,17 @@ final class HerdrBuildStore {
     /// An install begun from the banner that failed. The banner stays up to
     /// say so even when the failure took away the state that offered it.
     private(set) var bannerErrorMessage: String?
+    /// Non-nil keeps the missing-herdr screen up over a herdr already on disk.
+    /// Never raised by an install from Settings, which may run over a live
+    /// session whose herdr was removed.
+    private(set) var missingInstall: MissingInstall?
     private(set) var restartReason: HerdrBuildCopy.RestartReason?
     /// The herdr found by the last refresh; nil when none is on disk.
     private(set) var binaryPath: String?
     private(set) var binaryVersion: HerdrBuildVersion?
     private(set) var serverBinary: HerdrServerBinary = .unknown
+    /// The server `serverBinary` answers for.
+    private var serverBinarySocket: String?
     /// A live handoff is running; Flock relaunches when it lands.
     private(set) var serverRestarting = false
     private(set) var serverRestartError: String?
@@ -30,12 +36,15 @@ final class HerdrBuildStore {
     /// The newest build the install banner was waved away for.
     private(set) var offerDismissedFor: String?
 
+    enum MissingInstall: Equatable { case running, failed(String) }
+    enum MissingInstallSource: Equatable { case missingScreen, settings }
+
     enum Phase: Equatable { case idle, downloading(Double), installing }
 
     /// The banner and the Settings row both watch this store, and each
     /// presents only the confirmations it asked for.
     struct PendingConfirmation: Equatable {
-        enum Action: Equatable { case install(InstallOffer), restartServer }
+        enum Action: Equatable { case install(InstallOffer), restartServer(HerdrServerRestart.Offer) }
         enum Source: Equatable { case banner, settings }
         let action: Action
         let confirmation: HerdrBuildCopy.Confirmation
@@ -77,6 +86,8 @@ final class HerdrBuildStore {
     /// When a fetch last brought back a list. A failed fetch leaves it, so
     /// the next refresh tries again.
     @ObservationIgnored private var lastListFetch: Date?
+    /// Until the first fetch ends, however it ends.
+    @ObservationIgnored private var listPending = true
     @ObservationIgnored private var listRefreshRunning = false
     @ObservationIgnored private var listFetchesStarted = 0
     @ObservationIgnored private var listFetchApplied = 0
@@ -138,6 +149,13 @@ final class HerdrBuildStore {
         refresh()
     }
 
+    /// What an install begun on the missing screen failed at after it, or
+    /// something else, put herdr on disk.
+    var installedWithError: String? {
+        guard binaryPath != nil, case .failed(let message) = missingInstall else { return nil }
+        return message
+    }
+
     var shouldOfferBanner: Bool {
         HerdrBuildOffer.shouldOffer(state: state, dismissedFor: offerDismissedFor)
     }
@@ -151,9 +169,14 @@ final class HerdrBuildStore {
 
     /// The build on disk changes herdr's server, but the server still runs
     /// an older binary, so that half is missing until herdr restarts.
-    var needsServerRestart: Bool {
-        guard case .current = state, serverBinary == .other else { return false }
-        return list?.build(matching: binaryVersion, sha256: lastProbe?.sha256)?.changesServer == true
+    var needsServerRestart: Bool { serverRestartOffer != nil }
+
+    private var serverRestartOffer: HerdrServerRestart.Offer? {
+        HerdrServerRestart.offer(
+            state: state, build: list?.build(matching: binaryVersion, sha256: lastProbe?.sha256), server: serverBinary,
+            probedSocket: serverBinarySocket, currentSocket: serverSocketPath(), binaryPath: binaryPath,
+            version: binaryVersion
+        )
     }
 
     /// Nil while an install runs: a relaunch would end it part way.
@@ -210,10 +233,13 @@ final class HerdrBuildStore {
     func refreshList() async {
         listFetchesStarted += 1
         let fetch = listFetchesStarted
-        guard let fetched = await fetchList(), fetch > listFetchApplied else { return }
-        listFetchApplied = fetch
-        lastListFetch = now()
-        if list != fetched { list = fetched }
+        let fetched = await fetchList()
+        listPending = false
+        if let fetched, fetch > listFetchApplied {
+            listFetchApplied = fetch
+            lastListFetch = now()
+            if list != fetched { list = fetched }
+        }
         decide()
     }
 
@@ -228,6 +254,7 @@ final class HerdrBuildStore {
         }
         let found = lastProbe?.exists == true ? target : nil
         if binaryPath != found {
+            settleFailedInstall(found: found)
             binaryPath = found
             onBinaryPathChanged()
         }
@@ -240,8 +267,8 @@ final class HerdrBuildStore {
     private func decide() {
         guard let probe = lastProbe else { return }
         let decided = HerdrBuildDecision.decide(
-            binaryExists: probe.exists, version: probe.version, sha256: probe.sha256, list: list, arch: arch,
-            installPath: probeTarget, isWritable: probe.isWritable
+            binaryExists: probe.exists, version: probe.version, sha256: probe.sha256, list: list,
+            listPending: listPending, arch: arch, installPath: probeTarget, isWritable: probe.isWritable
         )
         if state != decided { state = decided }
     }
@@ -256,6 +283,7 @@ final class HerdrBuildStore {
         serverCheckTask?.cancel()
         guard let binaryPath, let socket = serverSocketPath() else {
             if serverBinary != .unknown { serverBinary = .unknown }
+            if serverBinarySocket != nil { serverBinarySocket = nil }
             return
         }
         let probeServer = probeServer
@@ -266,6 +294,7 @@ final class HerdrBuildStore {
             // restart: an unreadable one says nothing about it.
             if found == .onDisk, serverRestartError != nil { serverRestartError = nil }
             if found != serverBinary { serverBinary = found }
+            if socket != serverBinarySocket { serverBinarySocket = socket }
         }
     }
 
@@ -309,18 +338,43 @@ final class HerdrBuildStore {
         pendingConfirmation = PendingConfirmation(action: .install(offer), confirmation: confirmation, source: source)
     }
 
-    /// The missing-herdr screen's button is the consent, so this asks
-    /// nothing more.
-    func installMissing() {
+    /// The button that asks is the consent, with nothing on disk to replace,
+    /// so this asks nothing more.
+    func installMissing(source: MissingInstallSource) {
         guard phase == .idle, case .missing = state, let lastProbe else { return }
         lastErrorMessage = nil
+        // Already held, the missing screen is up on the hold alone, so an
+        // install from Settings must not drop it.
+        if source == .missingScreen || missingInstall != nil { missingInstall = .running }
         performInstall(build: list?.newest, decidedFrom: lastProbe, startedFromBanner: false)
     }
 
+    func dismissMissingInstall() {
+        guard case .failed = missingInstall else { return }
+        missingInstall = nil
+    }
+
+    private func settleMissingInstall(failure: String?) {
+        guard missingInstall == .running else { return }
+        missingInstall = failure.map(MissingInstall.failed)
+    }
+
+    /// A herdr that turns up after the failure lifts the screen, as it does
+    /// before any install. One that goes away leaves the screen to offer the
+    /// install again, without an error about a herdr no longer there.
+    private func settleFailedInstall(found: String?) {
+        guard case .failed = missingInstall else { return }
+        if found == nil {
+            lastErrorMessage = nil
+        } else if binaryPath == nil {
+            missingInstall = nil
+        }
+    }
+
     func requestServerRestart(source: PendingConfirmation.Source) {
-        guard needsServerRestart, !serverRestarting, phase == .idle else { return }
+        guard let offer = serverRestartOffer, !serverRestarting, phase == .idle else { return }
         pendingConfirmation = PendingConfirmation(
-            action: .restartServer, confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
+            action: .restartServer(offer), confirmation: HerdrBuildCopy.serverRestartConfirmation, source: source
         )
     }
 
@@ -340,23 +394,29 @@ final class HerdrBuildStore {
             guard installOffer == offer, let build = list?.newest, build.version.display == offer.newest else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
+            // As in `installMissing`: only Continue or a landed install drops a
+            // screen already held.
+            if missingInstall != nil { missingInstall = .running }
             performInstall(build: build, decidedFrom: offer.probe, startedFromBanner: pending.source == .banner)
-        case .restartServer:
+        case .restartServer(let offer):
+            // As above, for a dialog left open across a switch of servers.
+            guard serverRestartOffer == offer else { return }
             lastErrorMessage = nil
             bannerErrorMessage = nil
-            performServerRestart()
+            performServerRestart(offer)
         }
     }
 
     /// `--expected-version` makes the new server refuse the handoff, and the
     /// old one keep running, if the binary on disk changed in between.
-    private func performServerRestart() {
-        guard needsServerRestart, !serverRestarting, let binaryPath, let version = binaryVersion?.display else { return }
+    private func performServerRestart(_ offer: HerdrServerRestart.Offer) {
         serverRestartError = nil
         serverRestarting = true
         serverRestartTask = Task { [runner] in
             let result = await runner.run(
-                binaryPath, HerdrLiveHandoff.liveHandoffArguments(binaryPath: binaryPath, expectedVersion: version)
+                offer.binaryPath,
+                HerdrLiveHandoff.liveHandoffArguments(binaryPath: offer.binaryPath, expectedVersion: offer.version),
+                socketPath: offer.socketPath
             )
             if HerdrLiveHandoff.handedOff(status: result.status, output: result.output) {
                 relaunch()
@@ -383,7 +443,12 @@ final class HerdrBuildStore {
         let throttle = HerdrDownloadProgressThrottle()
         phase = .downloading(0)
         installTask = Task { [downloader, fileManager, listTask] in
-            defer { phase = .idle; reprobe() }
+            var failure: String?
+            defer {
+                phase = .idle
+                reprobe()
+                settleMissingInstall(failure: failure)
+            }
             do {
                 var newest = confirmed
                 if newest == nil {
@@ -409,15 +474,15 @@ final class HerdrBuildStore {
                 try? fileManager.removeItem(atPath: artifact)
                 if !decidedFrom.exists {
                     let result = await runner.run(installPath, Self.integrationArguments)
-                    if result.status != 0 { lastErrorMessage = HerdrBuildCopy.integrationFailed }
+                    if result.status != 0 { failure = HerdrBuildCopy.integrationFailed }
                 }
                 serverRestartError = nil
                 restartReason = restart
             } catch {
-                let message = Self.message(for: error)
-                lastErrorMessage = message
-                if startedFromBanner { bannerErrorMessage = message }
+                failure = Self.message(for: error)
+                if startedFromBanner { bannerErrorMessage = failure }
             }
+            lastErrorMessage = failure
         }
     }
 

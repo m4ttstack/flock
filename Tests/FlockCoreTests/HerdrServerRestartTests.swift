@@ -1,7 +1,8 @@
 import Darwin
-import FlockCore
 import Foundation
 import XCTest
+
+@testable import FlockCore
 
 /// The probe reads this test process and a socket it listens on itself;
 /// nothing here starts or connects to a herdr.
@@ -23,6 +24,48 @@ final class HerdrServerRestartTests: XCTestCase {
             HerdrBuildCopy.serverRestartFailure("herdr's server didn't restart.")
                 .hasSuffix("That ends every pane's shell and agent.")
         )
+    }
+
+    private func build(changesServer: Bool = true) -> HerdrBuildList.Build {
+        HerdrBuildList.Build(
+            version: HerdrBuildVersion("0.9.5-ms.2")!, changesServer: changesServer, assets: [:], supersedes: []
+        )
+    }
+
+    private func offer(
+        state: HerdrBuildState? = .current(version: "0.9.5-ms.2"), build: HerdrBuildList.Build?,
+        server: HerdrServerBinary = .other, probed: String? = "/tmp/acme/a.sock", current: String? = "/tmp/acme/a.sock",
+        binaryPath: String? = "/opt/herdr", version: HerdrBuildVersion? = HerdrBuildVersion("0.9.5-ms.2")
+    ) -> HerdrServerRestart.Offer? {
+        HerdrServerRestart.offer(
+            state: state, build: build, server: server, probedSocket: probed, currentSocket: current,
+            binaryPath: binaryPath, version: version
+        )
+    }
+
+    func testARestartOfferNamesItsServerAndTheBinaryItMovesTo() {
+        XCTAssertEqual(
+            offer(build: build()),
+            HerdrServerRestart.Offer(socketPath: "/tmp/acme/a.sock", binaryPath: "/opt/herdr", version: "0.9.5-ms.2")
+        )
+    }
+
+    func testAnAnswerAboutOneServerOffersNoRestartOfAnother() {
+        XCTAssertNil(offer(build: build(), current: "/tmp/acme/b.sock"))
+        XCTAssertNil(offer(build: build(), current: nil))
+        XCTAssertNil(offer(build: build(), probed: nil))
+        XCTAssertNil(offer(build: build(), probed: nil, current: nil))
+    }
+
+    func testARestartIsOfferedOnlyForACurrentServerChangingBuildOnAnOlderServer() {
+        XCTAssertNil(offer(build: build(), server: .onDisk))
+        XCTAssertNil(offer(build: build(), server: .unknown))
+        XCTAssertNil(offer(build: build(changesServer: false)))
+        XCTAssertNil(offer(build: nil))
+        XCTAssertNil(offer(state: .outdated(installPath: "/opt/herdr", installed: nil, newest: "n"), build: build()))
+        XCTAssertNil(offer(state: nil, build: build()))
+        XCTAssertNil(offer(build: build(), binaryPath: nil))
+        XCTAssertNil(offer(build: build(), version: nil))
     }
 
     func testAProcessRunsTheBinaryItWasStartedFromAndNoOther() throws {

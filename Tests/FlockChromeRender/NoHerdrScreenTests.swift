@@ -10,12 +10,36 @@ import XCTest
 final class NoHerdrScreenTests: XCTestCase {
     private static let size = CGSize(width: 900, height: 560)
 
+    override func setUp() {
+        super.setUp()
+        ChromeType.install()
+    }
+
     /// Pinned so a copy edit is a deliberate change to this test, never a
     /// silent drift.
     func testTheShippedCopy() {
         XCTAssertEqual(NoHerdrScreen.headline, "You can't have a flock without a herdr!")
         XCTAssertEqual(NoHerdrScreen.body, "flock couldn't find herdr on this Mac, so there is nothing to drive a pane with.")
         XCTAssertEqual(NoHerdrScreen.hint, "flock can install the mattstack build of herdr for you.")
+    }
+
+    func testAFailedIntegrationOffersItsCommand() {
+        XCTAssertEqual(
+            MissingHerdrScreen.notice(for: HerdrBuildCopy.integrationFailed),
+            NoHerdrScreen.Notice(
+                title: "The Claude integration didn't install",
+                detail: "Run this in a terminal to finish setting it up.",
+                command: "herdr integration install claude"
+            )
+        )
+        XCTAssertTrue(HerdrBuildCopy.integrationFailed.contains(HerdrBuildCopy.integrationCommand))
+    }
+
+    func testOtherFailuresShowTheirReasonAlone() {
+        XCTAssertEqual(
+            MissingHerdrScreen.notice(for: HerdrBuildCopy.checksumMismatch),
+            NoHerdrScreen.Notice(title: HerdrBuildCopy.checksumMismatch)
+        )
     }
 
     func testTheNotRunningCopy() {
@@ -134,34 +158,49 @@ final class NoHerdrScreenTests: XCTestCase {
     }
 
     /// The missing screen's Install button, then the install running, then
-    /// a failed one with its reason under the button. Each stays inside the
-    /// window's floor. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    /// a failed one with its reason over the button, then one that landed
+    /// herdr and not its integration. Each stays inside the window's floor. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
     func testTheMissingScreenInstallsTheBuild() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let fixture = try HerdrBuildFixture()
         defer { fixture.remove() }
         for theme in [Theme.tokyoNight, Theme.builtins.first { $0.id == "one-light" }!] {
-            for stage in ["install", "installing", "failed"] {
+            for stage in ["install", "installing", "failed", "integration-failed"] {
                 let transport: HerdrDownloadTransport = switch stage {
                 case "installing": HangingTransport()
+                case "integration-failed": BytesTransport(body: HerdrBuildFixture.ms2)
                 default: BytesTransport(body: Data("<html>Not Found</html>".utf8))
                 }
                 let store = try fixture.store(
-                    binary: nil, name: "\(stage)-\(theme.id)", transport: transport, cache: "cache-\(stage)-\(theme.id)"
+                    binary: nil, name: "\(stage)-\(theme.id)", transport: transport,
+                    runner: RefusingHandoffRunner(), cache: "cache-\(stage)-\(theme.id)"
                 )
                 await HerdrBuildFixture.settle(store)
                 XCTAssertEqual(store.state, .missing(installPath: fixture.installPath("\(stage)-\(theme.id)")), stage)
                 defer { store.installTask?.cancel() }
-                if stage != "install" { store.installMissing() }
+                if stage != "install" { store.installMissing(source: .missingScreen) }
                 XCTAssertNil(store.pendingConfirmation, "\(stage): the missing screen's install asked again")
-                if stage == "failed" { await store.installTask?.value }
+                if stage.hasSuffix("failed") { await store.installTask?.value }
                 let screen = MissingHerdrScreen(theme: theme, store: store)
                 let window = hostWindow(screen)
                 await settle(window)
                 switch stage {
-                case "install": XCTAssertEqual(store.phase, .idle)
-                case "installing": XCTAssertEqual(store.phase, .downloading(0.4))
-                default: XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+                case "install":
+                    XCTAssertEqual(store.phase, .idle)
+                    XCTAssertNil(screen.errorMessage)
+                case "installing":
+                    XCTAssertEqual(store.phase, .downloading(0.4))
+                    XCTAssertNil(screen.errorMessage)
+                case "failed":
+                    XCTAssertEqual(screen.errorMessage, HerdrBuildCopy.checksumMismatch)
+                    XCTAssertEqual(screen.copy, NoHerdrScreen.missing)
+                    XCTAssertEqual(screen.action.title, HerdrBuildCopy.missingInstallTitle)
+                    XCTAssertFalse(screen.action.isDisabled)
+                default:
+                    XCTAssertEqual(screen.errorMessage, HerdrBuildCopy.integrationFailed)
+                    XCTAssertEqual(screen.copy, NoHerdrScreen.missingInstalled)
+                    XCTAssertEqual(screen.action.title, HerdrBuildCopy.missingContinueTitle)
+                    XCTAssertFalse(screen.action.isDisabled)
                 }
                 let image = try snapshot(window)
                 if let directory {
@@ -169,6 +208,16 @@ final class NoHerdrScreenTests: XCTestCase {
                     try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: url)
                 }
                 XCTAssertEqual(NSHostingView(rootView: screen).fittingSize, Self.size, "\(stage): the screen grew past its floor")
+                let red = count(theme.palette.red.hex, in: image)
+                if stage.hasSuffix("failed") {
+                    XCTAssertGreaterThan(red, 100, "\(stage) \(theme.id): its mark is not drawn in red")
+                } else {
+                    XCTAssertEqual(red, 0, "\(stage) \(theme.id): an error is drawn")
+                }
+                if stage == "integration-failed" {
+                    screen.action.perform()
+                    XCTAssertNil(store.missingInstall, "Continue left the screen held")
+                }
                 window.close()
             }
         }
@@ -231,6 +280,20 @@ final class NoHerdrScreenTests: XCTestCase {
         guard x < image.pixelsWide, y < image.pixelsHigh else { return "?" }
         let offset = y * image.bytesPerRow + x * (image.bitsPerPixel / 8)
         return String(format: "#%02X%02X%02X", data[offset], data[offset + 1], data[offset + 2])
+    }
+
+    private func count(_ hex: String, in image: NSBitmapImageRep) -> Int {
+        guard let data = image.bitmapData, let value = Int(hex.dropFirst(), radix: 16) else { return 0 }
+        let target = (UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF))
+        let step = image.bitsPerPixel / 8
+        var matches = 0
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                let pixel = data + y * image.bytesPerRow + x * step
+                if (pixel[0], pixel[1], pixel[2]) == target { matches += 1 }
+            }
+        }
+        return matches
     }
 
     private func fittingHeight(_ view: some View) -> CGFloat {
