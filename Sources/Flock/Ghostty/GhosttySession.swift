@@ -537,14 +537,19 @@ final class GhosttySession {
     /// files and images and pastes their path there; a failed upload pastes
     /// nothing and says so.
     func pasteClipboard() {
-        notePastedImages()
+        paste(from: .general)
+    }
+
+    /// `pasteClipboard` for any pasteboard, a drop's included.
+    func paste(from pasteboard: NSPasteboard) {
+        notePastedImages(from: pasteboard)
         guard isRemoteMachine else {
-            if let text = NSPasteboard.general.pasteText() { paste(text) }
+            if let text = pasteboard.pasteText() { paste(text) }
             return
         }
-        guard let remote = remotePaste, NSPasteboard.general.offersPasteText else { return }
+        guard let remote = remotePaste, pasteboard.offersPasteText else { return }
         Task { [weak self] in
-            switch await NSPasteboard.general.remotePasteText(uploader: remote.uploader) {
+            switch await pasteboard.remotePasteText(uploader: remote.uploader) {
             case .text(let text): self?.paste(text)
             case .failed(let message): remote.notify(message)
             case .nothing: break
@@ -661,10 +666,10 @@ final class GhosttySession {
     let pastedImages = PastedImagesModel()
 
     /// SPIKE: call before the paste goes out.
-    func notePastedImages() {
+    func notePastedImages(from pasteboard: NSPasteboard = .general) {
         guard PastedImageOptions.isAvailable else { return }
         pastedImages.readScreen = { [weak self] in self?.screenRows() }
-        pastedImages.willPaste(NSPasteboard.general.pasteImagePaths())
+        pastedImages.willPaste(pasteboard.pasteImagePaths())
     }
 
     /// Row by row: read as one selection, soft-wrapped rows come back joined.

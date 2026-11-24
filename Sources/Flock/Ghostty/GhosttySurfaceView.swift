@@ -3,6 +3,7 @@ import AppKit
 import CoreImage
 import GhosttyKit
 import FlockCore
+import UniformTypeIdentifiers
 
 /// How far a terminal is set back: the share of its colour drained, and of
 /// its own ground laid over it, each 0 to 1.
@@ -243,6 +244,59 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         applyBackgroundColor()
+        if PastedImageOptions.isAvailable { registerForDraggedTypes(Self.dropTypes) }
+    }
+
+    private static let dropTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard takesDrop(sender) else { return [] }
+        session.pastedImages.dropLabel = Self.dropLabel(sender.draggingPasteboard)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        takesDrop(sender) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        session.pastedImages.dropLabel = nil
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        session.pastedImages.dropLabel = nil
+    }
+
+    /// A drop names its pane, so it lands there even when another has focus,
+    /// and takes focus along the way a click would.
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        session.pastedImages.dropLabel = nil
+        guard takesDrop(sender) else { return false }
+        NSApp.activate()
+        window?.makeKey()
+        if wantsFocus {
+            requestWindowFirstResponder()
+        } else {
+            onPrimaryClick?()
+        }
+        session.paste(from: sender.draggingPasteboard)
+        return true
+    }
+
+    private func takesDrop(_ sender: any NSDraggingInfo) -> Bool {
+        !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
+            && session.firstFrameLatch.holdLoss == nil && sender.draggingSourceOperationMask.contains(.copy)
+            && sender.draggingPasteboard.offersPasteText
+    }
+
+    private static func dropLabel(_ pasteboard: NSPasteboard) -> String {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let count = max(1, urls.count)
+        let images = urls.allSatisfy {
+            UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true
+        }
+        let noun = images ? "image" : "file"
+        return count == 1 ? "Drop \(noun)" : "Drop \(count) \(noun)s"
     }
 
     @available(*, unavailable)

@@ -48,6 +48,12 @@ struct PastedImagesOverlay: View {
                     )
                 }
             }
+            .overlay {
+                if let label = model.dropLabel {
+                    PastedImageDropTarget(theme: theme, label: label).transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: ChromeMetrics.LinkChip.fade), value: model.dropLabel)
             .animation(
                 trayNumbers.isEmpty
                     ? .easeIn(duration: ChromeMetrics.LinkChip.fadeOut)
@@ -59,6 +65,31 @@ struct PastedImagesOverlay: View {
 
     private var trayNumbers: [Int] {
         Set(model.labels.filter { $0.inPrompt && model.images[$0.number] != nil }.map(\.number)).sorted()
+    }
+}
+
+private struct PastedImageDropTarget: View {
+    let theme: Theme
+    let label: String
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ChromeRadius.surface)
+        ZStack {
+            shape.fill(theme.accent.opacity(DragVisuals.dropWashOpacity))
+            shape.strokeBorder(theme.accent, lineWidth: 2)
+            HStack(spacing: 6) {
+                Image(systemName: "photo.on.rectangle.angled").font(ChromeType.linkChipSymbol)
+                    .foregroundStyle(theme.accent)
+                Text(label).font(ChromeType.linkChip).foregroundStyle(theme.textStrong)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(theme.chrome))
+            .overlay(Capsule().strokeBorder(theme.rule, lineWidth: 1))
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+        }
+        .padding(4)
+        .allowsHitTesting(false)
     }
 }
 

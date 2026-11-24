@@ -64,6 +64,9 @@ final class PastedImagesModel {
     /// The image the pointer is on, by its label or its thumbnail.
     private(set) var highlighted: Int?
 
+    /// What a drop held over the pane would paste, nil with none.
+    var dropLabel: String?
+
     @ObservationIgnored var trayFrame: CGRect?
     @ObservationIgnored var readScreen: (() -> Screen?)?
     @ObservationIgnored private var pending: [PastedImage] = []
