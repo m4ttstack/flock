@@ -7,11 +7,24 @@ enum PastedImageOptions {
     static let trayKey = "spike.pastedImage.tray"
     static let hoverKey = "spike.pastedImage.hover"
     static let chipKey = "spike.pastedImage.chip"
+    static let layoutKey = "spike.pastedImage.layout"
 
     static var isAvailable: Bool { BuildFlavor.isDev }
 
     static func isOn(_ key: String) -> Bool {
         isAvailable && (UserDefaults.standard.object(forKey: key) as? Bool ?? true)
+    }
+}
+
+enum PastedImageLayout: String, CaseIterable {
+    case footer, gutters, stage
+
+    var title: String {
+        switch self {
+        case .footer: "A: Footer Pager"
+        case .gutters: "B: Side Gutters"
+        case .stage: "C: Stage"
+        }
     }
 }
 
