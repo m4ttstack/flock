@@ -97,7 +97,7 @@ final class PastedImagesModel {
     @ObservationIgnored private var conversation: String?
     /// Pasted while no conversation was known.
     @ObservationIgnored private var unfiled: [Int: String] = [:]
-    /// What a number named before a paste took it, in case the paste turns
+    /// What a number named just before a paste took it, in case the paste turns
     /// out to be another conversation's.
     @ObservationIgnored private var displaced: [Int: String] = [:]
     /// The last conversation known, which an agent that exits leaves.
@@ -136,7 +136,10 @@ final class PastedImagesModel {
     /// arrives after the conversation it names has begun, so images pasted
     /// before it was known, and those on screen, join it.
     func bind(conversation next: String?) {
-        guard next != conversation else { return }
+        guard next != conversation else {
+            deferred = nil
+            return
+        }
         var shown: [Int] = []
         if let next, let previous = shownConversation, previous != next {
             // What is on screen says which images are the new one's.
@@ -353,7 +356,7 @@ final class PastedImagesModel {
     }
 
     private func assign(_ path: String, to number: Int) {
-        if let held = paths[number], held != path, displaced[number] == nil { displaced[number] = held }
+        if let held = paths[number], held != path { displaced[number] = held }
         if let conversation {
             paths[number] = store().keep(path, as: number, in: conversation)
         } else {

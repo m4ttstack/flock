@@ -207,6 +207,37 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[0]])
     }
 
+    func testAConversationThatComesBackBeforeTheScreenDoesIsLeftAsItWas() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(1)
+        try await paste(paths, into: model, on: pane)
+        pane.isOnScreen = false
+        model.bind(conversation: "acme-passing")
+        model.bind(conversation: Self.conversation)
+        pane.isOnScreen = true
+        model.refresh()
+        XCTAssertEqual(store.images(for: "acme-passing"), [:])
+        XCTAssertEqual(store.images(for: Self.conversation), [1: paths[0]])
+    }
+
+    func testTheOldConversationGetsBackWhatItLastHeld() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        let original = try picture("original.png", width: 40, height: 40, hue: 0.2)
+        _ = store.keep(original, as: 1, in: Self.conversation)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(2)
+        try await paste([paths[0]], into: model, on: pane)
+        try await paste([paths[1]], into: model, on: pane)
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.images(for: Self.conversation), [1: paths[0]])
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[1]])
+    }
+
     func testAResumedConversationKeepsItsOwnImages() async throws {
         let pane = FakePane()
         let store = store()

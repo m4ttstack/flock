@@ -551,9 +551,12 @@ final class GhosttySession {
             return
         }
         guard let remote = remotePaste, pasteboard.offersPasteText else { return }
+        guard let entries = pasteboard.remotePasteEntries() else {
+            return remote.notify(RemotePaste.failureMessage(remote.uploader.label))
+        }
         let images = pastedImages.willPaste(contents.imagePaths, held: true)
         Task { [weak self] in
-            switch await pasteboard.remotePasteText(uploader: remote.uploader) {
+            switch await RemotePaste.text(of: entries, uploader: remote.uploader) {
             case .text(let text):
                 self?.pastedImages.pasteWasSent(images)
                 self?.paste(text)

@@ -35,6 +35,15 @@ extension NSPasteboard {
     /// the local paste memo.
     @MainActor
     func remotePasteText(uploader: RemoteFileUploader) async -> RemotePasteOutcome {
+        guard let entries = remotePasteEntries() else {
+            return .failed(RemotePaste.failureMessage(uploader.label))
+        }
+        return await RemotePaste.text(of: entries, uploader: uploader)
+    }
+
+    /// What `remotePasteText` uploads, read now: the upload outlasts whatever
+    /// the pasteboard holds. Nil for an image whose bytes cannot be read.
+    func remotePasteEntries() -> [RemotePasteEntry]? {
         let items = pasteboardItems ?? []
         var entries: [RemotePasteEntry] = []
         for (item, contribution) in zip(items, ClipboardPaste.remotePlan(for: items.map(Self.described))) {
@@ -44,21 +53,13 @@ extension NSPasteboard {
             case .uploadFile(let localPath):
                 entries.append(.file(localPath: localPath))
             case .uploadImage(let typeIdentifier, let fileExtension):
-                guard let data = item.data(forType: .init(typeIdentifier)) else {
-                    return .failed(RemotePaste.failureMessage(uploader.label))
-                }
+                guard let data = item.data(forType: .init(typeIdentifier)) else { return nil }
                 entries.append(.image(data, fileExtension: fileExtension))
             case .nothing:
                 continue
             }
         }
-        return await RemotePaste.resolve(
-            entries,
-            label: uploader.label,
-            token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
-            readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
-            upload: { data, fileName in try await uploader.upload(data, named: fileName) }
-        )
+        return entries
     }
 
     private func buildPasteText() -> BuiltPasteText {
@@ -144,5 +145,18 @@ private final class PasteTextMemo: @unchecked Sendable {
         built = build()
         self.key = key
         return built
+    }
+}
+
+extension RemotePaste {
+    @MainActor
+    static func text(of entries: [RemotePasteEntry], uploader: RemoteFileUploader) async -> RemotePasteOutcome {
+        await resolve(
+            entries,
+            label: uploader.label,
+            token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
+            readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
+            upload: { data, fileName in try await uploader.upload(data, named: fileName) }
+        )
     }
 }
