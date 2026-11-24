@@ -1017,6 +1017,12 @@ struct PaneCellView: View {
         return .asymmetric(insertion: arrival, removal: AnyTransition.opacity.animation(.easeOut(duration: M.dismissFade)))
     }
 
+    private var isBehindModal: Bool {
+        guard role == .canvas else { return viewModel.rtModalIsOver(solo: pane.paneID) }
+        guard let pin = viewModel.topBarOverlay.openPin else { return viewModel.rt.modal != nil }
+        return viewModel.pins.pin(pin)?.workspace != pane.workspaceID
+    }
+
     @ViewBuilder
     private func paneBody(editorIsOpen: Bool) -> some View {
         if let ghosttySurface {
@@ -1047,7 +1053,8 @@ struct PaneCellView: View {
                     linkFolder: { [weak viewModel, paneID = pane.paneID] in
                         viewModel?.model?.panes[paneID].map { $0.foregroundCwd ?? $0.cwd }
                     },
-                    conversation: pane.agentSessionID, acceptsDrops: !viewModel.modalIsUp,
+                    // An agent that has exited leaves its session id behind.
+                    conversation: pane.agent == nil ? nil : pane.agentSessionID, acceptsDrops: !isBehindModal,
                     onBodyDragBegan: handleBodyDragBegan
                 )
                 .reportsDragFrame { bodyFrame = $0 }

@@ -151,7 +151,7 @@ private struct PastedImageTray: View {
     @State private var position = ScrollPosition(edge: .trailing)
     @State private var offset: CGFloat = 0
     @State private var pointerInside = false
-    @State private var ownFrame: CGRect?
+    @State private var id = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -160,13 +160,9 @@ private struct PastedImageTray: View {
             .confirmCardSurface(theme)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("flock.pane.imageTray")
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: {
-                model.trayFrame = $0
-                ownFrame = $0
-            }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.trayMoved(id, to: $0) }
             .onHover { pointerInside = $0 }
-            // A tray that replaced this one has put its own frame there.
-            .onDisappear { if model.trayFrame == ownFrame { model.trayFrame = nil } }
+            .onDisappear { model.trayWent(id) }
             .onChange(of: numbers) { old, new in
                 guard new.count > old.count else { return }
                 withAnimation(motion) { position.scrollTo(edge: .trailing) }

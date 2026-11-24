@@ -87,7 +87,8 @@ final class PastedImagesModel {
     var dropLabel: String?
 
     @ObservationIgnored var pane: Pane?
-    @ObservationIgnored var trayFrame: CGRect?
+    @ObservationIgnored private(set) var trayFrame: CGRect?
+    @ObservationIgnored private var tray: UUID?
     @ObservationIgnored var thumbFrames: [Int: CGRect] = [:]
 
     @ObservationIgnored private let store: @MainActor () -> PastedImageStore
@@ -99,6 +100,8 @@ final class PastedImagesModel {
     @ObservationIgnored private var displaced: [Int: String] = [:]
     /// The last conversation known, which an agent that exits leaves.
     @ObservationIgnored private var shownConversation: String?
+    /// One that arrived while the pane was off screen.
+    @ObservationIgnored private var deferred: String?
     /// Every image this conversation has, whether or not it is loaded: one is
     /// loaded once its label is on screen.
     @ObservationIgnored private var paths: [Int: String] = [:]
@@ -129,22 +132,33 @@ final class PastedImagesModel {
 
     /// `next` is the agent's own session id, nil while herdr reports none. It
     /// arrives after the conversation it names has begun, so images pasted
-    /// before it was known, and the prompt's, join it.
+    /// before it was known, and those on screen, join it.
     func bind(conversation next: String?) {
         guard next != conversation else { return }
+        var shown: [Int] = []
+        if let next, let previous = shownConversation, previous != next {
+            // What is on screen says which images are the new one's.
+            guard let screen = pane?.screen(true) else {
+                deferred = next
+                watch()
+                return
+            }
+            shown = PastedImageLabels(rows: screen.rows).labels.map(\.number)
+        }
+        deferred = nil
         conversation = next
         guard let next else { return }
         var carried = unfiled
         unfiled = [:]
         if let previous = shownConversation, previous != next {
-            for number in promptNumbers {
+            for number in Set(shown) where paths[number] != nil {
                 carried[number] = paths[number]
                 if let path = displaced[number] { _ = store().keep(path, as: number, in: previous) }
             }
-            matcher = PastedImageMatcher()
+            matcher.reset()
+            displaced = [:]
         }
         shownConversation = next
-        displaced = [:]
         paths = store().images(for: next)
         images = images.filter { (carried[$0.key] ?? paths[$0.key]) == $0.value.path }
         touched = .distantPast
@@ -167,6 +181,17 @@ final class PastedImagesModel {
 
     func cancelPaste(_ paste: Int?) {
         if let paste { matcher.cancel(paste) }
+    }
+
+    func trayMoved(_ tray: UUID, to frame: CGRect) {
+        self.tray = tray
+        trayFrame = frame
+    }
+
+    /// A tray that has replaced this one has the frame now.
+    func trayWent(_ tray: UUID) {
+        guard self.tray == tray else { return }
+        trayFrame = nil
     }
 
     /// Only labels flock holds an image for.
@@ -239,7 +264,7 @@ final class PastedImagesModel {
                 try? await Task.sleep(for: Self.pollInterval)
                 guard let self else { return }
                 refresh()
-                if paths.isEmpty, !matcher.isWaiting { break }
+                if paths.isEmpty, !matcher.isWaiting, deferred == nil { break }
             }
             self?.poll = nil
             self?.stopWatchingFrames()
@@ -282,6 +307,7 @@ final class PastedImagesModel {
             show([], promptTop: nil)
             return
         }
+        if let deferred { bind(conversation: deferred) }
         let read = PastedImageLabels(rows: screen.rows)
         for match in matcher.match(read, now: Date()) {
             assign(match.path, to: match.number)

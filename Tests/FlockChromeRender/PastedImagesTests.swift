@@ -175,6 +175,38 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(model.images[1]?.path, paths[0])
     }
 
+    func testAnImageSentBeforeANewConversationsIdArrivesMovesToIt() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        let old = try picture("old.png", width: 40, height: 40, hue: 0.2)
+        _ = store.keep(old, as: 1, in: Self.conversation)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(1)
+        try await paste(paths, into: model, on: pane)
+        pane.rows = screen(prompt: "\u{276F} ")
+        model.refresh()
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[0]])
+        XCTAssertEqual(store.images(for: Self.conversation), [1: old])
+    }
+
+    func testANewConversationThatArrivesOffScreenWaitsForTheScreen() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(1)
+        try await paste(paths, into: model, on: pane)
+        pane.isOnScreen = false
+        model.refresh()
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [:])
+        pane.isOnScreen = true
+        model.refresh()
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[0]])
+    }
+
     func testAnAgentThatExitsLeavesItsImagesWithItsOwnConversation() async throws {
         let pane = FakePane()
         let store = store()

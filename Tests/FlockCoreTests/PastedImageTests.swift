@@ -124,6 +124,25 @@ final class PastedImageMatcherTests: XCTestCase {
         XCTAssertEqual(matcher.match(screen(prompt: [1]), now: at(301)).map(\.path), ["/a.png"])
     }
 
+    func testUploadsThatFinishOutOfOrderKeepTheirOwnLabels() {
+        var matcher = PastedImageMatcher()
+        let slow = matcher.willPaste(["/slow.png"], over: screen(prompt: []), held: true, now: start)
+        let quick = matcher.willPaste(["/quick.png"], over: screen(prompt: []), held: true, now: start)
+        matcher.sent(quick, now: at(1))
+        XCTAssertEqual(matcher.match(screen(prompt: [1]), now: at(2)).map(\.path), ["/quick.png"])
+        matcher.sent(slow, now: at(3))
+        XCTAssertEqual(matcher.match(screen(prompt: [1, 2]), now: at(4)).map(\.path), ["/slow.png"])
+    }
+
+    func testAPasteFromBeforeAResetCancelsNothingAfterIt() {
+        var matcher = PastedImageMatcher()
+        let old = matcher.willPaste(["/old.png"], over: screen(prompt: []), held: true, now: start)
+        matcher.reset()
+        _ = matcher.willPaste(["/new.png"], over: screen(prompt: []), now: at(1))
+        matcher.cancel(old)
+        XCTAssertEqual(matcher.match(screen(prompt: [1]), now: at(2)).map(\.path), ["/new.png"])
+    }
+
     func testAnUnlabelledPasteDoesNotOutliveItsOwnWindow() {
         var matcher = pasted(["/never.png"], over: screen(prompt: []))
         _ = matcher.willPaste(["/kept.png"], over: screen(prompt: []), now: at(10))

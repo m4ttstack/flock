@@ -87,10 +87,18 @@ public struct PastedImageMatcher: Sendable {
         return pastes
     }
 
+    /// A held paste goes out, behind whatever went out while it was held.
     public mutating func sent(_ paste: Int, now: Date) {
-        for index in waiting.indices where waiting[index].paste == paste {
-            waiting[index].deadline = now.addingTimeInterval(Self.window)
-        }
+        let outgoing = waiting.filter { $0.paste == paste }
+        waiting.removeAll { $0.paste == paste }
+        waiting += outgoing.map { ($0.paste, $0.path, now.addingTimeInterval(Self.window)) }
+    }
+
+    /// Forgets every paste, and answers none of their later `sent` or
+    /// `cancel`: the count goes on.
+    public mutating func reset() {
+        waiting = []
+        seen = [:]
     }
 
     /// A paste that never reached the program leaves no label to wait for.
@@ -105,8 +113,8 @@ public struct PastedImageMatcher: Sendable {
         let counts = Self.counts(screen.pasteTargets)
         var matched: [(number: Int, path: String)] = []
         for number in counts.keys.sorted() where counts[number, default: 0] > seen[number, default: 0] {
-            guard !waiting.isEmpty else { break }
-            matched.append((number, waiting.removeFirst().path))
+            guard let next = waiting.firstIndex(where: { $0.deadline != .distantFuture }) else { break }
+            matched.append((number, waiting.remove(at: next).path))
         }
         seen.merge(counts, uniquingKeysWith: max)
         return matched

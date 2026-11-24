@@ -2,9 +2,9 @@ import AppKit
 import FlockCore
 import QuickLookUI
 
-/// Pasted images in the Quick Look panel, which AppKit keeps one of.
-/// The panel takes its contents from whichever responder accepts control of
-/// it (`GhosttySurfaceView`), and that hands it this.
+/// Pasted images in the Quick Look panel, which AppKit keeps one of. The panel
+/// takes its contents from whichever responder accepts control of it, so each
+/// window it opens over carries one (`Responder`) that hands it this.
 @MainActor
 final class PastedImageQuickLook: NSObject {
     static let shared = PastedImageQuickLook()
@@ -35,7 +35,33 @@ final class PastedImageQuickLook: NSObject {
     private var queued: Task<Void, Never>?
     private static let openingTime: TimeInterval = 0.6
 
-    var hasItems: Bool { !items.isEmpty }
+    private var hasItems: Bool { !items.isEmpty }
+
+    /// At the end of a window's responder chain, so the panel finds it
+    /// wherever in the window the keyboard is.
+    private final class Responder: NSResponder {
+        private nonisolated(unsafe) static var key: UInt8 = 0
+
+        static func install(in window: NSWindow) {
+            guard objc_getAssociatedObject(window, &key) == nil else { return }
+            let responder = Responder()
+            responder.nextResponder = window.nextResponder
+            window.nextResponder = responder
+            objc_setAssociatedObject(window, &key, responder, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+
+        nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+            MainActor.assumeIsolated { PastedImageQuickLook.shared.hasItems }
+        }
+
+        nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+            MainActor.assumeIsolated { PastedImageQuickLook.shared.begin() }
+        }
+
+        nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+            MainActor.assumeIsolated { PastedImageQuickLook.shared.end() }
+        }
+    }
 
     /// `sourceFrame` is where an image is drawn on screen, which the panel
     /// grows from and shrinks back to; nil fades it instead. `isImage` is
@@ -79,10 +105,8 @@ final class PastedImageQuickLook: NSObject {
         }
         openedAt = Date()
         openingURL = items[index].url
+        if let window { Responder.install(in: window) }
         panel.makeKeyAndOrderFront(nil)
-        // Opening asks the responder chain, and a click on the tray leaves the
-        // keyboard where it was: a find field accepts no control of the panel.
-        if panel.dataSource !== self { begin() }
         // After it opens, never before: opening centers it on the screen.
         guard let window else { return }
         let anchor = sourceFrame(number)
@@ -99,12 +123,13 @@ final class PastedImageQuickLook: NSObject {
 
     /// The click goes on to what it landed on: the panel is not modal.
     private func closeIfOutside(_ event: NSEvent) {
-        guard let panel = QLPreviewPanel.shared(), panel.isVisible else { return end() }
-        guard let window, event.window === window, !isImage(event.locationInWindow) else { return }
+        guard let window, event.window === window, !isImage(event.locationInWindow),
+              let panel = QLPreviewPanel.shared(), panel.isVisible
+        else { return }
         panel.orderOut(nil)
     }
 
-    func begin() {
+    private func begin() {
         guard let panel = QLPreviewPanel.shared() else { return }
         panel.dataSource = self
         panel.delegate = self
@@ -117,7 +142,7 @@ final class PastedImageQuickLook: NSObject {
         }
     }
 
-    func end() {
+    private func end() {
         guard let panel = QLPreviewPanel.shared() else { return }
         if let clickOut { NSEvent.removeMonitor(clickOut) }
         clickOut = nil
