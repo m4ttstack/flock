@@ -112,7 +112,7 @@ final class PastedImagesModel {
     @ObservationIgnored var thumbFrames: [Int: CGRect] = [:]
 
     @ObservationIgnored private let store: @MainActor () -> PastedImageStore
-    @ObservationIgnored private var conversation: String?
+    @ObservationIgnored private(set) var conversation: String?
     /// Pasted while no conversation was known.
     @ObservationIgnored private var unfiled: [Int: String] = [:]
     @ObservationIgnored private var unfiledFiles: [Int: String] = [:]

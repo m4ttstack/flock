@@ -689,19 +689,21 @@ final class GhosttySession {
         let contents = pasteboard.pasteContents()
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         let others = urls.map(\.path).filter { !contents.imagePaths.contains($0) }
-        guard !others.isEmpty else { return paste(from: pasteboard) }
+        // Images alone go at once, unless files are still going out ahead.
+        guard !others.isEmpty || dropsUnderWay > 0 else { return paste(from: pasteboard) }
         let images = ClipboardPaste.text(joining: contents.imagePaths.map(ClipboardPaste.escape))
         let earlier = dropping
+        let conversation = pastedImages.conversation
+        dropsUnderWay += 1
         dropping = Task { [weak self] in
             await earlier?.value
-            if let images {
+            defer { self?.dropsUnderWay -= 1 }
+            if let images, self?.takesDrop(from: conversation) == true {
                 self?.paste(images, images: contents.imagePaths)
                 try? await Task.sleep(for: Self.pasteSpacing)
             }
             for path in others {
-                // Whatever has the pane once the agent has gone is not handed
-                // the rest.
-                guard let self, FileMention.isRead(by: agent) else { return }
+                guard let self, takesDrop(from: conversation) else { return }
                 drops += 1
                 if let text = FileMention.paste(for: path, drop: drops) {
                     pastedImages.willDrop(path)
@@ -714,6 +716,14 @@ final class GhosttySession {
         }
     }
 
+    /// Whatever has the pane by the time the rest of a drop goes out, a shell,
+    /// a dialog or another conversation, is not handed it.
+    private func takesDrop(from conversation: String?) -> Bool {
+        FileMention.isRead(by: agent) && pastedImages.promptIsDrawn
+            && (conversation == nil || pastedImages.conversation == conversation)
+    }
+
+    private var dropsUnderWay = 0
     private var dropping: Task<Void, Never>?
     private var drops = 0
     /// Claude Code takes pastes closer together than its own wait for the
