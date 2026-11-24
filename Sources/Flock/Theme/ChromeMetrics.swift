@@ -305,8 +305,7 @@ enum ChromeMetrics {
         /// What the preview takes beside and above its image.
         static let previewReserve = CGSize(width: 32, height: 72)
 
-        static let zoomDuration: Double = 0.2
-        static let chromeFadeIn: Double = 0.18
+        static let zoomDuration: Double = 0.26
         static let chromeFadeOut: Double = 0.1
         static let previewTitlebarInset: CGFloat = 8
 

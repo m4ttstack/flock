@@ -57,8 +57,8 @@ final class PastedImageQuickLook: NSObject {
     /// grows from and shrinks back to; nil fades it instead. `isImage` is
     /// whether a point in `window` is on something that shows an image.
     func show(
-        _ shown: [Item], startingAt number: Int, over window: NSWindow?, sourceFrame: @escaping (Int) -> NSRect?,
-        isImage: @escaping (NSPoint) -> Bool
+        _ shown: [Item], startingAt number: Int, over window: NSWindow?, isDark: Bool,
+        sourceFrame: @escaping (Int) -> NSRect?, isImage: @escaping (NSPoint) -> Bool
     ) {
         let present = shown.filter { FileManager.default.fileExists(atPath: $0.url.path) }
         guard let window, let start = present.firstIndex(where: { $0.number == number }) else {
@@ -79,6 +79,7 @@ final class PastedImageQuickLook: NSObject {
         anchor = sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
         isOpen = true
         generation += 1
+        panel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         watch(window)
         fill()
         panel.setFrame(target, display: true)
@@ -101,15 +102,12 @@ final class PastedImageQuickLook: NSObject {
         panel.orderFront(nil)
         animate(from: source, to: pictureFrame) { [weak self] in
             guard let self, generation == opened else { return }
-            // Over the picture that just landed, which it draws in the same
-            // place: only the chrome is seen to fade in.
+            endZoom()
             panel.makeKeyAndOrderFront(nil)
-            fadePanel(to: 1) { [weak self] in
-                guard let self, generation == opened else { return }
-                endZoom()
-                loadPreview()
-            }
+            loadPreview()
         }
+        // Under the picture as it grows, so the chrome arrives with it.
+        fadePanel(to: 1) {}
     }
 
     func close() {
@@ -296,8 +294,8 @@ final class PastedImageQuickLook: NSObject {
 
     private func fadePanel(to alpha: CGFloat, then done: @escaping @MainActor () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = alpha > 0 ? M.chromeFadeIn : M.chromeFadeOut
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = alpha > 0 ? M.zoomDuration : M.chromeFadeOut
+            context.timingFunction = CAMediaTimingFunction(name: alpha > 0 ? .easeIn : .easeOut)
             panel.animator().alphaValue = alpha
         } completionHandler: {
             MainActor.assumeIsolated { done() }

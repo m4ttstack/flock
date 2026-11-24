@@ -91,6 +91,7 @@ final class PastedImagesModel {
         /// Which frame the pane is showing, nil while it shows none.
         var frame: () -> ObjectIdentifier?
         var window: () -> NSWindow?
+        var isDark: () -> Bool = { false }
         var toScreen: (CGRect) -> NSRect?
         var fromWindow: (NSPoint) -> CGPoint?
     }
@@ -298,7 +299,7 @@ final class PastedImagesModel {
         let items = numbers.sorted().compactMap { number in
             images[number].map { PastedImageQuickLook.Item(number: number, title: "Image \(number)", url: $0.url, thumbnail: $0.thumbnail) }
         }
-        PastedImageQuickLook.shared.show(items, startingAt: number, over: pane?.window()) { [weak self] shown in
+        PastedImageQuickLook.shared.show(items, startingAt: number, over: pane?.window(), isDark: pane?.isDark() ?? false) { [weak self] shown in
             guard let self else { return nil }
             let rect: CGRect? = switch origin {
             case .tray: visibleThumbFrame(shown)
@@ -317,7 +318,7 @@ final class PastedImagesModel {
             number: Self.fileItem, title: file.name, url: file.url,
             thumbnail: file.icon, size: Self.filePreviewSize
         )
-        PastedImageQuickLook.shared.show([item], startingAt: Self.fileItem, over: pane?.window()) { [weak self] _ in
+        PastedImageQuickLook.shared.show([item], startingAt: Self.fileItem, over: pane?.window(), isDark: pane?.isDark() ?? false) { [weak self] _ in
             self?.pane?.toScreen(file.chip)
         } isImage: { [weak self] point in
             guard let self, let point = pane?.fromWindow(point) else { return false }
