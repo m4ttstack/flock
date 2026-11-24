@@ -207,6 +207,23 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(store.images(for: "acme-after-clear"), [1: paths[0]])
     }
 
+    func testAResumedConversationKeepsItsOwnImages() async throws {
+        let pane = FakePane()
+        let store = store()
+        let resumed = try picture("resumed.png", width: 40, height: 40, hue: 0.4)
+        _ = store.keep(resumed, as: 1, in: "acme-resumed")
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        let paths = try pictures(1)
+        try await paste(paths, into: model, on: pane)
+        model.bind(conversation: "acme-resumed")
+        XCTAssertEqual(store.images(for: "acme-resumed"), [1: resumed])
+        XCTAssertEqual(store.images(for: Self.conversation), [1: paths[0]])
+        model.refresh()
+        for _ in 0..<50 where model.images[1]?.path != resumed { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(model.images[1]?.path, resumed)
+    }
+
     func testAnAgentThatExitsLeavesItsImagesWithItsOwnConversation() async throws {
         let pane = FakePane()
         let store = store()

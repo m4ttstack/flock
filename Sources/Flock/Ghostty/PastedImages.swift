@@ -151,7 +151,10 @@ final class PastedImagesModel {
         var carried = unfiled
         unfiled = [:]
         if let previous = shownConversation, previous != next {
-            for number in Set(shown) where paths[number] != nil {
+            // A conversation resumed has its own images, which the screen says
+            // nothing about; a fresh one has none.
+            let own = store().images(for: next)
+            for number in Set(shown) where paths[number] != nil && own[number] == nil {
                 carried[number] = paths[number]
                 if let path = displaced[number] { _ = store().keep(path, as: number, in: previous) }
             }
