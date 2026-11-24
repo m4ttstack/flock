@@ -235,7 +235,7 @@ private struct PastedImageTray: View {
                 theme: theme, number: number, image: image, size: size,
                 isLit: model.highlighted == number,
                 onHover: { hover(number, $0) },
-                onQuickLook: { model.quickLook(number) },
+                onQuickLook: { model.quickLook(number, from: .tray) },
                 onOpen: { model.open(number) }
             )
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: { model.thumbFrames[number] = $0 }

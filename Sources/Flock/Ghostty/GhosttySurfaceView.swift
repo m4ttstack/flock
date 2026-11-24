@@ -501,7 +501,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             pendingLinkClick = nil
             if let label = imageLabel(at: topLeftPoint(press.down)) {
                 session.linkChip.dismiss()
-                session.pastedImages.quickLook(label.number)
+                session.pastedImages.quickLook(label.number, from: .text(label.rect))
                 return
             }
             session.open(press.link)

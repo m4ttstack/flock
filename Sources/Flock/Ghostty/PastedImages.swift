@@ -147,10 +147,17 @@ final class PastedImagesModel {
         images.first { $0.value.link == link }?.key
     }
 
+    /// What was clicked, in the pane's top-left space.
+    enum QuickLookOrigin {
+        case tray
+        case text(CGRect)
+    }
+
     /// Opens on `number`, with the arrow keys reaching the images beside it:
     /// the prompt's for one of those, else every sent one on screen.
-    func quickLook(_ number: Int) {
+    func quickLook(_ number: Int, from origin: QuickLookOrigin) {
         let inPrompt = labels.contains { $0.number == number && $0.inPrompt }
+        let first = number
         let numbers = Set(labels.filter { $0.inPrompt == inPrompt }.map(\.number)).union([number])
         let items = numbers.sorted().compactMap { number in
             images[number].map {
@@ -159,9 +166,15 @@ final class PastedImagesModel {
         }
         PastedImageQuickLook.shared.show(items, startingAt: number, over: window?()) { [weak self] number in
             guard let self else { return nil }
-            let tray = trayFrame.flatMap { tray in thumbFrames[number].flatMap { tray.contains($0.center) ? $0 : nil } }
-            let label = labels.first { $0.number == number && $0.inPrompt == inPrompt }?.rect
-            return (tray ?? label).flatMap { self.onScreen?($0) }
+            let rect: CGRect?
+            switch origin {
+            case .tray:
+                rect = trayFrame.flatMap { tray in thumbFrames[number].flatMap { tray.contains($0.center) ? $0 : nil } }
+            case .text(let clicked):
+                rect = number == first ? clicked
+                    : labels.first { $0.number == number && $0.inPrompt == inPrompt }?.rect
+            }
+            return rect.flatMap { self.onScreen?($0) }
         }
     }
 

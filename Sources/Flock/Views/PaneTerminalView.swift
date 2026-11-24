@@ -184,8 +184,9 @@ struct GhosttyPaneTerminalView: View {
                 ),
                 onPreview: {
                     guard let number = session.pastedImages.number(for: chip.link) else { return }
+                    let clicked = session.linkChip.frame
                     session.linkChip.dismiss()
-                    session.pastedImages.quickLook(number)
+                    session.pastedImages.quickLook(number, from: clicked.map { .text($0) } ?? .tray)
                 },
                 onOpen: {
                     session.open(chip.link)
