@@ -696,7 +696,8 @@ final class GhosttySession {
             }
             for path in others {
                 guard let self else { return }
-                if let text = FileMention.paste(for: path, folder: folder) {
+                drops += 1
+                if let text = FileMention.paste(for: path, folder: folder, drop: drops) {
                     pastedImages.willDrop(path)
                     paste(text)
                 } else {
@@ -707,6 +708,7 @@ final class GhosttySession {
         }
     }
 
+    private var drops = 0
     /// Claude Code takes pastes closer together than its own wait for the
     /// rest of one as a single paste.
     private static let pasteSpacing: Duration = .milliseconds(300)
