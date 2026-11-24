@@ -94,9 +94,14 @@ final class PastedImagesModel {
     @ObservationIgnored private var pendingDeadline = Date.distantPast
     @ObservationIgnored private var seen: [Int: Int] = [:]
     @ObservationIgnored private var poll: Task<Void, Never>?
+    /// Which frame the pane is showing, nil while it shows none.
+    @ObservationIgnored var currentFrame: (() -> ObjectIdentifier?)?
+    @ObservationIgnored private var scannedFrame: ObjectIdentifier?
+    @ObservationIgnored private var frameObserver: CFRunLoopObserver?
 
     private static let pendingWindow: TimeInterval = 15
-    private static let pollInterval: Duration = .milliseconds(150)
+    /// Only a backstop: a new frame is what asks for a scan.
+    private static let pollInterval: Duration = .milliseconds(500)
 
     /// `conversation` is the agent's own session id, nil while herdr reports
     /// none. Images pasted before it was known join the one that arrives.
@@ -185,13 +190,46 @@ final class PastedImagesModel {
 
     private func startPoll() {
         guard poll == nil else { return }
+        watchFrames()
         poll = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
                 guard let self, self.refresh() else { break }
             }
             self?.poll = nil
+            self?.stopWatchingFrames()
         }
+    }
+
+    /// libghostty hands its layer each frame on the main thread, so the end
+    /// of a main run loop pass is the first moment a new one can be seen, and
+    /// is ahead of the commit that shows it.
+    private func watchFrames() {
+        guard frameObserver == nil else { return }
+        let observer = CFRunLoopObserverCreateWithHandler(
+            nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0
+        ) { [weak self] observer, _ in
+            guard let self else {
+                CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+                return
+            }
+            MainActor.assumeIsolated { self.scanNewFrame() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        frameObserver = observer
+    }
+
+    private func stopWatchingFrames() {
+        if let frameObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), frameObserver, .commonModes) }
+        frameObserver = nil
+    }
+
+    private func scanNewFrame() {
+        let frame = currentFrame?()
+        guard frame != scannedFrame else { return }
+        scannedFrame = frame
+        guard frame != nil else { return }
+        _ = refresh()
     }
 
     private func refresh() -> Bool {

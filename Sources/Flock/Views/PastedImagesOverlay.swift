@@ -30,6 +30,8 @@ struct PastedImagesOverlay: View {
                             .saturation(1 - shade.drain)
                             .overlay(theme.terminalGround.opacity(shade.veil))
                             .offset(x: label.rect.minX, y: label.rect.minY)
+                            // It moves with the text, which never animates.
+                            .transaction { $0.animation = nil }
                         }
                     }
                     .allowsHitTesting(false)
@@ -119,8 +121,7 @@ private struct PastedImageChip: View {
 
     var body: some View {
         let cell = label.rect.width / CGFloat("[Image #\(label.number)]".count)
-        // Past its row by less than any glyph's own margin there.
-        let height = label.rect.height + 1.5
+        let height = label.rect.height - 2
         HStack(spacing: 0) {
             Image(nsImage: image.thumbnail)
                 .resizable()
@@ -128,7 +129,7 @@ private struct PastedImageChip: View {
                 .frame(width: cell * 2.3, height: height)
                 .clipped()
             Text("Image \(label.number)")
-                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.85))
+                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.82))
                 .foregroundStyle(Color(theme.cardColors.title))
                 .fixedSize()
                 .frame(maxWidth: .infinity)

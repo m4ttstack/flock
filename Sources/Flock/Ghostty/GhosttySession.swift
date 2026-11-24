@@ -681,6 +681,10 @@ final class GhosttySession {
 
     private func readScreenForImages() {
         pastedImages.readScreen = { [weak self] in self?.screenRows() }
+        pastedImages.currentFrame = { [weak self] in
+            guard let view = self?.view, view.window != nil else { return nil }
+            return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
+        }
         pastedImages.window = { [weak self] in self?.view?.window }
         pastedImages.fromWindow = { [weak self] point in
             guard let view = self?.view else { return nil }
@@ -701,19 +705,23 @@ final class GhosttySession {
         else { return nil }
         let size = ghostty_surface_size(surface)
         guard size.columns > 0, size.rows > 0 else { return nil }
-        let rows = (0..<UInt32(size.rows)).map { row -> String in
+        func text(from first: UInt32, to last: UInt32) -> String {
             let selection = ghostty_selection_s(
                 top_left: ghostty_point_s(
-                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: row),
+                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: first),
                 bottom_right: ghostty_point_s(
                     tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
-                    x: UInt32(size.columns) - 1, y: row),
+                    x: UInt32(size.columns) - 1, y: last),
                 rectangle: false)
             var text = ghostty_text_s()
             guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
             defer { ghostty_surface_free_text(surface, &text) }
             return text.text_len > 0 ? String(cString: text.text) : ""
         }
+        // This runs for every frame, and most screens show no label.
+        let count = UInt32(size.rows)
+        let rows = text(from: 0, to: count - 1).contains("[Image #")
+            ? (0..<count).map { text(from: $0, to: $0) } : []
         return PastedImagesModel.Screen(
             rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),
             ground: { [weak self] in self?.frameColor(at: $0) })
