@@ -149,6 +149,13 @@ final class HerdrBuildStore {
         refresh()
     }
 
+    /// What an install begun on the missing screen failed at after it, or
+    /// something else, put herdr on disk.
+    var installedWithError: String? {
+        guard binaryPath != nil, case .failed(let message) = missingInstall else { return nil }
+        return message
+    }
+
     var shouldOfferBanner: Bool {
         HerdrBuildOffer.shouldOffer(state: state, dismissedFor: offerDismissedFor)
     }
@@ -247,6 +254,7 @@ final class HerdrBuildStore {
         }
         let found = lastProbe?.exists == true ? target : nil
         if binaryPath != found {
+            settleFailedInstall(found: found)
             binaryPath = found
             onBinaryPathChanged()
         }
@@ -344,11 +352,21 @@ final class HerdrBuildStore {
         missingInstall = nil
     }
 
-    /// With no herdr on disk the screen stays up by itself, and a herdr
-    /// installed by hand must still lift it.
     private func settleMissingInstall(failure: String?) {
         guard missingInstall == .running else { return }
-        missingInstall = binaryPath == nil ? nil : failure.map(MissingInstall.failed)
+        missingInstall = failure.map(MissingInstall.failed)
+    }
+
+    /// A herdr that turns up after the failure lifts the screen, as it does
+    /// before any install. One that goes away leaves the screen to offer the
+    /// install again, without an error about a herdr no longer there.
+    private func settleFailedInstall(found: String?) {
+        guard case .failed = missingInstall else { return }
+        if found == nil {
+            lastErrorMessage = nil
+        } else if binaryPath == nil {
+            missingInstall = nil
+        }
     }
 
     func requestServerRestart(source: PendingConfirmation.Source) {

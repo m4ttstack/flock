@@ -137,17 +137,12 @@ struct MissingHerdrScreen: View {
         NoHerdrScreen(theme: theme, copy: copy, primaryAction: action, errorMessage: errorMessage)
     }
 
-    private var installedWithError: String? {
-        guard case .failed(let message) = store.missingInstall else { return nil }
-        return message
-    }
-
     var copy: NoHerdrScreen.Copy {
-        installedWithError == nil ? NoHerdrScreen.missing : NoHerdrScreen.missingInstalled
+        store.installedWithError == nil ? NoHerdrScreen.missing : NoHerdrScreen.missingInstalled
     }
 
     var action: NoHerdrScreen.PrimaryAction {
-        if installedWithError != nil {
+        if store.installedWithError != nil {
             return .init(title: HerdrBuildCopy.missingContinueTitle, perform: store.dismissMissingInstall)
         }
         let busy = store.phase != .idle
@@ -161,7 +156,7 @@ struct MissingHerdrScreen: View {
     }
 
     var errorMessage: String? {
-        if let message = installedWithError ?? store.lastErrorMessage { return message }
+        if let message = store.installedWithError ?? store.lastErrorMessage { return message }
         guard let state = store.state, case .notWritable = state else { return nil }
         return HerdrBuildCopy.body(for: state)
     }

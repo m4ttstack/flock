@@ -361,17 +361,83 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertFalse(showsMissingScreen(tools, store))
     }
 
-    func testAFailureThatLeavesNoHerdrHoldsNothing() async throws {
-        let store = try makeStore(binary: nil, transport: FileTransport(body: Data("<html>".utf8)))
+    func testAHerdrInstalledByHandAfterAFailureLiftsTheScreen() async throws {
+        let tools = await toolStore()
+        let store = try makeStore(
+            binary: nil, transport: FileTransport(body: Data("<html>".utf8)), onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
         await settle(store)
 
         store.installMissing(source: .missingScreen)
         XCTAssertEqual(store.missingInstall, .running)
         await settle(store)
-
-        XCTAssertNil(store.missingInstall, "a herdr installed by hand next must lift the screen")
         XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+        XCTAssertNil(store.installedWithError, "nothing was installed")
         XCTAssertEqual(store.state, .missing(installPath: installPath))
+
+        try writeBinary(ms2)
+        store.refresh()
+        await settle(store)
+        await tools.probeTask.value
+        XCTAssertNil(store.missingInstall)
+        XCTAssertFalse(showsMissingScreen(tools, store))
+    }
+
+    /// The tool store's answer stays found, so only the hold keeps the
+    /// missing screen up with its Install button.
+    func testHerdrRemovedWhileItsErrorShowsOffersInstallAgain() async throws {
+        let tools = await toolStore()
+        let store = try makeStore(
+            binary: nil, runner: StubRunner(status: 1, output: "boom"), onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
+        await settle(store)
+        store.installMissing(source: .missingScreen)
+        await settle(store)
+        await tools.probeTask.value
+        XCTAssertEqual(store.installedWithError, HerdrBuildCopy.integrationFailed)
+
+        try FileManager.default.removeItem(atPath: installPath)
+        store.refresh()
+        await settle(store)
+        XCTAssertNil(store.installedWithError)
+        XCTAssertNil(store.lastErrorMessage, "the error speaks of a herdr no longer there")
+        XCTAssertTrue(showsMissingScreen(tools, store))
+
+        let screen = MissingHerdrScreen(theme: .tokyoNight, store: store)
+        XCTAssertEqual(screen.copy, NoHerdrScreen.missing)
+        XCTAssertEqual(screen.action.title, HerdrBuildCopy.missingInstallTitle)
+        XCTAssertFalse(screen.action.isDisabled)
+        XCTAssertNil(screen.errorMessage)
+        screen.action.perform()
+        await settle(store)
+        XCTAssertEqual(binaryBytes(), ms2)
+        XCTAssertEqual(store.installedWithError, HerdrBuildCopy.integrationFailed)
+    }
+
+    func testARetryThatFailsWithNoHerdrStaysOnTheMissingScreen() async throws {
+        let tools = await toolStore()
+        let lists = ListSource([standardList()])
+        let store = try makeStore(
+            binary: nil, lists: lists, runner: StubRunner(status: 1, output: "boom"),
+            onBinaryPathChanged: { tools.recheckIfMissing() }
+        )
+        await settle(store)
+        store.installMissing(source: .missingScreen)
+        await settle(store)
+        await tools.probeTask.value
+        try FileManager.default.removeItem(atPath: installPath)
+        store.refresh()
+
+        lists.set(ms3List)
+        await store.refreshList()
+        store.installMissing(source: .missingScreen)
+        await settle(store)
+
+        XCTAssertNil(store.binaryPath)
+        XCTAssertTrue(showsMissingScreen(tools, store))
+        XCTAssertEqual(
+            MissingHerdrScreen(theme: .tokyoNight, store: store).errorMessage, HerdrBuildCopy.checksumMismatch
+        )
     }
 
     func testContinueWaitsForARunningInstall() async throws {
