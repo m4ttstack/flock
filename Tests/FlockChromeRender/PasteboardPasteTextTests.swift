@@ -38,6 +38,22 @@ final class PasteboardPasteTextTests: XCTestCase {
         return item
     }
 
+    func testOnlyImageFilesAreImages() {
+        pasteboard.clearContents()
+        pasteboard.writeObjects([
+            URL(fileURLWithPath: "/tmp/one.png") as NSURL, URL(fileURLWithPath: "/tmp/notes.txt") as NSURL,
+            URL(fileURLWithPath: "/tmp/two.JPG") as NSURL, URL(fileURLWithPath: "/tmp/three.svg") as NSURL,
+        ])
+        XCTAssertEqual(pasteboard.pasteContents().imagePaths, ["/tmp/one.png", "/tmp/two.JPG"])
+    }
+
+    func testAPastedImagePathIsTheOneItWasStagedAt() throws {
+        write([imageItem(Data([1, 2, 3]))])
+        let path = try XCTUnwrap(pasteboard.pasteContents().imagePaths.first)
+        staged.append(path)
+        XCTAssertEqual(pasteboard.pasteText(), ClipboardPaste.escape(path))
+    }
+
     /// The whole bug: a screenshot tool's clipboard carries a file URL and
     /// image data, and no plain-text flavor at all.
     func testAFileURLPastesAsItsEscapedPath() {

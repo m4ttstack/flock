@@ -4,6 +4,8 @@ import Carbon
 import GhosttyKit
 import os
 import FlockCore
+import CoreVideo
+import IOSurface
 
 /// One libghostty surface, and everything that has to be told about it: size,
 /// scale, focus, occlusion, keys, mouse, clipboard and color scheme.
@@ -148,6 +150,7 @@ final class GhosttySession {
         self.paneID = paneID
         self.configuration = configuration
         host.register(self)
+        connectPastedImages()
     }
 
     deinit {
@@ -537,16 +540,30 @@ final class GhosttySession {
     /// files and images and pastes their path there; a failed upload pastes
     /// nothing and says so.
     func pasteClipboard() {
+        paste(from: .general)
+    }
+
+    /// `pasteClipboard` for any pasteboard, a drop's included.
+    func paste(from pasteboard: NSPasteboard) {
+        let contents = pasteboard.pasteContents()
         guard isRemoteMachine else {
-            if let text = NSPasteboard.general.pasteText() { paste(text) }
+            if let text = contents.text { paste(text, images: contents.imagePaths) }
             return
         }
-        guard let remote = remotePaste, NSPasteboard.general.offersPasteText else { return }
+        guard let remote = remotePaste, pasteboard.offersPasteText else { return }
+        guard let entries = pasteboard.remotePasteEntries() else {
+            return remote.notify(RemotePaste.failureMessage(remote.uploader.label))
+        }
+        let images = pastedImages.willPaste(contents.imagePaths, held: true)
         Task { [weak self] in
-            switch await NSPasteboard.general.remotePasteText(uploader: remote.uploader) {
-            case .text(let text): self?.paste(text)
-            case .failed(let message): remote.notify(message)
-            case .nothing: break
+            switch await RemotePaste.text(of: entries, uploader: remote.uploader) {
+            case .text(let text):
+                self?.pastedImages.pasteWasSent(images)
+                self?.paste(text)
+            case .failed(let message):
+                self?.pastedImages.cancelPaste(images)
+                remote.notify(message)
+            case .nothing: self?.pastedImages.cancelPaste(images)
             }
         }
     }
@@ -657,6 +674,82 @@ final class GhosttySession {
     }
 
     let linkChip = LinkChipModel()
+    let pastedImages = PastedImagesModel()
+
+    /// `images` are the files `text` names, from the same reading of the
+    /// pasteboard.
+    func paste(_ text: String, images: [String]) {
+        _ = pastedImages.willPaste(images)
+        paste(text)
+    }
+
+    private func connectPastedImages() {
+        pastedImages.pane = PastedImagesModel.Pane(
+            screen: { [weak self] in self?.screenRows(whole: $0) },
+            frame: { [weak self] in
+                guard let view = self?.view, view.window != nil else { return nil }
+                return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
+            },
+            window: { [weak self] in self?.view?.window },
+            toScreen: { [weak self] rect in
+                guard let view = self?.view, let window = view.window else { return nil }
+                let flipped = NSRect(
+                    x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+                return window.convertToScreen(view.convert(flipped, to: nil))
+            },
+            fromWindow: { [weak self] point in
+                guard let view = self?.view else { return nil }
+                let local = view.convert(point, from: nil)
+                return CGPoint(x: local.x, y: view.bounds.height - local.y)
+            }
+        )
+    }
+
+    /// Row by row: read as one selection, soft-wrapped rows come back joined.
+    private func screenRows(whole: Bool) -> PastedImagesModel.Screen? {
+        guard let surface, view?.window != nil, let cell = state.cellSize, cell.width > 0, cell.height > 0
+        else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, size.rows > 0 else { return nil }
+        func text(from first: UInt32, to last: UInt32) -> String {
+            let selection = ghostty_selection_s(
+                top_left: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: first),
+                bottom_right: ghostty_point_s(
+                    tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_EXACT,
+                    x: UInt32(size.columns) - 1, y: last),
+                rectangle: false)
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
+            defer { ghostty_surface_free_text(surface, &text) }
+            return text.text_len > 0 ? String(cString: text.text) : ""
+        }
+        // This runs for every frame, and most screens show no label.
+        let count = UInt32(size.rows)
+        let rows = whole || text(from: 0, to: count - 1).contains(PastedImageLabels.marker)
+            ? (0..<count).map { text(from: $0, to: $0) } : []
+        return PastedImagesModel.Screen(
+            rows: rows, cell: CGSize(width: CGFloat(cell.width) / scale, height: CGFloat(cell.height) / scale),
+            ground: { [weak self] in self?.frameColor(at: $0) })
+    }
+
+    /// Read off the frame on screen: libghostty has no call for a cell's
+    /// background.
+    private func frameColor(at point: CGPoint) -> PastedImagesModel.Ground? {
+        guard let contents = view?.layer?.contents as CFTypeRef?, CFGetTypeID(contents) == IOSurfaceGetTypeID()
+        else { return nil }
+        let frame = unsafeDowncast(contents, to: IOSurfaceRef.self)
+        guard IOSurfaceGetPixelFormat(frame) == kCVPixelFormatType_32BGRA else { return nil }
+        let x = Int(point.x * scale), y = Int(point.y * scale)
+        guard x >= 0, y >= 0, x < IOSurfaceGetWidth(frame), y < IOSurfaceGetHeight(frame),
+              IOSurfaceLock(frame, .readOnly, nil) == kIOReturnSuccess
+        else { return nil }
+        defer { IOSurfaceUnlock(frame, .readOnly, nil) }
+        let pixel = IOSurfaceGetBaseAddress(frame)
+            .advanced(by: y * IOSurfaceGetBytesPerRow(frame) + x * 4)
+            .assumingMemoryBound(to: UInt8.self)
+        return PastedImagesModel.Ground(red: pixel[2], green: pixel[1], blue: pixel[0])
+    }
 
     /// The cell the pointer is over, counted from the surface's top left.
     private var hoverCell: (column: Int, row: Int)?
@@ -749,7 +842,8 @@ final class GhosttySession {
                 askToOpen(url)
             }
         case .file(let url):
-            guard !isRemoteMachine else { return }
+            // A pasted image's file is on this Mac whatever the pane's machine.
+            guard !isRemoteMachine || pastedImages.holds(link) else { return }
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             let runs = isDirectory.boolValue

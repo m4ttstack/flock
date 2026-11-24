@@ -52,6 +52,10 @@ struct GhosttyPaneTerminalView: View {
     /// The pane's current folder, which a relative path printed in it is
     /// relative to. Read at the click, never at render.
     let linkFolder: () -> String?
+    /// The agent's conversation, which its pasted images are kept under.
+    let conversation: String?
+    /// False while a modal is over the pane, which a drop would go through.
+    let acceptsDrops: Bool
     /// A grab that became a drag in the pane body, with its point in the
     /// body's own top-left space -- the caller adds the body's own origin to
     /// reach the drag space. Called once, at the start; the drag itself
@@ -59,7 +63,7 @@ struct GhosttyPaneTerminalView: View {
     let onBodyDragBegan: (CGPoint) -> Void
 
     @State private var findBarFrame: CGRect?
-    @State private var linkChipSize: CGSize?
+    @State private var linkChipSize: (link: PaneLink, size: CGSize)?
 
     private static let space = "flock.pane.terminal"
 
@@ -71,6 +75,7 @@ struct GhosttyPaneTerminalView: View {
         editorIsOpen: Bool = false,
         onPrimaryClick: @escaping () -> Void = {}, menuProvider: @escaping () -> NSMenu? = { nil },
         linkFolder: @escaping () -> String? = { nil },
+        conversation: String? = nil, acceptsDrops: Bool = true,
         onBodyDragBegan: @escaping (CGPoint) -> Void = { _ in }
     ) {
         self.surface = surface
@@ -88,6 +93,8 @@ struct GhosttyPaneTerminalView: View {
         self.onPrimaryClick = onPrimaryClick
         self.menuProvider = menuProvider
         self.linkFolder = linkFolder
+        self.conversation = conversation
+        self.acceptsDrops = acceptsDrops
         self.onBodyDragBegan = onBodyDragBegan
     }
 
@@ -133,6 +140,15 @@ struct GhosttyPaneTerminalView: View {
             }
         }
         .overlay(alignment: .topLeading) {
+            if let session {
+                PastedImagesOverlay(
+                    theme: theme, model: session.pastedImages, space: Self.space,
+                    fontSizePoints: fontSizePoints, shade: shade,
+                    showsTray: !rearrangeActive && !paneDragInProgress && !isLauncherShowing
+                )
+            }
+        }
+        .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 if let session, let chip = session.linkChip.chip {
                     linkChip(chip, in: session)
@@ -147,43 +163,72 @@ struct GhosttyPaneTerminalView: View {
             )
         }
         .coordinateSpace(name: Self.space)
+        .onAppear { bind() }
+        .onChange(of: conversation) { bind() }
+        .onChange(of: acceptsDrops) { bind() }
+        .onChange(of: ObjectIdentifier(surface)) { bind() }
+    }
+
+    private func bind() {
+        session?.pastedImages.acceptsDrops = acceptsDrops
+        session?.pastedImages.bind(conversation: conversation)
     }
 
     /// Measured before it is placed: where the chip goes depends on its own
     /// size, so the first pass lays it out unseen.
     private func linkChip(_ chip: LinkChip, in session: GhosttySession) -> some View {
         GeometryReader { pane in
-            let origin = linkChipSize.map {
+            let measured = linkChipSize.flatMap { $0.link == chip.link ? $0.size : nil }
+            let origin = measured.map {
                 LinkChip.origin(
                     for: chip.anchor, chip: $0, pane: pane.size,
                     gap: ChromeMetrics.LinkChip.gap, inset: ChromeMetrics.LinkChip.inset
                 )
             }
-            LinkChipView(
-                theme: theme, link: chip.link, flash: session.linkChip.flash,
-                onOpen: {
-                    session.open(chip.link)
-                    session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
-                },
-                onReveal: {
-                    if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
-                },
-                onCopy: {
-                    if case .web(let url) = chip.link {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                    }
-                    session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+            let onOpen = {
+                session.open(chip.link)
+                session.linkChip.act(.open, on: chip.link, anchor: chip.anchor)
+            }
+            let onReveal = {
+                if case .file(let url) = chip.link { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+            }
+            Group {
+                if let number = session.pastedImages.number(for: chip.link),
+                   let image = session.pastedImages.images[number] {
+                    PastedImagePreview(
+                        theme: theme, number: number, image: image.thumbnail,
+                        limit: PastedImagePreview.limit(for: chip.anchor, in: pane.size),
+                        flash: session.linkChip.flash,
+                        onQuickLook: {
+                            let clicked = session.linkChip.frame
+                            session.linkChip.dismiss()
+                            session.pastedImages.quickLook(number, from: clicked.map { .text($0) } ?? .tray)
+                        },
+                        onOpen: onOpen, onReveal: onReveal
+                    )
+                } else {
+                    LinkChipView(
+                        theme: theme, link: chip.link, flash: session.linkChip.flash,
+                        onOpen: onOpen, onReveal: onReveal,
+                        onCopy: {
+                            if case .web(let url) = chip.link {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                            }
+                            session.linkChip.act(.second, on: chip.link, anchor: chip.anchor)
+                        }
+                    )
                 }
-            )
+            }
             .onHover { session.linkChip.chipHover($0) }
-            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = $0 }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { linkChipSize = (chip.link, $0) }
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: {
                 session.linkChip.frame = $0
             }
             .offset(x: origin?.x ?? 0, y: origin?.y ?? 0)
             .opacity(origin == nil ? 0 : 1)
+            .id(String(describing: chip.link))
         }
     }
 }

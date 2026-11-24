@@ -8,10 +8,18 @@ extension NSPasteboard {
     /// them as the path they get staged at. Nil when the clipboard holds
     /// nothing a terminal can take.
     func pasteText() -> String? {
-        PasteTextMemo.shared.text(
+        pasteContents().text
+    }
+
+    /// `pasteText`, with the image files the items are or were staged as,
+    /// from one reading of the pasteboard. Bytes with no file behind them are
+    /// staged for a pane on a machine too: the preview is drawn on this Mac.
+    func pasteContents() -> (text: String?, imagePaths: [String]) {
+        let built = PasteTextMemo.shared.contents(
             for: .init(name: name.rawValue, changeCount: changeCount),
             build: { self.buildPasteText() }
         )
+        return (built.text, built.imagePaths)
     }
 
     /// Whether `pasteText()` would produce anything, deciding it without
@@ -23,10 +31,19 @@ extension NSPasteboard {
 
     /// The paste for a pane on a herdr machine: files and images are uploaded
     /// and their path there is pasted, since a path on this Mac names nothing
-    /// on the machine. Never stages a local copy and never touches the local
-    /// paste memo.
+    /// on the machine. Never stages a local copy of its own and never touches
+    /// the local paste memo.
     @MainActor
     func remotePasteText(uploader: RemoteFileUploader) async -> RemotePasteOutcome {
+        guard let entries = remotePasteEntries() else {
+            return .failed(RemotePaste.failureMessage(uploader.label))
+        }
+        return await RemotePaste.text(of: entries, uploader: uploader)
+    }
+
+    /// What `remotePasteText` uploads, read now: the upload outlasts whatever
+    /// the pasteboard holds. Nil for an image whose bytes cannot be read.
+    func remotePasteEntries() -> [RemotePasteEntry]? {
         let items = pasteboardItems ?? []
         var entries: [RemotePasteEntry] = []
         for (item, contribution) in zip(items, ClipboardPaste.remotePlan(for: items.map(Self.described))) {
@@ -36,43 +53,41 @@ extension NSPasteboard {
             case .uploadFile(let localPath):
                 entries.append(.file(localPath: localPath))
             case .uploadImage(let typeIdentifier, let fileExtension):
-                guard let data = item.data(forType: .init(typeIdentifier)) else {
-                    return .failed(RemotePaste.failureMessage(uploader.label))
-                }
+                guard let data = item.data(forType: .init(typeIdentifier)) else { return nil }
                 entries.append(.image(data, fileExtension: fileExtension))
             case .nothing:
                 continue
             }
         }
-        return await RemotePaste.resolve(
-            entries,
-            label: uploader.label,
-            token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
-            readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
-            upload: { data, fileName in try await uploader.upload(data, named: fileName) }
-        )
+        return entries
     }
 
     private func buildPasteText() -> BuiltPasteText {
         let items = pasteboardItems ?? []
         var pieces: [String] = []
         var stagedPaths: [String] = []
+        var imagePaths: [String] = []
         for (item, contribution) in zip(items, ClipboardPaste.plan(for: items.map(Self.described))) {
             switch contribution {
             case .text(let text):
                 pieces.append(text)
+                if let path = Self.described(item).fileURLPath,
+                   ClipboardPaste.becomesImageLabel(path) {
+                    imagePaths.append(path)
+                }
             case .stageImage(let typeIdentifier, let fileExtension):
                 guard
                     let data = item.data(forType: .init(typeIdentifier)),
                     let path = ClipboardImageStaging.stage(data, fileExtension: fileExtension)
                 else { continue }
                 stagedPaths.append(path)
+                if ClipboardPaste.becomesImageLabel(path) { imagePaths.append(path) }
                 pieces.append(ClipboardPaste.escape(path))
             case .nothing:
                 continue
             }
         }
-        return BuiltPasteText(text: ClipboardPaste.text(joining: pieces), stagedPaths: stagedPaths)
+        return BuiltPasteText(text: ClipboardPaste.text(joining: pieces), stagedPaths: stagedPaths, imagePaths: imagePaths)
     }
 
     private static func described(_ item: NSPasteboardItem) -> PasteboardItemDescription {
@@ -93,6 +108,7 @@ extension NSPasteboard {
 private struct BuiltPasteText {
     var text: String?
     var stagedPaths: [String]
+    var imagePaths: [String]
 }
 
 /// One staged file per clipboard, not one per read.
@@ -117,20 +133,30 @@ private final class PasteTextMemo: @unchecked Sendable {
 
     private let lock = NSLock()
     private var key: Key?
-    private var text: String?
-    private var stagedPaths: [String] = []
+    private var built = BuiltPasteText(stagedPaths: [], imagePaths: [])
 
-    func text(for key: Key, build: () -> BuiltPasteText) -> String? {
+    func contents(for key: Key, build: () -> BuiltPasteText) -> BuiltPasteText {
         lock.lock()
         defer { lock.unlock() }
         if key == self.key,
-           stagedPaths.allSatisfy(FileManager.default.fileExists(atPath:)) {
-            return text
+           built.stagedPaths.allSatisfy(FileManager.default.fileExists(atPath:)) {
+            return built
         }
-        let built = build()
+        built = build()
         self.key = key
-        text = built.text
-        stagedPaths = built.stagedPaths
-        return built.text
+        return built
+    }
+}
+
+extension RemotePaste {
+    @MainActor
+    static func text(of entries: [RemotePasteEntry], uploader: RemoteFileUploader) async -> RemotePasteOutcome {
+        await resolve(
+            entries,
+            label: uploader.label,
+            token: { String(format: "%08x", UInt32.random(in: .min ... .max)) },
+            readFile: { try Data(contentsOf: URL(fileURLWithPath: $0)) },
+            upload: { data, fileName in try await uploader.upload(data, named: fileName) }
+        )
     }
 }

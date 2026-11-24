@@ -3,6 +3,8 @@ import AppKit
 import CoreImage
 import GhosttyKit
 import FlockCore
+import QuickLookUI
+import UniformTypeIdentifiers
 
 /// How far a terminal is set back: the share of its colour drained, and of
 /// its own ground laid over it, each 0 to 1.
@@ -217,6 +219,8 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     private struct PendingLinkClick {
         let link: PaneLink
         let down: NSEvent
+        /// The label pressed, kept since the text may move before the up.
+        let image: PastedImagesModel.Label?
     }
     private var pendingLinkClick: PendingLinkClick?
     private var overLink = false
@@ -243,6 +247,74 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         applyBackgroundColor()
+        registerForDraggedTypes(Self.dropTypes)
+    }
+
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.hasItems }
+    }
+
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.begin() }
+    }
+
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { PastedImageQuickLook.shared.end() }
+    }
+
+    private static let dropTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff]
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropIsOffered = sender.draggingSourceOperationMask.contains(.copy)
+            && sender.draggingPasteboard.offersPasteText
+        guard takesDrop else { return [] }
+        session.pastedImages.dropLabel = Self.dropLabel(sender.draggingPasteboard)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        takesDrop ? .copy : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        session.pastedImages.dropLabel = nil
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        session.pastedImages.dropLabel = nil
+    }
+
+    /// A drop names its pane, so it lands there even when another has focus,
+    /// and takes focus along the way a click would.
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        session.pastedImages.dropLabel = nil
+        guard takesDrop else { return false }
+        NSApp.activate()
+        window?.makeKey()
+        if wantsFocus {
+            requestWindowFirstResponder()
+        } else {
+            onPrimaryClick?()
+        }
+        session.paste(from: sender.draggingPasteboard)
+        return true
+    }
+
+    /// What the drag carries, read once as it enters: every later update
+    /// would parse the same pasteboard again.
+    private var dropIsOffered = false
+
+    private var takesDrop: Bool {
+        dropIsOffered && session.pastedImages.acceptsDrops && !rearrangeActive && !paneDragInProgress && !isLauncherShowing && !editorIsOpen
+            && session.firstFrameLatch.holdLoss == nil
+    }
+
+    private static func dropLabel(_ pasteboard: NSPasteboard) -> String {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return PaneDropLabel.text(
+            count: urls.count,
+            allImages: urls.allSatisfy { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
+        )
     }
 
     @available(*, unavailable)
@@ -274,6 +346,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         let local = convert(point, from: superview)
         let topLeft = CGPoint(x: local.x, y: bounds.height - local.y)
         if findBarFrame?.contains(topLeft) == true || session.linkChip.frame?.contains(topLeft) == true { return nil }
+        if session.pastedImages.trayFrame?.contains(topLeft) == true { return nil }
         return super.hitTest(point)
     }
 
@@ -394,8 +467,13 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         if !rearrangeActive {
             requestWindowFirstResponder()
         }
+        // The rest of a multiple click on an image is not the terminal's.
+        if event.clickCount > 1, !rearrangeActive, imageLabel(at: topLeftPoint(event)) != nil {
+            leftButtonRoute = nil
+            return
+        }
         if let link = linkUnderPress(event) {
-            pendingLinkClick = PendingLinkClick(link: link, down: event)
+            pendingLinkClick = PendingLinkClick(link: link, down: event, image: imageLabel(at: topLeftPoint(event)))
             leftButtonRoute = nil
             return
         }
@@ -411,7 +489,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         guard wantsFocus, !rearrangeActive, event.clickCount == 1,
               event.modifierFlags.isDisjoint(with: [.shift, .control, .option])
         else { return nil }
+        if let label = imageLabel(at: topLeftPoint(event)) { return session.pastedImages.images[label.number]?.link }
         return session.link(at: event)
+    }
+
+    private func imageLabel(at point: CGPoint) -> PastedImagesModel.Label? {
+        session.pastedImages.label(at: point)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -425,6 +508,11 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         }
         if let press = pendingLinkClick {
             pendingLinkClick = nil
+            if let label = press.image {
+                session.linkChip.dismiss()
+                session.pastedImages.quickLook(label.number, from: .text(label.rect))
+                return
+            }
             session.open(press.link)
             if let anchor = linkAnchor(at: topLeftPoint(press.down)) {
                 session.linkChip.act(.open, on: press.link, anchor: anchor)
@@ -561,6 +649,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     override func mouseExited(with event: NSEvent) {
         session.sendMouseExit(modifiers: event.modifierFlags)
         session.linkChip.pointerLeftPane()
+        session.pastedImages.highlight(nil)
         hoverPoint = nil
         setOverLink(nil)
     }
@@ -575,6 +664,17 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
     /// first and separately rather than folded into the existing `.drop`
     /// branch below.
     override func mouseMoved(with event: NSEvent) {
+        // The tray is SwiftUI above this view, whose tracking area hears the
+        // pointer there all the same.
+        if session.pastedImages.trayFrame?.contains(topLeftPoint(event)) == true {
+            if hoverPoint != nil {
+                session.linkChip.pointerLeftPane()
+                session.pastedImages.highlight(nil)
+            }
+            hoverPoint = nil
+            setOverLink(nil)
+            return
+        }
         // No cursor-update event fires for motion WITHIN a tracking area, so
         // the open hand is re-asserted here or anything that set another
         // cursor mid-hover would stick.
@@ -622,6 +722,15 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         else {
             session.linkChip.dismiss()
             setOverLink(nil)
+            return
+        }
+        let image = imageLabel(at: point)
+        session.pastedImages.highlight(image?.number)
+        if let image, let link = session.pastedImages.images[image.number]?.link {
+            session.linkChip.hover(link, anchor: anchor)
+            setOverLink(CGRect(
+                x: image.rect.minX, y: anchor.lineBottom - ChromeMetrics.LinkChip.underlineRise,
+                width: image.rect.width, height: ChromeMetrics.LinkChip.underlineHeight))
             return
         }
         let match = session.hoveredMatch
@@ -882,6 +991,12 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
             return
         }
         session.linkChip.dismiss()
+        session.pastedImages.highlight(nil)
+        // Control-V has an agent read the clipboard itself.
+        if session.pastedImages.hasConversation, !session.isRemoteMachine, !event.isARepeat, event.charactersIgnoringModifiers == "v",
+           event.modifierFlags.intersection([.control, .command, .option]) == .control {
+            _ = session.pastedImages.willPaste(NSPasteboard.general.pasteContents().imagePaths)
+        }
         setOverLink(nil)
         // `keyDown` (never `flagsChanged`) is by construction real key input,
         // not a bare modifier change -- the one exception is a Command combo
