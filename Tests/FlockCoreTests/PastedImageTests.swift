@@ -48,52 +48,84 @@ final class PastedImageMatcherTests: XCTestCase {
     private let start = Date(timeIntervalSinceReferenceDate: 1000)
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
 
-    private func pasted(_ paths: [String], over shown: [Int] = []) -> PastedImageMatcher {
+    private let rule = String(repeating: "\u{2500}", count: 40)
+
+    /// `sent` is drawn above a prompt holding `prompt`.
+    private func screen(prompt: [Int], sent: [Int] = []) -> PastedImageLabels {
+        func row(_ numbers: [Int]) -> String { numbers.map { "[Image #\($0)]" }.joined(separator: " ") }
+        return PastedImageLabels(rows: [row(sent), rule, row(prompt), rule])
+    }
+
+    private func bare(_ numbers: [Int]) -> PastedImageLabels {
+        PastedImageLabels(rows: numbers.map { "[Image #\($0)]" })
+    }
+
+    private func pasted(_ paths: [String], over screen: PastedImageLabels) -> PastedImageMatcher {
         var matcher = PastedImageMatcher()
-        matcher.willPaste(paths, shown: shown, now: start)
+        _ = matcher.willPaste(paths, over: screen, now: start)
         return matcher
     }
 
     func testAPasteTakesTheLabelThatAppears() {
-        var matcher = pasted(["/a.png"], over: [1, 1])
-        XCTAssertTrue(matcher.match(shown: [1, 1], now: at(0.1)).isEmpty)
-        let matched = matcher.match(shown: [1, 1, 2], now: at(0.2))
+        var matcher = pasted(["/a.png"], over: screen(prompt: [1]))
+        XCTAssertTrue(matcher.match(screen(prompt: [1]), now: at(0.1)).isEmpty)
+        let matched = matcher.match(screen(prompt: [1, 2]), now: at(0.2))
         XCTAssertEqual(matched.map(\.number), [2])
         XCTAssertEqual(matched.map(\.path), ["/a.png"])
         XCTAssertFalse(matcher.isWaiting)
     }
 
     func testSeveralPastesTakeTheirLabelsInOrder() {
-        var matcher = pasted(["/a.png", "/b.png", "/c.png"])
-        XCTAssertEqual(matcher.match(shown: [5, 4], now: at(0.1)).map(\.path), ["/a.png", "/b.png"])
-        let last = matcher.match(shown: [4, 5, 6], now: at(0.2))
+        var matcher = pasted(["/a.png", "/b.png", "/c.png"], over: screen(prompt: []))
+        XCTAssertEqual(matcher.match(screen(prompt: [5, 4]), now: at(0.1)).map(\.path), ["/a.png", "/b.png"])
+        let last = matcher.match(screen(prompt: [4, 5, 6]), now: at(0.2))
         XCTAssertEqual(last.map(\.number), [6])
         XCTAssertEqual(last.map(\.path), ["/c.png"])
     }
 
-    func testANumberAlreadyOnScreenIsTakenOnlyWhenAnotherAppears() {
-        var matcher = pasted(["/new.png"], over: [1])
-        XCTAssertTrue(matcher.match(shown: [1], now: at(0.1)).isEmpty)
-        XCTAssertEqual(matcher.match(shown: [1, 1], now: at(0.2)).map(\.number), [1])
+    func testASentMessageScrollingInTakesNothing() {
+        var matcher = pasted(["/a.png"], over: screen(prompt: []))
+        XCTAssertTrue(matcher.match(screen(prompt: [], sent: [1, 2]), now: at(0.1)).isEmpty)
+        XCTAssertEqual(matcher.match(screen(prompt: [3], sent: [1, 2]), now: at(0.2)).map(\.number), [3])
     }
 
-    func testLabelsScrollingAwayMatchNothing() {
-        var matcher = pasted(["/a.png"], over: [1, 2])
-        XCTAssertTrue(matcher.match(shown: [2], now: at(0.1)).isEmpty)
+    func testAScreenWithoutThePromptTakesNothing() {
+        var matcher = pasted(["/a.png"], over: screen(prompt: []))
+        XCTAssertTrue(matcher.match(bare([1, 2]), now: at(0.1)).isEmpty)
         XCTAssertTrue(matcher.isWaiting)
     }
 
-    func testAPasteWithNoLabelStopsWaiting() {
-        var matcher = pasted(["/a.png"])
-        XCTAssertTrue(matcher.match(shown: [], now: at(PastedImageMatcher.window + 1)).isEmpty)
+    func testAProgramWithNoPromptIsMatchedOnItsWholeScreen() {
+        var matcher = pasted(["/a.png"], over: bare([1]))
+        XCTAssertEqual(matcher.match(bare([1, 2]), now: at(0.1)).map(\.number), [2])
+    }
+
+    func testALabelThatScrollsOffAndBackTakesNothing() {
+        var matcher = pasted(["/a.png"], over: bare([1, 2]))
+        XCTAssertTrue(matcher.match(bare([2]), now: at(0.1)).isEmpty)
+        XCTAssertTrue(matcher.match(bare([1, 2]), now: at(0.2)).isEmpty)
+        XCTAssertEqual(matcher.match(bare([1, 2, 3]), now: at(0.3)).map(\.number), [3])
+    }
+
+    func testACancelledPasteLeavesTheNextItsOwnLabel() {
+        var matcher = PastedImageMatcher()
+        let failed = matcher.willPaste(["/failed.png"], over: screen(prompt: []), now: start)
+        _ = matcher.willPaste(["/kept.png"], over: screen(prompt: []), now: at(0.1))
+        matcher.cancel(failed)
+        XCTAssertEqual(matcher.match(screen(prompt: [1]), now: at(0.2)).map(\.path), ["/kept.png"])
+    }
+
+    func testALabelAfterTheWindowTakesNothing() {
+        var matcher = pasted(["/a.png"], over: screen(prompt: []))
+        XCTAssertTrue(matcher.match(screen(prompt: [1]), now: at(PastedImageMatcher.window + 1)).isEmpty)
         XCTAssertFalse(matcher.isWaiting)
     }
 
     func testAPasteAfterAnExpiredOneStartsOver() {
-        var matcher = pasted(["/old.png"])
+        var matcher = pasted(["/old.png"], over: screen(prompt: []))
         let later = at(PastedImageMatcher.window + 5)
-        matcher.willPaste(["/new.png"], shown: [3], now: later)
-        let matched = matcher.match(shown: [3, 4], now: later)
+        _ = matcher.willPaste(["/new.png"], over: screen(prompt: [3]), now: later)
+        let matched = matcher.match(screen(prompt: [3, 4]), now: later)
         XCTAssertEqual(matched.map(\.number), [4])
         XCTAssertEqual(matched.map(\.path), ["/new.png"])
     }
@@ -105,8 +137,8 @@ final class PastedImageIndexTests: XCTestCase {
 
     func testConversationsKeepTheirOwnNumbers() {
         var index = PastedImageIndex()
-        index.set("/a.png", as: 1, in: "one", now: now)
-        index.set("/b.png", as: 1, in: "two", now: now)
+        _ = index.set("/a.png", as: 1, in: "one", now: now)
+        _ = index.set("/b.png", as: 1, in: "two", now: now)
         XCTAssertEqual(index.images(for: "one"), [1: "/a.png"])
         XCTAssertEqual(index.images(for: "two"), [1: "/b.png"])
         XCTAssertEqual(index.images(for: "three"), [:])
@@ -114,15 +146,15 @@ final class PastedImageIndexTests: XCTestCase {
 
     func testItSurvivesEncoding() throws {
         var index = PastedImageIndex()
-        index.set("/a.png", as: 7, in: "one", now: now)
+        _ = index.set("/a.png", as: 7, in: "one", now: now)
         XCTAssertEqual(try JSONDecoder().decode(PastedImageIndex.self, from: JSONEncoder().encode(index)), index)
     }
 
     func testPruningForgetsOldConversationsAndNamesWhatNothingUses() {
         var index = PastedImageIndex()
-        index.set("/gone.png", as: 1, in: "old", now: old)
-        index.set("/shared.png", as: 2, in: "old", now: old)
-        index.set("/shared.png", as: 1, in: "new", now: now)
+        _ = index.set("/gone.png", as: 1, in: "old", now: old)
+        _ = index.set("/shared.png", as: 2, in: "old", now: old)
+        _ = index.set("/shared.png", as: 1, in: "new", now: now)
         XCTAssertEqual(index.prune(now: now), ["/gone.png"])
         XCTAssertEqual(index.images(for: "old"), [:])
         XCTAssertEqual(index.images(for: "new"), [1: "/shared.png"])
@@ -130,10 +162,27 @@ final class PastedImageIndexTests: XCTestCase {
 
     func testAnImageJoiningKeepsAConversation() {
         var index = PastedImageIndex()
-        index.set("/a.png", as: 1, in: "one", now: old)
-        index.set("/b.png", as: 2, in: "one", now: now)
+        _ = index.set("/a.png", as: 1, in: "one", now: old)
+        _ = index.set("/b.png", as: 2, in: "one", now: now)
         XCTAssertEqual(index.prune(now: now), [])
         XCTAssertEqual(index.images(for: "one"), [1: "/a.png", 2: "/b.png"])
+    }
+
+    func testAConversationInUseIsKept() {
+        var index = PastedImageIndex()
+        _ = index.set("/a.png", as: 1, in: "one", now: old)
+        XCTAssertTrue(index.touch("one", now: now))
+        XCTAssertFalse(index.touch("two", now: now))
+        XCTAssertEqual(index.prune(now: now), [])
+    }
+
+    func testReplacingAnImageNamesWhatNothingUses() {
+        var index = PastedImageIndex()
+        XCTAssertNil(index.set("/a.png", as: 1, in: "one", now: now))
+        XCTAssertEqual(index.set("/b.png", as: 1, in: "one", now: now), "/a.png")
+        XCTAssertNil(index.set("/b.png", as: 1, in: "one", now: now))
+        _ = index.set("/b.png", as: 1, in: "two", now: now)
+        XCTAssertNil(index.set("/c.png", as: 1, in: "one", now: now))
     }
 }
 

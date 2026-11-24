@@ -425,15 +425,15 @@ private func ghosttyHostReadClipboard(
         }
         return true
     }
-    guard let text = NSPasteboard.general.pasteText() else { return false }
+    let contents = NSPasteboard.general.pasteContents()
+    guard let text = contents.text else { return false }
     "".withCString { ptr in
         ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
     }
     // Resolved above, not inside the hop, for the same lifetime reason as
     // `ghosttyHostAction`.
     Task { @MainActor in
-        session.notePastedImages()
-        session.paste(text)
+        session.paste(text, images: contents.imagePaths)
     }
     return true
 }

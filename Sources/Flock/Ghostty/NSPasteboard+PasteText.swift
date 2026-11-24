@@ -9,20 +9,18 @@ extension NSPasteboard {
     /// them as the path they get staged at. Nil when the clipboard holds
     /// nothing a terminal can take.
     func pasteText() -> String? {
-        PasteTextMemo.shared.text(
-            for: .init(name: name.rawValue, changeCount: changeCount),
-            build: { self.buildPasteText() }
-        )
+        pasteContents().text
     }
 
-    /// The image files the pasteboard's items are, or were staged as. Bytes
-    /// with no file behind them are staged here for a pane on a machine too:
-    /// the preview is drawn on this Mac.
-    func pasteImagePaths() -> [String] {
-        PasteTextMemo.shared.imagePaths(
+    /// `pasteText`, with the image files the items are or were staged as,
+    /// from one reading of the pasteboard. Bytes with no file behind them are
+    /// staged for a pane on a machine too: the preview is drawn on this Mac.
+    func pasteContents() -> (text: String?, imagePaths: [String]) {
+        let built = PasteTextMemo.shared.contents(
             for: .init(name: name.rawValue, changeCount: changeCount),
             build: { self.buildPasteText() }
         )
+        return (built.text, built.imagePaths)
     }
 
     /// Whether `pasteText()` would produce anything, deciding it without
@@ -135,29 +133,17 @@ private final class PasteTextMemo: @unchecked Sendable {
 
     private let lock = NSLock()
     private var key: Key?
-    private var text: String?
-    private var stagedPaths: [String] = []
-    private var images: [String] = []
+    private var built = BuiltPasteText(stagedPaths: [], imagePaths: [])
 
-    func imagePaths(for key: Key, build: () -> BuiltPasteText) -> [String] {
-        _ = text(for: key, build: build)
-        lock.lock()
-        defer { lock.unlock() }
-        return images
-    }
-
-    func text(for key: Key, build: () -> BuiltPasteText) -> String? {
+    func contents(for key: Key, build: () -> BuiltPasteText) -> BuiltPasteText {
         lock.lock()
         defer { lock.unlock() }
         if key == self.key,
-           stagedPaths.allSatisfy(FileManager.default.fileExists(atPath:)) {
-            return text
+           built.stagedPaths.allSatisfy(FileManager.default.fileExists(atPath:)) {
+            return built
         }
-        let built = build()
+        built = build()
         self.key = key
-        text = built.text
-        stagedPaths = built.stagedPaths
-        images = built.imagePaths
-        return built.text
+        return built
     }
 }

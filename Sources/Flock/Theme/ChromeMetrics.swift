@@ -263,7 +263,7 @@ enum ChromeMetrics {
     /// Their ground, edge and fills are `ConfirmCard`'s.
     enum PastedImages {
         static let chipRowInset: CGFloat = 1
-        static let chipCornerRadius: CGFloat = 4
+        static let chipCornerRadius: CGFloat = ChromeRadius.tiny
         /// The chip's parts, in cells of the label it covers.
         static let chipImageCells: CGFloat = 2.2
         static let chipMarginCells: CGFloat = 0.55

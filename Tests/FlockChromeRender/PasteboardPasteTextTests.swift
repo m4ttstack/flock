@@ -44,12 +44,12 @@ final class PasteboardPasteTextTests: XCTestCase {
             URL(fileURLWithPath: "/tmp/one.png") as NSURL, URL(fileURLWithPath: "/tmp/notes.txt") as NSURL,
             URL(fileURLWithPath: "/tmp/two.JPG") as NSURL,
         ])
-        XCTAssertEqual(pasteboard.pasteImagePaths(), ["/tmp/one.png", "/tmp/two.JPG"])
+        XCTAssertEqual(pasteboard.pasteContents().imagePaths, ["/tmp/one.png", "/tmp/two.JPG"])
     }
 
     func testAPastedImagePathIsTheOneItWasStagedAt() throws {
         write([imageItem(Data([1, 2, 3]))])
-        let path = try XCTUnwrap(pasteboard.pasteImagePaths().first)
+        let path = try XCTUnwrap(pasteboard.pasteContents().imagePaths.first)
         staged.append(path)
         XCTAssertEqual(pasteboard.pasteText(), ClipboardPaste.escape(path))
     }

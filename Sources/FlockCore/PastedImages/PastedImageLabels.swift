@@ -21,6 +21,12 @@ public struct PastedImageLabels: Equatable, Sendable {
     /// The row of the rule over the prompt, nil where no prompt is drawn.
     public let promptRow: Int?
 
+    /// The numbers of the labels a paste could have put there: the prompt's
+    /// alone where one is drawn, since the rest are messages already sent.
+    var pasteTargets: [Int] {
+        labels.filter { promptRow == nil || $0.inPrompt }.map(\.number)
+    }
+
     /// `rows` is one string per screen row: a label broken by a wrap is not
     /// found.
     public init(rows: [String]) {
@@ -51,34 +57,49 @@ public struct PastedImageMatcher: Sendable {
     /// machine uploads first.
     public static let window: TimeInterval = 15
 
-    private var waiting: [String] = []
+    private var waiting: [(paste: Int, path: String)] = []
+    private var pastes = 0
     private var deadline = Date.distantPast
+    /// The most of each number ever on screen at once since waiting began: a
+    /// label that scrolls off and back is not another.
     private var seen: [Int: Int] = [:]
+    /// Waiting began with a prompt drawn, so a screen without one says
+    /// nothing about it.
+    private var expectsPrompt = false
 
     public init() {}
 
     public var isWaiting: Bool { !waiting.isEmpty }
 
-    /// `shown` is every label's number on the screen before the paste.
-    public mutating func willPaste(_ paths: [String], shown: [Int], now: Date) {
-        guard !paths.isEmpty else { return }
+    /// `screen` is the one before the paste. The answer cancels it.
+    public mutating func willPaste(_ paths: [String], over screen: PastedImageLabels, now: Date) -> Int {
         expire(now)
-        if waiting.isEmpty { seen = Self.counts(shown) }
-        waiting += paths
+        if waiting.isEmpty {
+            seen = Self.counts(screen.pasteTargets)
+            expectsPrompt = screen.promptRow != nil
+        }
+        pastes += 1
+        waiting += paths.map { (pastes, $0) }
         deadline = now.addingTimeInterval(Self.window)
+        return pastes
+    }
+
+    /// A paste that never reached the program leaves no label to wait for.
+    public mutating func cancel(_ paste: Int) {
+        waiting.removeAll { $0.paste == paste }
     }
 
     /// The pastes whose labels have appeared, in order.
-    public mutating func match(shown: [Int], now: Date) -> [(number: Int, path: String)] {
-        guard !waiting.isEmpty else { return [] }
-        let counts = Self.counts(shown)
+    public mutating func match(_ screen: PastedImageLabels, now: Date) -> [(number: Int, path: String)] {
+        expire(now)
+        guard !waiting.isEmpty, screen.promptRow != nil || !expectsPrompt else { return [] }
+        let counts = Self.counts(screen.pasteTargets)
         var matched: [(number: Int, path: String)] = []
         for number in counts.keys.sorted() where counts[number, default: 0] > seen[number, default: 0] {
             guard !waiting.isEmpty else { break }
-            matched.append((number, waiting.removeFirst()))
+            matched.append((number, waiting.removeFirst().path))
         }
-        seen = counts
-        expire(now)
+        seen.merge(counts, uniquingKeysWith: max)
         return matched
     }
 

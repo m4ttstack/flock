@@ -989,7 +989,7 @@ final class GhosttySurfaceView: NSView, @preconcurrency NSTextInputClient, @prec
         // Control-V has an agent read the clipboard itself.
         if session.pastedImages.hasConversation, event.charactersIgnoringModifiers == "v",
            event.modifierFlags.intersection([.control, .command, .option]) == .control {
-            session.notePastedImages()
+            _ = session.pastedImages.willPaste(NSPasteboard.general.pasteContents().imagePaths)
         }
         setOverLink(nil)
         // `keyDown` (never `flagsChanged`) is by construction real key input,

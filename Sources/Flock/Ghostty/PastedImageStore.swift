@@ -37,11 +37,19 @@ final class PastedImageStore {
         let before = index
         let unused = index.prune(now: now)
         guard index != before else { return }
-        // Only the copies made here: every other path is the user's own file.
-        for path in unused where path.hasPrefix(directory.path + "/") {
-            try? FileManager.default.removeItem(atPath: path)
-        }
         save()
+        for path in unused { removeCopy(path) }
+    }
+
+    /// Only a copy made here: every other path is the user's own file.
+    private func removeCopy(_ path: String) {
+        guard path.hasPrefix(directory.path + "/") else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    /// A conversation still on screen keeps its images.
+    func touch(_ conversation: String, now: Date = Date()) {
+        if index.touch(conversation, now: now) { save() }
     }
 
     func images(for conversation: String) -> [Int: String] {
@@ -52,8 +60,9 @@ final class PastedImageStore {
     func keep(_ path: String, as number: Int, in conversation: String, now: Date = Date()) -> String {
         guard ensureDirectory() else { return path }
         let kept = path.hasPrefix(stagingDirectory.path + "/") ? copy(path) ?? path : path
-        index.set(kept, as: number, in: conversation, now: now)
+        let replaced = index.set(kept, as: number, in: conversation, now: now)
         save()
+        if let replaced { removeCopy(replaced) }
         return kept
     }
 

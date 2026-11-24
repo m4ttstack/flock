@@ -28,21 +28,34 @@ public struct PastedImageIndex: Codable, Equatable, Sendable {
         conversations[conversation]?.images ?? [:]
     }
 
-    public mutating func set(_ path: String, as number: Int, in conversation: String, now: Date) {
+    /// Returns the path this replaced, where nothing else points at it.
+    public mutating func set(_ path: String, as number: Int, in conversation: String, now: Date) -> String? {
         var entry = conversations[conversation] ?? Conversation(updated: now, images: [:])
-        entry.images[number] = path
+        let replaced = entry.images.updateValue(path, forKey: number)
         entry.updated = now
         conversations[conversation] = entry
+        return replaced.flatMap { livePaths.contains($0) ? nil : $0 }
     }
 
-    /// Forgets conversations no image has joined in `maximumAge`, and returns
-    /// the paths nothing left points at.
+    /// Notes that a conversation is still in use. False for one with no
+    /// images, which there is nothing to keep for.
+    public mutating func touch(_ conversation: String, now: Date) -> Bool {
+        guard conversations[conversation] != nil else { return false }
+        conversations[conversation]?.updated = now
+        return true
+    }
+
+    private var livePaths: Set<String> {
+        Set(conversations.values.flatMap { $0.images.values })
+    }
+
+    /// Forgets conversations not used in `maximumAge`, and returns the paths
+    /// nothing left points at.
     public mutating func prune(now: Date) -> Set<String> {
         let cutoff = now.addingTimeInterval(-Self.maximumAge)
         let stale = conversations.filter { $0.value.updated < cutoff }
         guard !stale.isEmpty else { return [] }
         for key in stale.keys { conversations[key] = nil }
-        let live = Set(conversations.values.flatMap { $0.images.values })
-        return Set(stale.values.flatMap { $0.images.values }).subtracting(live)
+        return Set(stale.values.flatMap { $0.images.values }).subtracting(livePaths)
     }
 }

@@ -545,17 +545,20 @@ final class GhosttySession {
 
     /// `pasteClipboard` for any pasteboard, a drop's included.
     func paste(from pasteboard: NSPasteboard) {
-        notePastedImages(from: pasteboard)
+        let contents = pasteboard.pasteContents()
         guard isRemoteMachine else {
-            if let text = pasteboard.pasteText() { paste(text) }
+            if let text = contents.text { paste(text, images: contents.imagePaths) }
             return
         }
         guard let remote = remotePaste, pasteboard.offersPasteText else { return }
+        let images = pastedImages.willPaste(contents.imagePaths)
         Task { [weak self] in
             switch await pasteboard.remotePasteText(uploader: remote.uploader) {
             case .text(let text): self?.paste(text)
-            case .failed(let message): remote.notify(message)
-            case .nothing: break
+            case .failed(let message):
+                self?.pastedImages.cancelPaste(images)
+                remote.notify(message)
+            case .nothing: self?.pastedImages.cancelPaste(images)
             }
         }
     }
@@ -668,9 +671,11 @@ final class GhosttySession {
     let linkChip = LinkChipModel()
     let pastedImages = PastedImagesModel()
 
-    /// Call before the paste goes out.
-    func notePastedImages(from pasteboard: NSPasteboard = .general) {
-        pastedImages.willPaste(pasteboard.pasteImagePaths())
+    /// `images` are the files `text` names, from the same reading of the
+    /// pasteboard.
+    func paste(_ text: String, images: [String]) {
+        _ = pastedImages.willPaste(images)
+        paste(text)
     }
 
     private func connectPastedImages() {

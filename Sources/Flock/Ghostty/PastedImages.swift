@@ -95,6 +95,7 @@ final class PastedImagesModel {
     /// loaded once its label is on screen.
     @ObservationIgnored private var paths: [Int: String] = [:]
     @ObservationIgnored private var loading: Set<Int> = []
+    @ObservationIgnored private var touched = Date.distantPast
     @ObservationIgnored private var matcher = PastedImageMatcher()
     @ObservationIgnored private var poll: Task<Void, Never>?
     @ObservationIgnored private var scannedFrame: ObjectIdentifier?
@@ -102,6 +103,7 @@ final class PastedImagesModel {
 
     /// Only a backstop: a new frame is what asks for a scan.
     private static let pollInterval: Duration = .milliseconds(500)
+    private static let touchInterval: TimeInterval = 24 * 60 * 60
 
     init(store: @escaping @MainActor () -> PastedImageStore = { .shared }) {
         self.store = store
@@ -119,18 +121,28 @@ final class PastedImagesModel {
     func bind(conversation next: String?) {
         guard let next, next != conversation else { return }
         let carried = conversation == nil ? paths : [:]
-        if conversation != nil { images = [:] }
+        if conversation != nil {
+            images = [:]
+            matcher = PastedImageMatcher()
+        }
         conversation = next
         paths = store().images(for: next)
+        touched = .distantPast
         for (number, path) in carried { assign(path, to: number) }
         watch()
     }
 
     /// Called before the paste is sent: the labels on screen now are not its.
-    func willPaste(_ paths: [String]) {
-        guard !paths.isEmpty, let screen = pane?.screen() else { return }
-        matcher.willPaste(paths, shown: PastedImageLabels(rows: screen.rows).labels.map(\.number), now: Date())
+    /// The answer is for `cancelPaste`, nil where nothing waits.
+    func willPaste(_ paths: [String]) -> Int? {
+        guard !paths.isEmpty, let screen = pane?.screen() else { return nil }
+        let paste = matcher.willPaste(paths, over: PastedImageLabels(rows: screen.rows), now: Date())
         watch()
+        return paste
+    }
+
+    func cancelPaste(_ paste: Int?) {
+        if let paste { matcher.cancel(paste) }
     }
 
     /// Only labels flock holds an image for.
@@ -247,10 +259,11 @@ final class PastedImagesModel {
             return
         }
         let read = PastedImageLabels(rows: screen.rows)
-        for match in matcher.match(shown: read.labels.map(\.number), now: Date()) {
+        for match in matcher.match(read, now: Date()) {
             assign(match.path, to: match.number)
         }
         for number in Set(read.labels.map(\.number)) { load(number) }
+        touchIfInUse(read)
         show(
             read.labels.map { label in
                 let rect = CGRect(
@@ -266,6 +279,16 @@ final class PastedImagesModel {
             },
             promptTop: read.promptRow.map { CGFloat($0) * screen.cell.height }
         )
+    }
+
+    /// Retention counts from the last time an image was on screen, and once a
+    /// day is close enough for it.
+    private func touchIfInUse(_ read: PastedImageLabels) {
+        guard let conversation, Date().timeIntervalSince(touched) > Self.touchInterval,
+              read.labels.contains(where: { paths[$0.number] != nil })
+        else { return }
+        touched = Date()
+        store().touch(conversation)
     }
 
     private func show(_ found: [Label], promptTop top: CGFloat?) {
@@ -286,11 +309,8 @@ final class PastedImagesModel {
             loading.remove(number)
             // Another paste or conversation took the number meanwhile.
             guard paths[number] == path else { return load(number) }
-            if let image {
-                images[number] = image
-            } else {
-                paths[number] = nil
-            }
+            images[number] = image
+            if image == nil { paths[number] = nil }
         }
     }
 }

@@ -96,7 +96,7 @@ final class PastedImagesTests: XCTestCase {
     /// Pastes `paths` one after another and waits for their images.
     private func paste(_ paths: [String], into model: PastedImagesModel, on pane: FakePane) async throws {
         pane.rows = []
-        model.willPaste(paths)
+        _ = model.willPaste(paths)
         pane.rows = screen(prompt: "\u{276F} " + paths.indices.map { "[Image #\($0 + 1)]" }.joined(separator: " "))
         model.refresh()
         try await loaded(paths.count, in: model)
@@ -155,12 +155,38 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertTrue(model.promptNumbers.isEmpty)
     }
 
+    func testAPasteWaitingWhenTheConversationChangesIsDropped() async throws {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        _ = model.willPaste(try pictures(1))
+        model.bind(conversation: "acme-after-clear")
+        pane.rows = ["[Image #1]"]
+        model.refresh()
+        XCTAssertEqual(store.images(for: "acme-after-clear"), [:])
+    }
+
+    func testAReplacementThatCannotLoadTakesTheOldImageWithIt() async throws {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        _ = model.willPaste(try pictures(1))
+        pane.rows = ["[Image #1]"]
+        model.refresh()
+        try await loaded(1, in: model)
+        _ = model.willPaste(["/nonexistent/acme.png"])
+        pane.rows = ["[Image #1] [Image #1]"]
+        model.refresh()
+        for _ in 0..<50 where !model.images.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(model.images.isEmpty)
+    }
+
     func testAPasteStillWaitsWhileItsPaneIsOffScreen() async throws {
         let pane = FakePane()
         let model = model(on: pane, store: store())
         let path = try XCTUnwrap(pictures(1).first)
         pane.rows = ["[Image #4]"]
-        model.willPaste([path])
+        _ = model.willPaste([path])
         pane.isOnScreen = false
         model.refresh()
         XCTAssertTrue(model.labels.isEmpty)
@@ -177,7 +203,7 @@ final class PastedImagesTests: XCTestCase {
         let pane = FakePane()
         let model = model(on: pane, store: store())
         pane.rows = []
-        model.willPaste(["/nonexistent/acme.png"])
+        _ = model.willPaste(["/nonexistent/acme.png"])
         pane.rows = ["[Image #1]"]
         model.refresh()
         try await Task.sleep(for: .milliseconds(200))
@@ -208,6 +234,31 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(store().images(for: Self.conversation), [:])
         XCTAssertFalse(FileManager.default.fileExists(atPath: kept))
         XCTAssertTrue(FileManager.default.fileExists(atPath: own))
+    }
+
+    func testAReplacedCopyIsDeletedAndTheUsersOwnFileIsNot() throws {
+        let store = store()
+        let first = store.keep(
+            try picture("clipboard-3.png", width: 20, height: 20, hue: 0, in: staging), as: 1, in: Self.conversation)
+        let own = try picture("own.png", width: 20, height: 20, hue: 0)
+        _ = store.keep(own, as: 1, in: Self.conversation)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first))
+        let last = store.keep(
+            try picture("clipboard-4.png", width: 20, height: 20, hue: 0, in: staging), as: 1, in: Self.conversation)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: own))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: last))
+    }
+
+    func testShowingAnOldConversationsImagesKeepsThem() async throws {
+        let old = Date().addingTimeInterval(-PastedImageIndex.maximumAge + 60)
+        let first = store(now: old)
+        _ = first.keep(try picture("own.png", width: 20, height: 20, hue: 0), as: 1, in: Self.conversation, now: old)
+        let pane = FakePane()
+        pane.rows = ["[Image #1]"]
+        let model = model(on: pane, store: store())
+        model.bind(conversation: Self.conversation)
+        model.refresh()
+        XCTAssertEqual(store(now: Date().addingTimeInterval(120)).images(for: Self.conversation).count, 1)
     }
 
     // MARK: - Pixels
