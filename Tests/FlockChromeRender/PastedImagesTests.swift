@@ -47,7 +47,7 @@ final class PastedImagesTests: XCTestCase {
         model.pane = PastedImagesModel.Pane(
             screen: { whole in
                 guard pane.isOnScreen else { return nil }
-                let held = pane.rows.contains { $0.contains(PastedImageLabels.marker) }
+                let held = pane.rows.contains { row in PastedImageLabels.markers.contains(where: row.contains) }
                 return PastedImagesModel.Screen(rows: whole || held ? pane.rows : [], cell: Self.cell) { point in
                     let row = Int(point.y / Self.cell.height)
                     return pane.rows.indices.contains(row) && pane.rows[row].hasPrefix("> ") ? Self.sentGround : nil
@@ -336,6 +336,76 @@ final class PastedImagesTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(200))
         XCTAssertTrue(model.images.isEmpty)
         XCTAssertNil(model.label(at: CGPoint(x: 4, y: 4)))
+    }
+
+    // MARK: - Dropped files
+
+    private static let droppedScreen = [
+        "", "> [Pasted text #1] what does this do", "  \u{23BF}  Read it", "",
+        "\u{25CF} It exports one icon.", "",
+    ] + Array(repeating: "", count: 12) + [
+        rule, "\u{276F} see [Pasted text #2] [Pasted text #3]and the one that does not fit [Pasted",
+        "  text #14 +3 lines]", rule, "  acme | medium", "",
+    ]
+
+    private func drop(_ names: [String], into model: PastedImagesModel, on pane: FakePane) {
+        pane.rows = [Self.rule, "\u{276F} ", Self.rule]
+        for name in names { model.willDrop("/Users/acme/app/\(name)") }
+        pane.rows = Self.droppedScreen
+        model.refresh()
+    }
+
+    func testDroppedFilesTakeTheirLabelsAndAreKeptForTheConversation() {
+        let pane = FakePane()
+        let store = store()
+        let first = model(on: pane, store: store)
+        first.bind(conversation: Self.conversation)
+        drop(["b.js", "c.js", "d.js"], into: first, on: pane)
+        XCTAssertEqual(first.files.map(\.name), ["b.js", "c.js", "d.js"])
+        XCTAssertTrue(first.images.isEmpty)
+
+        let second = model(on: pane, store: self.store())
+        second.bind(conversation: Self.conversation)
+        second.refresh()
+        XCTAssertEqual(second.files, first.files)
+    }
+
+    func testAFileDroppedBeforeItsConversationsIdArrivesMovesToIt() {
+        let pane = FakePane()
+        let store = store()
+        let model = model(on: pane, store: store)
+        model.bind(conversation: Self.conversation)
+        drop(["b.js"], into: model, on: pane)
+        model.bind(conversation: "acme-after-clear")
+        XCTAssertEqual(store.files(for: "acme-after-clear"), [2: "/Users/acme/app/b.js"])
+    }
+
+    func testAWrappedLabelsChipIsOnItsLongerRowAndNothingElseIsPressed() throws {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        drop(["b.js", "c.js", "d.js"], into: model, on: pane)
+        let wrapped = try XCTUnwrap(model.files.last)
+        XCTAssertEqual(wrapped.runs.count, 2)
+        XCTAssertEqual(wrapped.chip.minY, wrapped.runs[1].minY)
+        XCTAssertNil(model.file(at: CGPoint(x: wrapped.runs[0].midX, y: wrapped.runs[0].midY)))
+        XCTAssertEqual(model.file(at: CGPoint(x: wrapped.chip.midX, y: wrapped.chip.midY))?.name, "d.js")
+    }
+
+    func testFileChipsTakeTheConfirmCardsGroundInBothThemes() async throws {
+        for (theme, name) in [(Theme.tokyoNight, "dark"), (Self.light, "light")] {
+            let pane = FakePane()
+            let store = store()
+            store.keep("/Users/acme/app/a.swift", asFile: 1, in: Self.conversation)
+            let model = model(on: pane, store: store)
+            model.bind(conversation: Self.conversation)
+            drop(["ZoomInOutlined.d.ts", "clipboard.js", "notes.md"], into: model, on: pane)
+            model.highlightFile(3)
+            let image = try await render(
+                Scene(theme: theme, rows: pane.rows) { self.overlay(model, theme: theme) }, name: "files-\(name)")
+            let chip = try XCTUnwrap(model.files.first { $0.number == 2 }?.chip)
+            try assertPixel(
+                image, at: CGPoint(x: chip.maxX - 2.5, y: chip.midY), is: theme.confirmCardColors.ground, "\(name) chip")
+        }
     }
 
     // MARK: - The store
