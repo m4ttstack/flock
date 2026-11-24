@@ -18,6 +18,7 @@ final class HerdrBuildInstallerTests: XCTestCase {
 
     override func tearDownWithError() throws {
         chmod(root.appendingPathComponent("locked").path, 0o755)
+        chmod(root.appendingPathComponent("unreadable/herdr").path, 0o644)
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -84,6 +85,46 @@ final class HerdrBuildInstallerTests: XCTestCase {
         XCTAssertTrue(probe.exists)
         XCTAssertEqual(probe.version, HerdrBuildVersion("0.9.5-ms.1"))
         XCTAssertEqual(probe.sha256, sha)
+    }
+
+    func testStagingFailureCleansUpAndKeepsTheOldBinary() throws {
+        let dir = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let binary = dir.appendingPathComponent("herdr").path
+        try Data("old".utf8).write(to: URL(fileURLWithPath: binary))
+        let artifact = root.appendingPathComponent("artifact-dir")
+        try FileManager.default.createDirectory(at: artifact, withIntermediateDirectories: true)
+        let inner = artifact.appendingPathComponent("inner")
+        try Data("x".utf8).write(to: inner)
+        chmod(inner.path, 0o000)
+        XCTAssertThrowsError(try HerdrBuildInstaller.install(artifactPath: artifact.path, binaryPath: binary, sha256: sha)) {
+            XCTAssertEqual($0 as? HerdrBuildInstaller.InstallError, .stagingFailed)
+        }
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: binary)), Data("old".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["herdr"])
+    }
+
+    func testProbeOfUnreadableBinaryStillExists() throws {
+        let dir = root.appendingPathComponent("unreadable")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let binary = dir.appendingPathComponent("herdr").path
+        try Data("x".utf8).write(to: URL(fileURLWithPath: binary))
+        chmod(binary, 0o000)
+        var asked = false
+        let probe = HerdrBuildInstaller.probe(binaryPath: binary, readVersionOutput: { _ in asked = true; return "herdr 0.9.5\n" })
+        XCTAssertTrue(probe.exists)
+        XCTAssertNil(probe.sha256)
+        XCTAssertNil(probe.version)
+        XCTAssertFalse(asked)
+    }
+
+    func testInstalledBinaryCarriesNoQuarantine() throws {
+        let value = Array("0081;00000000;Safari;".utf8)
+        XCTAssertEqual(setxattr(artifactPath, "com.apple.quarantine", value, value.count, 0, 0), 0)
+        let binary = root.appendingPathComponent("bin/herdr").path
+        try HerdrBuildInstaller.install(artifactPath: artifactPath, binaryPath: binary, sha256: sha)
+        XCTAssertEqual(getxattr(binary, "com.apple.quarantine", nil, 0, 0, 0), -1)
+        XCTAssertEqual(errno, ENOATTR)
     }
 
     func testFileName() throws {

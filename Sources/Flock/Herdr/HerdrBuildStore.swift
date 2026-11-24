@@ -380,7 +380,7 @@ final class HerdrBuildStore {
             HerdrBuildCopy.checksumMismatch
         case HerdrBuildInstaller.InstallError.destinationNotWritable:
             HerdrBuildCopy.notWritable
-        case HerdrBuildInstaller.InstallError.renameFailed:
+        case HerdrBuildInstaller.InstallError.renameFailed, HerdrBuildInstaller.InstallError.stagingFailed:
             HerdrBuildCopy.renameFailed
         case is HerdrChanged:
             HerdrBuildCopy.herdrChanged

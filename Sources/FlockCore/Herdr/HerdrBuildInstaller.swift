@@ -2,15 +2,13 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// The impure half of installing a build: real file moves against a real
-/// herdr binary, tested against a temporary directory tree. Every path is a
-/// parameter.
 public enum HerdrBuildInstaller {
     public enum InstallError: Error, Equatable {
         case sourceUnreadable
         case checksumMismatch
         case destinationNotWritable
         case renameFailed(errno: Int32)
+        case stagingFailed
     }
 
     public struct Probe: Equatable, Sendable {
@@ -31,29 +29,27 @@ public enum HerdrBuildInstaller {
         "herdr-\(version.display)-\(arch.rawValue)"
     }
 
-    /// Read fresh every time: a herdr upgrade replacing the binary under a
-    /// stale answer is the ordinary case. `readVersionOutput` returns what
-    /// `herdr --version` printed for the binary at a path, nil when it could
-    /// not be run, and is never called for a missing binary.
+    /// `readVersionOutput` is never called for a binary that cannot be read.
+    /// A herdr that exists but is unreadable still `exists`, so it is never
+    /// treated as missing.
     public static func probe(
         binaryPath: String, fileManager: FileManager = .default, readVersionOutput: (String) -> String?
     ) -> Probe {
-        guard let data = fileManager.contents(atPath: binaryPath) else {
+        guard fileManager.fileExists(atPath: binaryPath) else {
             return Probe(exists: false, isWritable: isWritableOrCreatable(directory(of: binaryPath), fileManager), version: nil, sha256: nil)
         }
+        let data = fileManager.contents(atPath: binaryPath)
         return Probe(
             exists: true,
             isWritable: fileManager.isWritableFile(atPath: directory(of: binaryPath)),
-            version: readVersionOutput(binaryPath).flatMap { HerdrBuildVersion.parse(versionOutput: $0) },
-            sha256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            version: data == nil ? nil : readVersionOutput(binaryPath).flatMap { HerdrBuildVersion.parse(versionOutput: $0) },
+            sha256: data.map { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         )
     }
 
-    /// 1. Create the parent directory when it is missing.
-    /// 2. Copy the artifact to a staging name beside the binary and verify
-    ///    its SHA-256 there, so a mismatch never touches the live binary.
-    /// 3. Rename staging over the binary: `rename(2)` repoints the directory
-    ///    entry without touching the inode a running herdr has open.
+    /// Verified on a staging file beside the binary, so a mismatch never
+    /// touches the live one. The final `rename(2)` repoints the directory
+    /// entry without touching the inode a running herdr has open.
     public static func install(
         artifactPath: String, binaryPath: String, sha256: String, fileManager: FileManager = .default
     ) throws {
@@ -67,13 +63,19 @@ public enum HerdrBuildInstaller {
         }
 
         let staging = binaryPath + ".flock-staging"
-        if fileManager.fileExists(atPath: staging) { try fileManager.removeItem(atPath: staging) }
-        try fileManager.copyItem(atPath: artifactPath, toPath: staging)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging)
+        do {
+            if fileManager.fileExists(atPath: staging) { try fileManager.removeItem(atPath: staging) }
+            try fileManager.copyItem(atPath: artifactPath, toPath: staging)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging)
+        } catch {
+            try? fileManager.removeItem(atPath: staging)
+            throw InstallError.stagingFailed
+        }
         guard (try? HerdrBuildDownloader.sha256(ofFileAt: URL(fileURLWithPath: staging))) == sha256 else {
             try? fileManager.removeItem(atPath: staging)
             throw InstallError.checksumMismatch
         }
+        // A quarantined binary is refused by Gatekeeper when it is executed.
         removexattr(staging, "com.apple.quarantine", 0)
 
         guard Darwin.rename(staging, binaryPath) == 0 else {
