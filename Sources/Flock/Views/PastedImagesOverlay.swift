@@ -126,10 +126,14 @@ private struct PastedImageChip: View {
                 .scaledToFill()
                 .frame(width: cell * 1.45, height: max(4, label.rect.height - 8))
                 .clipShape(RoundedRectangle(cornerRadius: 2))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(Color(theme.cardColors.title).opacity(0.45), lineWidth: 1)
+                }
                 .padding(.leading, cell * 0.75)
             Spacer(minLength: 0)
             Text("Image \(label.number)")
-                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.88))
+                .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * 0.85))
                 .foregroundStyle(Color(theme.cardColors.title))
                 .fixedSize()
                 .padding(.trailing, cell * 0.8)
@@ -141,7 +145,8 @@ private struct PastedImageChip: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(Color(theme.cardColors.ground))
                 .overlay(RoundedRectangle(cornerRadius: 4).fill(theme.accent.opacity(isLit ? 0.35 : 0)))
-                .padding(.vertical, 1)
+                // Past its row by less than any glyph's own margin there.
+                .padding(.vertical, -0.75)
         }
     }
 }
