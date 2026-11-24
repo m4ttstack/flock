@@ -2977,8 +2977,9 @@ final class ChromeRenderTests: XCTestCase {
     }
 
     /// The banner after Install is confirmed: progress in place of the pill
-    /// while the build downloads, then the failure in red with Install back
-    /// for a retry. PNGs go to `FLOCK_CHROME_RENDER_DIR`.
+    /// while the build downloads, the first time and again with a restart
+    /// still to come, then the failure in red with Install back for a retry.
+    /// PNGs go to `FLOCK_CHROME_RENDER_DIR`.
     func testTheBuildBannerShowsDownloadProgressThenTheFailure() async throws {
         let directory = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
         let fixture = try HerdrBuildFixture()
@@ -2990,15 +2991,20 @@ final class ChromeRenderTests: XCTestCase {
         for (id, scheme) in [("tokyo-night", "dark"), ("catppuccin-latte", "light")] {
             let theme = try XCTUnwrap(Theme.builtins.first { $0.id == id })
             let harness = try await Harness(theme: theme, model: try Fixture.herdModel())
-            for stage in ["downloading", "failed"] {
-                let transport: HerdrDownloadTransport = stage == "downloading"
-                    ? HangingTransport() : BytesTransport(body: Data("<html>Not Found</html>".utf8))
-                let store = try fixture.store(
-                    binary: HerdrBuildFixture.stock, name: "\(stage)-\(id)", transport: transport, cache: "cache-\(id)-\(stage)"
-                )
-                await HerdrBuildFixture.settle(store)
-                store.requestInstall(source: .banner)
-                store.confirmPendingAction()
+            for stage in ["downloading", "downloading-again", "failed"] {
+                let store: HerdrBuildStore
+                if stage == "downloading-again" {
+                    store = try await fixture.storeUpdatingAgain(name: "\(stage)-\(id)", source: .banner)
+                } else {
+                    let transport: HerdrDownloadTransport = stage == "downloading"
+                        ? HangingTransport() : BytesTransport(body: Data("<html>Not Found</html>".utf8))
+                    store = try fixture.store(
+                        binary: HerdrBuildFixture.stock, name: "\(stage)-\(id)", transport: transport, cache: "cache-\(id)-\(stage)"
+                    )
+                    await HerdrBuildFixture.settle(store)
+                    store.requestInstall(source: .banner)
+                    store.confirmPendingAction()
+                }
                 defer { store.installTask?.cancel() }
                 if stage == "failed" { await store.installTask?.value }
                 let window = harness.makeWindow(size: Self.windowSize, herdrBuildStore: store)
@@ -3008,7 +3014,7 @@ final class ChromeRenderTests: XCTestCase {
                     try XCTUnwrap(image.representation(using: .png, properties: [:]))
                         .write(to: URL(fileURLWithPath: directory).appendingPathComponent("herdr-banner-\(stage)-\(scheme)-\(id).png"))
                 }
-                if stage == "downloading" {
+                if stage != "failed" {
                     XCTAssertEqual(store.phase, .downloading(0.4), "\(scheme): the banner is not mid-download")
                     // A 96 x 6 bar 40% filled is under 1000 accent pixels at 2x; the pill is several thousand.
                     let accent = count(theme.palette.accent.hex, in: trailingBand, of: image)
@@ -3127,8 +3133,44 @@ final class ChromeRenderTests: XCTestCase {
         }
     }
 
+    /// A build updated again before Flock restarted for the last one: no
+    /// Restart to relaunch Flock mid-install. PNGs go to
+    /// `FLOCK_SETTINGS_RENDER_DIR`.
+    func testTheHerdrRowOffersNoRestartMidInstall() async throws {
+        let directory = ProcessInfo.processInfo.environment["FLOCK_SETTINGS_RENDER_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+        let fixture = try HerdrBuildFixture()
+        defer { fixture.remove() }
+
+        for scheme in ["light", "dark"] {
+            let store = try await fixture.storeUpdatingAgain(name: scheme, source: .settings)
+            defer { store.installTask?.cancel() }
+            for stage in ["downloading-again", "stopped"] {
+                if stage == "stopped" {
+                    store.installTask?.cancel()
+                    await store.installTask?.value
+                }
+                var identifiers: [String] = []
+                let image = try await renderRow(store, scheme: scheme, height: 300) { window in
+                    identifiers = await self.accessibilityElements(in: window).map(\.identifier)
+                }
+                XCTAssertEqual(store.phase, stage == "stopped" ? .idle : .downloading(0.4), "\(scheme) \(stage)")
+                XCTAssertTrue(identifiers.contains("flock.settings.herdrBuild.body"), "\(scheme) \(stage): the walk missed the row")
+                XCTAssertEqual(
+                    identifiers.contains("flock.settings.herdrBuild.restart"), stage == "stopped",
+                    "\(scheme) \(stage): the Restart button does not match the phase"
+                )
+                if let directory {
+                    try XCTUnwrap(image.representation(using: .png, properties: [:]))
+                        .write(to: URL(fileURLWithPath: directory).appendingPathComponent("settings-herdr-\(stage)-\(scheme).png"))
+                }
+            }
+        }
+    }
+
     /// The herdr row alone, in Settings' grouped form at Settings' width.
-    private func renderRow(_ store: HerdrBuildStore, scheme: String, height: CGFloat) async throws -> NSBitmapImageRep {
+    private func renderRow(
+        _ store: HerdrBuildStore, scheme: String, height: CGFloat, inspect: ((NSWindow) async throws -> Void)? = nil
+    ) async throws -> NSBitmapImageRep {
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: FlockSettingsView.size),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -3141,6 +3183,7 @@ final class ChromeRenderTests: XCTestCase {
         window.orderFront(nil)
         await settle(window)
         defer { window.close() }
+        try await inspect?(window)
         return try snapshot(window)
     }
 

@@ -156,8 +156,10 @@ final class HerdrBuildStore {
         return list?.build(matching: binaryVersion, sha256: lastProbe?.sha256)?.changesServer == true
     }
 
+    /// Nil while an install runs: a relaunch would end it part way.
     var restartPrompt: HerdrBuildCopy.RestartReason? {
-        restartReason ?? (needsServerRestart ? .serverBehind : nil)
+        guard phase == .idle else { return nil }
+        return restartReason ?? (needsServerRestart ? .serverBehind : nil)
     }
 
     /// The row's prompt, less a server banner waved away for the build on

@@ -17,6 +17,22 @@ struct HangingTransport: HerdrDownloadTransport {
     }
 }
 
+/// The first download lands `body`; every later one hangs part way.
+final class OnceThenHangingTransport: HerdrDownloadTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var landed = false
+    private let body: Data
+    init(body: Data) { self.body = body }
+    func download(_ url: URL, to destination: URL, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let isFirst = lock.withLock {
+            defer { landed = true }
+            return !landed
+        }
+        guard isFirst else { return try await HangingTransport().download(url, to: destination, progress: progress) }
+        try body.write(to: destination)
+    }
+}
+
 struct QuietHerdrRunner: HerdrCommandRunner {
     func run(_ executable: String, _ arguments: [String]) async -> (status: Int32, output: String) {
         (0, "")
@@ -163,6 +179,24 @@ final class HerdrBuildFixture {
             runner: runner,
             relaunch: {}
         )
+    }
+
+    /// A store that updated herdr once and is part way through updating it
+    /// again, with the first update's restart still to come.
+    func storeUpdatingAgain(name: String, source: HerdrBuildStore.PendingConfirmation.Source) async throws -> HerdrBuildStore {
+        let store = try store(
+            binary: Self.ms1, name: name, transport: OnceThenHangingTransport(body: Self.ms2), cache: "cache-\(name)"
+        )
+        await Self.settle(store)
+        store.requestInstall(source: source)
+        store.confirmPendingAction()
+        await Self.settle(store)
+        XCTAssertEqual(store.restartReason, .updated)
+        try write(Self.ms1, name: name)
+        store.reprobe()
+        store.requestInstall(source: source)
+        store.confirmPendingAction()
+        return store
     }
 
     /// The list read, and any install or server check the store began.

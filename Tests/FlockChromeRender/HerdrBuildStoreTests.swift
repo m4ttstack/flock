@@ -808,6 +808,29 @@ final class HerdrBuildStoreTests: XCTestCase {
         XCTAssertEqual(store.restartReason, .installed)
     }
 
+    func testNoRestartIsOfferedWhileALaterInstallRuns() async throws {
+        let lists = ListSource([standardList()])
+        let store = try makeStore(binary: ms1, lists: lists)
+        await settle(store)
+        store.requestInstall(source: .settings)
+        await confirmAndWait(store)
+        XCTAssertEqual(store.restartPrompt, .updated)
+        XCTAssertEqual(store.bannerRestartPrompt, .updated)
+
+        lists.set(ms3List)
+        await store.refreshList()
+        store.requestInstall(source: .settings)
+        store.confirmPendingAction()
+        XCTAssertNotEqual(store.phase, .idle)
+        XCTAssertNil(store.restartPrompt)
+        XCTAssertNil(store.bannerRestartPrompt)
+        await settle(store)
+
+        XCTAssertEqual(store.lastErrorMessage, HerdrBuildCopy.checksumMismatch)
+        XCTAssertEqual(store.restartPrompt, .updated, "the first install still waits on a restart")
+        XCTAssertEqual(store.bannerRestartPrompt, .updated)
+    }
+
     func testDismissingTheOfferIsObserved() async throws {
         let store = try makeStore(binary: stock)
         await settle(store)
