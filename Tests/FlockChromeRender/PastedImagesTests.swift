@@ -644,6 +644,46 @@ final class PastedImagesTests: XCTestCase {
         XCTAssertEqual(red(after), red(beside), accuracy: 3)
     }
 
+    /// A program in a dark theme of its own draws dark rows in a light pane.
+    func testAChipStandsOutFromADarkRowInALightTheme() async throws {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        try await paste(try pictures(1), into: model, on: pane)
+        let sent = try XCTUnwrap(model.labels.first { !$0.inPrompt && !$0.isAttachmentLine })
+        let image = try await render(
+            Scene(theme: Self.light, rows: pane.rows) { self.overlay(model, theme: Self.light, showsTray: false) },
+            name: "sent-light")
+        try assertPixel(
+            image, at: CGPoint(x: sent.rect.minX + Self.cell.width * 2.4, y: sent.rect.minY + 3),
+            is: ChromeMetrics.ConfirmCard.Colors.light.ground, "chip on a dark row")
+    }
+
+    func testAnImageScrolledAwayIsLetGoAndComesBack() async throws {
+        let pane = FakePane()
+        let model = model(on: pane, store: store())
+        var now = Date()
+        model.now = { now }
+        try await paste(try pictures(1), into: model, on: pane)
+        let rows = pane.rows
+        pane.rows = []
+        model.refresh()
+        now += PastedImagesModel.keptOffScreen - 1
+        model.refresh()
+        XCTAssertNotNil(model.images[1])
+        now += 2
+        model.refresh()
+        XCTAssertNil(model.images[1])
+        pane.rows = rows
+        model.refresh()
+        for _ in 0..<500 where model.images[1] == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNotNil(model.images[1])
+
+        pane.isOnScreen = false
+        now += PastedImagesModel.keptOffScreen * 10
+        model.refresh()
+        XCTAssertNotNil(model.images[1], "a hidden pane comes back with its images")
+    }
+
     func testNoTrayWhileThePaneIsBeingArranged() async throws {
         let pane = FakePane()
         let model = model(on: pane, store: store())

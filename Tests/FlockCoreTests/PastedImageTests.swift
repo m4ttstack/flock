@@ -399,3 +399,23 @@ final class FileMentionTests: XCTestCase {
         XCTAssertFalse(FileMention.isRead(by: nil))
     }
 }
+
+final class PreviewPanelRuleTests: XCTestCase {
+    func testThePressThatClosedThePanelIsHeldBackUntilItIsLetGo() {
+        XCTAssertTrue(HeldKey.read(53, isDown: true, isRepeat: true, of: 53) == (true, false))
+        XCTAssertTrue(HeldKey.read(53, isDown: false, isRepeat: false, of: 53) == (true, true))
+        XCTAssertTrue(HeldKey.read(53, isDown: true, isRepeat: false, of: 53) == (false, true), "a new press")
+        XCTAssertTrue(HeldKey.read(53, isDown: true, isRepeat: true, of: 49) == (false, false))
+    }
+
+    func testASmallImageGrowsOnlyAsItsPanelDoes() {
+        let placed = CGSize(width: 360, height: 240)
+        XCTAssertEqual(
+            QuickLookPlacement.image(CGSize(width: 40, height: 40), in: placed, placedIn: placed),
+            CGRect(x: 160, y: 100, width: 40, height: 40))
+        XCTAssertEqual(
+            QuickLookPlacement.image(CGSize(width: 40, height: 40), in: CGSize(width: 720, height: 600), placedIn: placed).width, 80)
+        XCTAssertEqual(
+            QuickLookPlacement.image(CGSize(width: 720, height: 480), in: CGSize(width: 180, height: 240), placedIn: placed).width, 180)
+    }
+}

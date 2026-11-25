@@ -94,6 +94,8 @@ final class PastedImagesModel {
         var isDark: () -> Bool = { false }
         var toScreen: (CGRect) -> NSRect?
         var fromWindow: (NSPoint) -> CGPoint?
+        /// Whether it is the pane with focus in its window.
+        var hasFocus: () -> Bool = { false }
     }
 
     private(set) var labels: [Label] = []
@@ -132,6 +134,10 @@ final class PastedImagesModel {
     @ObservationIgnored private var icons: [String: NSImage] = [:]
     @ObservationIgnored private var fileMatcher = PastedImageMatcher(.text)
     @ObservationIgnored private var loading: Set<Int> = []
+    /// The labels on the pane's last screen, and when each image's was last there.
+    @ObservationIgnored private var onScreen: Set<Int> = []
+    @ObservationIgnored private var lastSeen: [Int: Date] = [:]
+    @ObservationIgnored var now: () -> Date = Date.init
     @ObservationIgnored private var touched = Date.distantPast
     @ObservationIgnored private var matcher = PastedImageMatcher()
     @ObservationIgnored private var poll: Task<Void, Never>?
@@ -141,6 +147,8 @@ final class PastedImagesModel {
     /// Only a backstop: a new frame is what asks for a scan.
     private static let pollInterval: Duration = .milliseconds(500)
     private static let touchInterval: TimeInterval = 24 * 60 * 60
+    /// Long enough to scroll away and back without seeing the label's text.
+    static let keptOffScreen: TimeInterval = 60
 
     init(store: @escaping @MainActor () -> PastedImageStore = { .shared }) {
         self.store = store
@@ -310,6 +318,8 @@ final class PastedImagesModel {
         } isImage: { [weak self] point in
             guard let self, let point = pane?.fromWindow(point) else { return false }
             return file(at: point) != nil || label(at: point) != nil || trayFrame?.contains(point) == true
+        } hasFocus: { [weak self] in
+            self?.pane?.hasFocus() ?? false
         }
     }
 
@@ -323,6 +333,8 @@ final class PastedImagesModel {
         } isImage: { [weak self] point in
             guard let self, let point = pane?.fromWindow(point) else { return false }
             return self.file(at: point) != nil || label(at: point) != nil || trayFrame?.contains(point) == true
+        } hasFocus: { [weak self] in
+            self?.pane?.hasFocus() ?? false
         }
     }
 
@@ -390,6 +402,7 @@ final class PastedImagesModel {
         guard let screen = pane?.screen(matcher.isWaiting || fileMatcher.isWaiting) else {
             show([], promptTop: nil)
             showFiles([])
+            letGo()
             return
         }
         if let deferred { bind(conversation: deferred) }
@@ -397,7 +410,9 @@ final class PastedImagesModel {
         for match in matcher.match(read, now: Date()) {
             assign(match.path, to: match.number)
         }
-        for number in Set(read.labels.map(\.number)) { load(number) }
+        onScreen = Set(read.labels.map(\.number))
+        for number in onScreen { load(number) }
+        letGo()
         touchIfInUse(read)
         show(
             read.labels.map { label in
@@ -434,6 +449,21 @@ final class PastedImagesModel {
                 ground: screen.ground(CGPoint(x: head.minX + 0.75, y: head.minY + 0.75))
             )
         })
+    }
+
+    /// Of images scrolled away: each is loaded again with its label. A hidden
+    /// pane keeps what it will show first.
+    private func letGo() {
+        let now = now()
+        for number in onScreen { lastSeen[number] = now }
+        for number in images.keys where !onScreen.contains(number) {
+            if now.timeIntervalSince(lastSeen[number, default: now]) >= Self.keptOffScreen {
+                images[number] = nil
+            } else if lastSeen[number] == nil {
+                lastSeen[number] = now
+            }
+        }
+        lastSeen = lastSeen.filter { images[$0.key] != nil }
     }
 
     /// Retention counts from the last time one of its files was on screen, and once a

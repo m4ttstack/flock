@@ -1,6 +1,7 @@
 import AppKit
 import FlockCore
 import QuickLookUI
+import UniformTypeIdentifiers
 
 /// Pasted images and dropped files at full size, in a panel of flock's own.
 ///
@@ -38,9 +39,13 @@ final class PastedImageQuickLook: NSObject {
     private var anchor = NSRect.zero
     private var sourceFrame: (Int) -> NSRect? = { _ in nil }
     private var isImage: (NSPoint) -> Bool = { _ in false }
+    private var hasFocus: () -> Bool = { false }
     private weak var window: NSWindow?
     private var clickOut: Any?
     private var windowClosing: Any?
+    private var windowTookKeyboard: Any?
+    private var clickingImage = false
+    private var heldKey: Any?
     /// Counts opens, steps and closes, so an animation that has been overtaken ends
     /// nothing.
     private var generation = 0
@@ -50,8 +55,16 @@ final class PastedImageQuickLook: NSObject {
     let image = NSImageView()
     private let openButton = NSButton(title: "", target: nil, action: nil)
     private let openHolder = NSView()
+    private let content = Content()
     private var preview: QLPreviewView?
     private var loading: Task<Void, Never>?
+    private var playing: Playing?
+    /// What `image` was decoded to.
+    private var loadedPixels = 0
+    /// The frame it was last given, which it leaves only by being moved or resized.
+    private var placed = NSRect.zero
+    private var isMoved = false
+    private var isResized = false
 
     private(set) var isOpen = false
 
@@ -59,10 +72,12 @@ final class PastedImageQuickLook: NSObject {
 
     /// `sourceFrame` is where an image is drawn on screen, which the panel
     /// grows from and shrinks back to, if it is drawn. `isImage` is
-    /// whether a point in `window` is on something that shows an image.
+    /// whether a point in `window` is on something that shows an image, and
+    /// `hasFocus` whether the pane showing it is the one with focus there.
     func show(
         _ shown: [Item], startingAt number: Int, over window: NSWindow?, isDark: Bool,
-        sourceFrame: @escaping (Int) -> NSRect?, isImage: @escaping (NSPoint) -> Bool
+        sourceFrame: @escaping (Int) -> NSRect?, isImage: @escaping (NSPoint) -> Bool,
+        hasFocus: @escaping () -> Bool = { false }
     ) {
         let present = shown.filter { FileManager.default.fileExists(atPath: $0.url.path) }
         guard let window, let start = present.firstIndex(where: { $0.number == number }) else {
@@ -71,11 +86,13 @@ final class PastedImageQuickLook: NSObject {
         }
         let same = isOpen && self.window === window && items.indices.contains(index)
             && items[index].url == present[start].url && items[index].number == number
-        let grows = !(isOpen && self.window === window && panel.isVisible) && !reduceMotion()
+        let wasOpenHere = isOpen && self.window === window && panel.isVisible
+        let grows = !wasOpenHere && !reduceMotion()
         items = present
         index = start
         self.sourceFrame = sourceFrame
         self.isImage = isImage
+        self.hasFocus = hasFocus
         if same {
             retitle()
             panel.makeKeyAndOrderFront(nil)
@@ -92,7 +109,7 @@ final class PastedImageQuickLook: NSObject {
         // In place, drawn and key before it is seen: what grows is a picture
         // of it, title bar and all, and it takes over where that ends.
         if grows, source != nil { panel.alphaValue = 0 }
-        panel.setFrame(target, display: true)
+        place(keepingPlace: wasOpenHere)
         attach(panel, to: window)
         panel.makeKeyAndOrderFront(nil)
         // Not the Open button, which would take Space.
@@ -110,6 +127,7 @@ final class PastedImageQuickLook: NSObject {
         panel.alphaValue = 1
         endZoom()
         loadPreview()
+        play()
     }
 
     func close() { close(animated: true) }
@@ -120,6 +138,7 @@ final class PastedImageQuickLook: NSObject {
         generation += 1
         let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
         unwatch()
+        stopPlaying()
         // Drawn out of process, so a picture of it can come out blank.
         unloadPreview()
         let closed = generation
@@ -144,6 +163,7 @@ final class PastedImageQuickLook: NSObject {
         items = []
         sourceFrame = { _ in nil }
         isImage = { _ in false }
+        hasFocus = { false }
     }
 
     /// Above the window whatever comes forward in it, and with it across
@@ -163,7 +183,7 @@ final class PastedImageQuickLook: NSObject {
         index += by
         generation += 1
         fill()
-        panel.setFrame(target, display: true)
+        place(keepingPlace: true)
         land()
     }
 
@@ -184,12 +204,35 @@ final class PastedImageQuickLook: NSObject {
         )
     }
 
+    private func place(keepingPlace: Bool) {
+        let next = target
+        content.natural = items[index].thumbnail.size
+        content.placed = panel.contentRect(forFrameRect: next).size
+        isResized = keepingPlace && (isResized || panel.frame.size != placed.size)
+        isMoved = keepingPlace && (isMoved || panel.frame.origin != placed.origin)
+        let frame: NSRect
+        if isResized {
+            frame = panel.frame
+        } else if isMoved {
+            frame = QuickLookPlacement.frame(
+                size: next.size, centeredOn: panel.frame,
+                visibleScreen: (panel.screen ?? NSScreen.main)?.visibleFrame ?? next)
+        } else {
+            frame = next
+        }
+        panel.setFrame(frame, display: true)
+        content.fit()
+        placed = panel.frame
+        if items[index].isImage { loadFullImage(items[index]) }
+    }
+
     private func fill() {
         let item = items[index]
         retitle()
         unloadPreview()
+        stopPlaying()
+        loadedPixels = 0
         image.image = item.thumbnail
-        if item.isImage { loadFullImage(item) }
         if let app = NSWorkspace.shared.urlForApplication(toOpen: item.url) {
             openButton.title = "Open in \(FileManager.default.displayName(atPath: app.path))"
             openButton.isHidden = false
@@ -211,14 +254,16 @@ final class PastedImageQuickLook: NSObject {
     /// The thumbnail is capped, and reads soft in a large panel.
     private func loadFullImage(_ item: Item) {
         let url = item.url
-        let points = max(item.thumbnail.size.width, item.thumbnail.size.height)
+        let points = max(item.thumbnail.size.width, item.thumbnail.size.height, image.frame.width, image.frame.height)
         let pixels = Int((points * (window?.backingScaleFactor ?? 2)).rounded(.up))
+        guard pixels > loadedPixels else { return }
+        loadedPixels = pixels
         loading?.cancel()
         loading = Task { [weak self] in
             let full = await Task.detached(priority: .userInitiated) { () -> Decoded? in
                 Self.decode(url, pixels: pixels).map { Decoded(image: $0) }
             }.value
-            guard let self, let full, !Task.isCancelled, items.indices.contains(index), items[index].url == url else { return }
+            guard let self, let full, !Task.isCancelled, playing == nil, items.indices.contains(index), items[index].url == url else { return }
             // The thumbnail's size in points, so nothing moves.
             image.image = NSImage(cgImage: full.image, size: item.thumbnail.size)
         }
@@ -240,6 +285,35 @@ final class PastedImageQuickLook: NSObject {
     private struct Decoded: @unchecked Sendable {
         let image: CGImage
     }
+
+    /// An animated image, over the still one.
+    private func play() {
+        guard isOpen, playing == nil, items.indices.contains(index), items[index].isImage, !reduceMotion() else { return }
+        let item = items[index]
+        guard let source = CGImageSourceCreateWithURL(item.url as CFURL, nil), CGImageSourceGetCount(source) > 1,
+              let type = CGImageSourceGetType(source) as String?, Self.animatedTypes.contains(type)
+        else { return }
+        let playing = Playing()
+        self.playing = playing
+        CGAnimateImageAtURLWithBlock(item.url as CFURL, nil) { [weak self] _, frame, stop in
+            MainActor.assumeIsolated {
+                guard let self, self.playing === playing else {
+                    stop.pointee = true
+                    return
+                }
+                self.image.image = NSImage(cgImage: frame, size: item.thumbnail.size)
+            }
+        }
+    }
+
+    private func stopPlaying() {
+        playing = nil
+    }
+
+    private final class Playing {}
+
+    /// Others hold several pictures without being animations.
+    private static let animatedTypes: Set<String> = [UTType.gif.identifier, UTType.png.identifier]
 
     /// Last, since loading one holds up the main thread.
     private func loadPreview() {
@@ -292,17 +366,19 @@ final class PastedImageQuickLook: NSObject {
         panel.isFloatingPanel = false
         panel.animationBehavior = .none
         panel.delegate = self
-        panel.onClose = { [weak self] in self?.close() }
+        panel.onClose = { [weak self] key in
+            self?.close()
+            self?.swallow(key)
+        }
         panel.onStep = { [weak self] by in
             guard let self, items.count > 1 else { return false }
             step(by)
             return true
         }
 
-        image.imageScaling = .scaleProportionallyDown
-        let content = NSView(frame: panel.contentLayoutRect)
-        image.frame = content.bounds
-        image.autoresizingMask = [.width, .height]
+        image.imageScaling = .scaleProportionallyUpOrDown
+        content.frame = panel.contentLayoutRect
+        content.image = image
         content.addSubview(image)
         panel.contentView = content
 
@@ -372,6 +448,8 @@ final class PastedImageQuickLook: NSObject {
             MainActor.assumeIsolated {
                 guard let self, event.window === self.window else { return }
                 guard self.isImage(event.locationInWindow) else { return self.close() }
+                self.clickingImage = true
+                DispatchQueue.main.async { self.clickingImage = false }
                 guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control) else { return }
                 // The click makes its own window key, and the keyboard is
                 // the panel's while it is open.
@@ -386,17 +464,68 @@ final class PastedImageQuickLook: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.close(animated: false) }
         }
+        // A pane takes the keyboard as it gets focus, and Escape would be its.
+        // The panel's own, focused by the click that opened it, gives it back.
+        windowTookKeyboard = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.clickingImage else { return }
+                // The pane is made first responder after its window is key.
+                DispatchQueue.main.async {
+                    guard self.isOpen, !self.panel.isKeyWindow else { return }
+                    if self.hasFocus() { self.panel.makeKey() } else { self.close() }
+                }
+            }
+        }
     }
 
     private func unwatch() {
         if let clickOut { NSEvent.removeMonitor(clickOut) }
         if let windowClosing { NotificationCenter.default.removeObserver(windowClosing) }
+        if let windowTookKeyboard { NotificationCenter.default.removeObserver(windowTookKeyboard) }
         clickOut = nil
         windowClosing = nil
+        windowTookKeyboard = nil
+    }
+
+    /// The rest of the press that closed the panel, held down or let go,
+    /// which would otherwise go to the pane.
+    private func swallow(_ key: UInt16) {
+        endSwallow()
+        heldKey = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            let (rest, ends) = HeldKey.read(
+                key, isDown: event.type == .keyDown, isRepeat: event.type == .keyDown && event.isARepeat,
+                of: event.keyCode)
+            if ends { MainActor.assumeIsolated { self?.endSwallow() } }
+            return rest ? nil : event
+        }
+    }
+
+    private func endSwallow() {
+        if let heldKey { NSEvent.removeMonitor(heldKey) }
+        heldKey = nil
+    }
+
+    /// The image at its own size in the panel it was placed in, and larger
+    /// as the panel is.
+    final class Content: NSView {
+        var image: NSView?
+        var natural = CGSize.zero
+        var placed = CGSize.zero
+
+        override func resizeSubviews(withOldSize oldSize: NSSize) {
+            super.resizeSubviews(withOldSize: oldSize)
+            fit()
+        }
+
+        func fit() {
+            image?.frame = QuickLookPlacement.image(natural, in: bounds.size, placedIn: placed)
+        }
     }
 
     final class Panel: NSPanel {
-        var onClose: () -> Void = {}
+        var onClose: (UInt16) -> Void = { _ in }
         /// Whether there was anything to step through.
         var onStep: (Int) -> Bool = { _ in false }
 
@@ -410,7 +539,7 @@ final class PastedImageQuickLook: NSObject {
             }
             switch event.keyCode {
             case 49 where firstResponder is NSButton: super.sendEvent(event)
-            case 53, 49: onClose()
+            case 53, 49: if !event.isARepeat { onClose(event.keyCode) }
             case 123, 126: if !onStep(-1) { super.sendEvent(event) }
             case 124, 125: if !onStep(1) { super.sendEvent(event) }
             default: super.sendEvent(event)
@@ -423,5 +552,11 @@ extension PastedImageQuickLook: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         close()
         return false
+    }
+
+    /// Sharp at the size it has been given.
+    func windowDidEndLiveResize(_ notification: Notification) {
+        guard isOpen, items.indices.contains(index), items[index].isImage, playing == nil else { return }
+        loadFullImage(items[index])
     }
 }
