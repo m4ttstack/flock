@@ -84,16 +84,11 @@ final class PastedImageQuickLook: NSObject {
         watch(window)
         fill()
         panel.setFrame(target, display: true)
-        if wasOpen, panel.isVisible {
-            panel.alphaValue = 1
+        guard !(wasOpen && panel.isVisible), let source = sourceFrame(number),
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
             panel.makeKeyAndOrderFront(nil)
-            loadPreview()
-            return
-        }
-        guard let source = sourceFrame(number), !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            panel.alphaValue = 1
-            panel.makeKeyAndOrderFront(nil)
-            loadPreview()
+            land()
             return
         }
         let opened = generation
@@ -103,10 +98,15 @@ final class PastedImageQuickLook: NSObject {
         panel.makeKeyAndOrderFront(nil)
         animate(from: Self.fit(panel.frame.size, over: source), to: panel.frame) { [weak self] in
             guard let self, generation == opened else { return }
-            panel.alphaValue = 1
-            endZoom()
-            loadPreview()
+            land()
         }
+    }
+
+    /// The panel itself is seen, whatever was growing into it.
+    private func land() {
+        panel.alphaValue = 1
+        endZoom()
+        loadPreview()
     }
 
     func close() {
@@ -115,29 +115,30 @@ final class PastedImageQuickLook: NSObject {
         generation += 1
         let back = items.indices.contains(index) ? sourceFrame(items[index].number) : nil
         unwatch()
+        // Drawn out of process, so a picture of it can come out blank.
+        unloadPreview()
         guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.orderOut(nil)
-            unloadPreview()
             endZoom()
             window?.makeKey()
             return
         }
         let closed = generation
-        animate(from: panel.frame, to: Self.fit(panel.frame.size, over: back)) { [weak self] in
+        animate(from: zoom?.frame ?? panel.frame, to: Self.fit(panel.frame.size, over: back)) { [weak self] in
             guard let self, generation == closed else { return }
             endZoom()
         }
         panel.orderOut(nil)
-        unloadPreview()
         window?.makeKey()
     }
 
-    private func step(_ by: Int) {
+    func step(_ by: Int) {
         guard items.indices.contains(index + by) else { return }
         index += by
+        generation += 1
         fill()
         panel.setFrame(target, display: true)
-        loadPreview()
+        land()
     }
 
     @objc private func openInApp() {

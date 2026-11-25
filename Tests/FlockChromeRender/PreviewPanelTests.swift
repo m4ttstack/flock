@@ -69,7 +69,7 @@ final class PreviewPanelTests: XCTestCase {
             sourceFrame: { _ in source }, isImage: { _ in false })
         try await Task.sleep(for: .milliseconds(60))
         look.close()
-        try await Task.sleep(for: .milliseconds(600))
+        for _ in 0..<150 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertFalse(look.panel.isVisible)
         XCTAssertFalse(look.isOpen)
         XCTAssertNil(look.zoom)
@@ -92,6 +92,35 @@ final class PreviewPanelTests: XCTestCase {
         }
         look.close()
         try await Task.sleep(for: .milliseconds(400))
+    }
+
+    func testMovingOnWhileItOpensLeavesOnlyThePanel() async throws {
+        let window = host()
+        defer { window.close() }
+        let source = NSRect(x: 900, y: 240, width: 170, height: 128)
+        let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600)]
+        let moves: [(PastedImageQuickLook) -> Void] = [
+            { $0.step(1) },
+            {
+                $0.show(
+                    items, startingAt: 2, over: window, isDark: true, sourceFrame: { _ in source },
+                    isImage: { _ in false })
+            },
+        ]
+        for move in moves {
+            let look = PastedImageQuickLook()
+            look.show(
+                items, startingAt: 1, over: window, isDark: true, sourceFrame: { _ in source },
+                isImage: { _ in false })
+            XCTAssertNotNil(look.zoom)
+            move(look)
+            XCTAssertNil(look.zoom)
+            XCTAssertEqual(look.panel.alphaValue, 1)
+            XCTAssertEqual(look.panel.title, "Image 2 (2 of 2)")
+            look.close()
+            for _ in 0..<150 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertNil(look.zoom)
+        }
     }
 
     private func write(_ image: NSImage, name: String) throws {
