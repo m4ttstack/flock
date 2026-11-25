@@ -95,6 +95,8 @@ final class PastedImageQuickLook: NSObject {
         panel.setFrame(target, display: true)
         attach(panel, to: window)
         panel.makeKeyAndOrderFront(nil)
+        // Not the Open button, which would take Space.
+        panel.makeFirstResponder(nil)
         guard grows, let source else { return land() }
         let opened = generation
         animate(from: Self.fit(panel.frame.size, over: source), to: panel.frame) { [weak self] in
@@ -247,6 +249,7 @@ final class PastedImageQuickLook: NSObject {
         preview.autoresizingMask = [.width, .height]
         preview.previewItem = items[index].url as NSURL
         content.addSubview(preview)
+        panel.makeFirstResponder(preview)
         image.isHidden = true
         self.preview = preview
     }
@@ -369,6 +372,7 @@ final class PastedImageQuickLook: NSObject {
             MainActor.assumeIsolated {
                 guard let self, event.window === self.window else { return }
                 guard self.isImage(event.locationInWindow) else { return self.close() }
+                guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control) else { return }
                 // The click makes its own window key, and the keyboard is
                 // the panel's while it is open.
                 DispatchQueue.main.async {
