@@ -756,6 +756,10 @@ final class GhosttySession {
                 guard let view = self?.view else { return nil }
                 let local = view.convert(point, from: nil)
                 return CGPoint(x: local.x, y: view.bounds.height - local.y)
+            },
+            hasFocus: { [weak self] in
+                guard let view = self?.view else { return false }
+                return view.window?.firstResponder === view
             }
         )
     }

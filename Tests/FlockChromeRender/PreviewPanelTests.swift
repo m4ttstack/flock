@@ -204,6 +204,121 @@ final class PreviewPanelTests: XCTestCase {
         XCTAssertEqual(window.childWindows ?? [], [])
     }
 
+    private func open(
+        _ look: PastedImageQuickLook, _ items: [PastedImageQuickLook.Item], over window: NSWindow,
+        hasFocus: @escaping () -> Bool = { false }
+    ) {
+        look.show(
+            items, startingAt: items[0].number, over: window, isDark: true,
+            sourceFrame: { _ in NSRect(x: 900, y: 240, width: 170, height: 128) }, isImage: { _ in false },
+            hasFocus: hasFocus)
+    }
+
+    func testAPanelThatHasBeenResizedOrMovedStaysPut() throws {
+        let window = host()
+        defer { window.close() }
+        let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600), try item(3, width: 420, height: 300)]
+        let look = panel(reduceMotion: true)
+        open(look, items, over: window)
+        look.panel.setFrame(NSRect(x: 300, y: 150, width: 640, height: 420), display: true)
+        let resized = look.panel.frame
+        look.step(1)
+        XCTAssertEqual(look.panel.frame, resized)
+        look.step(1)
+        XCTAssertEqual(look.panel.frame, resized)
+        look.close()
+
+        open(look, items, over: window)
+        XCTAssertNotEqual(look.panel.frame, resized, "a panel opens in its place again")
+        look.panel.setFrameOrigin(NSPoint(x: 260, y: 140))
+        let middle = CGPoint(x: look.panel.frame.midX, y: look.panel.frame.midY)
+        for _ in 0..<2 {
+            look.step(1)
+            XCTAssertEqual(look.panel.frame.midX, middle.x, accuracy: 2)
+            XCTAssertEqual(look.panel.frame.midY, middle.y, accuracy: 2)
+        }
+        look.close()
+    }
+
+    func testAnEnlargedPanelEnlargesItsPicture() throws {
+        let window = host()
+        defer { window.close() }
+        let look = panel(reduceMotion: true)
+        open(look, [try item(1, width: 400, height: 300)], over: window)
+        let before = look.image.frame
+        XCTAssertEqual(before.size, NSSize(width: 400, height: 300))
+        var frame = look.panel.frame
+        frame.size.width += 200
+        frame.size.height += 150
+        look.panel.setFrame(frame, display: true)
+        XCTAssertEqual(look.image.frame.width, 600, accuracy: 1)
+        XCTAssertEqual(look.image.frame.height, 450, accuracy: 1)
+        look.close()
+    }
+
+    func testAnAnimatedImagePlays() async throws {
+        let window = host()
+        defer { window.close() }
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("flock-preview-\(UUID().uuidString).gif")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let file = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, "com.compuserve.gif" as CFString, 2, nil))
+        CGImageDestinationSetProperties(
+            file, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        for red in [1.0, 0.0] {
+            let context = try XCTUnwrap(CGContext(
+                data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(srgbRed: red, green: 0, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+            CGImageDestinationAddImage(
+                file, try XCTUnwrap(context.makeImage()),
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(file))
+        let item = PastedImageQuickLook.Item(number: 1, title: "Image 1", url: url, thumbnail: NSImage(size: NSSize(width: 40, height: 30)))
+
+        func reds(_ look: PastedImageQuickLook) async throws -> Set<Bool> {
+            var seen: Set<Bool> = []
+            for _ in 0..<100 where seen.count < 2 {
+                if let image = look.image.image?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    let color = NSBitmapImageRep(cgImage: image).colorAt(x: 20, y: 15)?.usingColorSpace(.sRGB)
+                    if let color { seen.insert(color.redComponent > 0.5) }
+                }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            return seen
+        }
+        let look = panel()
+        open(look, [item], over: window)
+        let moving = try await reds(look)
+        XCTAssertEqual(moving, [true, false])
+        look.close()
+        for _ in 0..<500 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertNil(look.image.image, "still playing")
+
+        let still = panel(reduceMotion: true)
+        open(still, [item], over: window)
+        let shown = try await reds(still)
+        XCTAssertEqual(shown, [true])
+        still.close()
+    }
+
+    func testThePanelGoesWhenAnotherPaneTakesTheKeyboard() async throws {
+        let window = host()
+        defer { window.close() }
+        for hasFocus in [true, false] {
+            let look = panel(reduceMotion: true)
+            open(look, [try item(1, width: 400, height: 300)], over: window, hasFocus: { hasFocus })
+            // A test run is never the active app, so nothing in it is key.
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+            for _ in 0..<20 { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertEqual(look.isOpen, hasFocus)
+            look.close()
+        }
+    }
+
     private func write(_ image: NSImage, name: String) throws {
         guard let folder = ProcessInfo.processInfo.environment["FLOCK_CHROME_RENDER_DIR"], !folder.isEmpty else { return }
         let rep = try XCTUnwrap(image.representations.first as? NSBitmapImageRep)

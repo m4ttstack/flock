@@ -103,6 +103,25 @@ private struct PastedImageDropTarget: View {
     }
 }
 
+private extension Color {
+    init(_ ground: PastedImagesModel.Ground) {
+        self.init(
+            .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
+            blue: Double(ground.blue) / 255)
+    }
+}
+
+private extension Theme {
+    /// The card colors that stand out from the row, which can be dark in a
+    /// light theme.
+    func chipColors(on ground: PastedImagesModel.Ground?) -> Card.Colors {
+        guard let ground else { return confirmCardColors }
+        let row = RGB(Int(ground.red), Int(ground.green), Int(ground.blue))
+        return row.contrastRatio(with: Card.Colors.light.ground) > row.contrastRatio(with: Card.Colors.dark.ground)
+            ? .light : .dark
+    }
+}
+
 /// `[Image #N]` in the same cells: the text in the terminal's own font, a
 /// step smaller, so the cells it frees pad the ends.
 private struct PastedImageChip: View {
@@ -123,14 +142,14 @@ private struct PastedImageChip: View {
                 .clipped()
             Text("Image \(label.number)")
                 .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * M.chipTextScale))
-                .foregroundStyle(Color(theme.confirmCardColors.title))
+                .foregroundStyle(Color(colors.title))
                 .fixedSize()
                 .frame(maxWidth: .infinity)
         }
         // Short of its last cell, since text can follow with no space.
         .frame(width: label.rect.width - cell * M.chipMarginCells, height: height)
         .background {
-            Color(theme.confirmCardColors.ground)
+            Color(colors.ground)
             theme.accent.opacity(isLit ? M.chipLitOpacity : 0)
         }
         .clipShape(RoundedRectangle(cornerRadius: M.chipCornerRadius))
@@ -139,12 +158,9 @@ private struct PastedImageChip: View {
         .background(ground)
     }
 
-    private var ground: Color {
-        guard let ground = label.ground else { return theme.terminalGround }
-        return Color(
-            .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
-            blue: Double(ground.blue) / 255)
-    }
+    private var colors: Card.Colors { theme.chipColors(on: label.ground) }
+
+    private var ground: Color { label.ground.map(Color.init) ?? theme.terminalGround }
 }
 
 /// A dropped file over its label: its icon and name, and the row's own color
@@ -181,26 +197,23 @@ private struct MentionedFileChip: View {
                 .frame(width: height - M.fileIconInset, height: height - M.fileIconInset)
             Text(file.name)
                 .font(.custom(TerminalFont.face, fixedSize: fontSizePoints * M.chipTextScale))
-                .foregroundStyle(Color(theme.confirmCardColors.title))
+                .foregroundStyle(Color(colors.title))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .padding(.horizontal, M.fileChipPadding)
         .frame(width: max(0, file.chip.width), height: height, alignment: .leading)
         .background {
-            Color(theme.confirmCardColors.ground)
+            Color(colors.ground)
             theme.accent.opacity(isLit ? M.chipLitOpacity : 0)
         }
         .clipShape(RoundedRectangle(cornerRadius: M.chipCornerRadius))
         .frame(height: file.chip.height)
     }
 
-    private var ground: Color {
-        guard let ground = file.ground else { return theme.terminalGround }
-        return Color(
-            .displayP3, red: Double(ground.red) / 255, green: Double(ground.green) / 255,
-            blue: Double(ground.blue) / 255)
-    }
+    private var colors: Card.Colors { theme.chipColors(on: file.ground) }
+
+    private var ground: Color { file.ground.map(Color.init) ?? theme.terminalGround }
 }
 
 /// The images in the prompt: a strip that grows leftward until

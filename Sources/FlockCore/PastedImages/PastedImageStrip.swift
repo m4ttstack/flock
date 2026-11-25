@@ -89,6 +89,41 @@ public enum QuickLookPlacement {
             width: size.width, height: size.height
         ).integral
     }
+
+    /// For a panel that has been moved: where it is, kept on the screen.
+    public static func frame(size: CGSize, centeredOn frame: CGRect, visibleScreen: CGRect) -> CGRect {
+        let screen = visibleScreen.insetBy(dx: edgeMargin, dy: edgeMargin)
+        let size = CGSize(width: min(size.width, screen.width), height: min(size.height, screen.height))
+        return CGRect(
+            x: min(max(frame.midX - size.width / 2, screen.minX), screen.maxX - size.width),
+            y: min(max(frame.midY - size.height / 2, screen.minY), screen.maxY - size.height),
+            width: size.width, height: size.height
+        ).integral
+    }
+
+    /// An image in the panel's content: never past its own size in the one it
+    /// was `placed` in, and larger by as much as that has been enlarged.
+    public static func image(_ image: CGSize, in content: CGSize, placedIn placed: CGSize) -> CGRect {
+        func fit(_ size: CGSize) -> CGFloat {
+            min(size.width / max(1, image.width), size.height / max(1, image.height))
+        }
+        let enlarged = max(1, min(content.width / max(1, placed.width), content.height / max(1, placed.height)))
+        let scale = min(fit(content), min(1, fit(placed)) * enlarged)
+        let size = CGSize(width: image.width * scale, height: image.height * scale)
+        return CGRect(
+            x: (content.width - size.width) / 2, y: (content.height - size.height) / 2,
+            width: size.width, height: size.height)
+    }
+}
+
+/// What an event is to a key whose press has been acted on: the rest of that
+/// press, and whether the press ends with it.
+public enum HeldKey {
+    public static func read(_ key: UInt16, isDown: Bool, isRepeat: Bool, of eventKey: UInt16) -> (rest: Bool, ends: Bool) {
+        guard eventKey == key else { return (false, false) }
+        if isDown { return isRepeat ? (true, false) : (false, true) }
+        return (true, true)
+    }
 }
 
 /// What a drop held over a pane says it would do.
