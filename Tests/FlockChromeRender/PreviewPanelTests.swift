@@ -161,7 +161,8 @@ final class PreviewPanelTests: XCTestCase {
 
     func testAPhotoTakenSidewaysIsShownUpright() throws {
         let plain = try item(1, width: 70, height: 50)
-        XCTAssertEqual(PastedImageQuickLook.fullImage(at: plain.url)?.width, 70)
+        XCTAssertEqual(PastedImageQuickLook.decode(plain.url, pixels: 200)?.width, 70)
+        XCTAssertEqual(PastedImageQuickLook.decode(plain.url, pixels: 35)?.width, 35)
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(plain.url as CFURL, nil))
         let pixels = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("flock-preview-\(UUID().uuidString).jpg")
@@ -169,8 +170,38 @@ final class PreviewPanelTests: XCTestCase {
         let file = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil))
         CGImageDestinationAddImage(file, pixels, [kCGImagePropertyOrientation: 6] as CFDictionary)
         XCTAssertTrue(CGImageDestinationFinalize(file))
-        let shown = try XCTUnwrap(PastedImageQuickLook.fullImage(at: url))
+        let shown = try XCTUnwrap(PastedImageQuickLook.decode(url, pixels: 200))
         XCTAssertEqual([shown.width, shown.height], [50, 70])
+    }
+
+    func testNothingInTheWindowComesForwardOverIt() throws {
+        let window = host()
+        defer { window.close() }
+        let look = panel()
+        look.show(
+            [try item(1, width: 700, height: 500)], startingAt: 1, over: window, isDark: true,
+            sourceFrame: { _ in NSRect(x: 900, y: 240, width: 170, height: 128) }, isImage: { _ in false })
+        XCTAssertTrue(look.panel.parent === window)
+        XCTAssertTrue(look.zoom?.parent === window)
+        window.makeKeyAndOrderFront(nil)
+        let order = try XCTUnwrap(NSWindow.windowNumbers(options: [])).map(\.intValue)
+        let above = try XCTUnwrap(order.firstIndex(of: look.panel.windowNumber))
+        XCTAssertLessThan(above, try XCTUnwrap(order.firstIndex(of: window.windowNumber)))
+    }
+
+    func testClosingLetsGoOfThePicture() async throws {
+        let window = host()
+        defer { window.close() }
+        let look = panel()
+        look.show(
+            [try item(1, width: 700, height: 500)], startingAt: 1, over: window, isDark: true,
+            sourceFrame: { _ in NSRect(x: 900, y: 240, width: 170, height: 128) }, isImage: { _ in false })
+        XCTAssertNotNil(look.image.image)
+        look.close()
+        for _ in 0..<500 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNil(look.image.image)
+        XCTAssertNil(look.panel.parent)
+        XCTAssertEqual(window.childWindows ?? [], [])
     }
 
     private func write(_ image: NSImage, name: String) throws {

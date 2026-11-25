@@ -41,23 +41,24 @@ final class PastedImageQuickLook: NSObject {
     private weak var window: NSWindow?
     private var clickOut: Any?
     private var windowClosing: Any?
-    /// Counts opens and closes, so an animation that has been overtaken ends
+    /// Counts opens, steps and closes, so an animation that has been overtaken ends
     /// nothing.
     private var generation = 0
     private(set) var zoom: NSWindow?
 
     private(set) lazy var panel = makePanel()
-    private let image = NSImageView()
+    let image = NSImageView()
     private let openButton = NSButton(title: "", target: nil, action: nil)
     private let openHolder = NSView()
     private var preview: QLPreviewView?
+    private var loading: Task<Void, Never>?
 
     private(set) var isOpen = false
 
     var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     /// `sourceFrame` is where an image is drawn on screen, which the panel
-    /// grows from and shrinks back to; nil fades it instead. `isImage` is
+    /// grows from and shrinks back to, if it is drawn. `isImage` is
     /// whether a point in `window` is on something that shows an image.
     func show(
         _ shown: [Item], startingAt number: Int, over window: NSWindow?, isDark: Bool,
@@ -68,36 +69,34 @@ final class PastedImageQuickLook: NSObject {
             NSSound.beep()
             return
         }
-        if isOpen, self.window === window, items.indices.contains(index), items[index].url == present[start].url,
-           items[index].number == number {
-            panel.makeKeyAndOrderFront(nil)
-            return
-        }
-        let wasOpen = isOpen && self.window === window
+        let same = isOpen && self.window === window && items.indices.contains(index)
+            && items[index].url == present[start].url && items[index].number == number
+        let grows = !(isOpen && self.window === window && panel.isVisible) && !reduceMotion()
         items = present
         index = start
         self.sourceFrame = sourceFrame
         self.isImage = isImage
+        if same {
+            retitle()
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
         self.window = window
-        anchor = sourceFrame(number) ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
+        let source = sourceFrame(number)
+        anchor = source ?? NSRect(x: window.frame.midX, y: window.frame.midY, width: 0, height: 0)
         isOpen = true
         generation += 1
         panel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         watch(window)
         fill()
-        panel.setFrame(target, display: true)
-        guard !(wasOpen && panel.isVisible), let source = sourceFrame(number),
-              !reduceMotion()
-        else {
-            panel.makeKeyAndOrderFront(nil)
-            land()
-            return
-        }
-        let opened = generation
         // In place, drawn and key before it is seen: what grows is a picture
         // of it, title bar and all, and it takes over where that ends.
-        panel.alphaValue = 0
+        if grows, source != nil { panel.alphaValue = 0 }
+        panel.setFrame(target, display: true)
+        attach(panel, to: window)
         panel.makeKeyAndOrderFront(nil)
+        guard grows, let source else { return land() }
+        let opened = generation
         animate(from: Self.fit(panel.frame.size, over: source), to: panel.frame) { [weak self] in
             guard let self, generation == opened else { return }
             land()
@@ -111,7 +110,9 @@ final class PastedImageQuickLook: NSObject {
         loadPreview()
     }
 
-    func close() {
+    func close() { close(animated: true) }
+
+    private func close(animated: Bool) {
         guard isOpen else { return }
         isOpen = false
         generation += 1
@@ -119,19 +120,40 @@ final class PastedImageQuickLook: NSObject {
         unwatch()
         // Drawn out of process, so a picture of it can come out blank.
         unloadPreview()
-        guard let back, !reduceMotion() else {
-            panel.orderOut(nil)
-            endZoom()
-            window?.makeKey()
-            return
-        }
         let closed = generation
-        animate(from: zoom?.frame ?? panel.frame, to: Self.fit(panel.frame.size, over: back)) { [weak self] in
-            guard let self, generation == closed else { return }
+        if animated, let back, !reduceMotion() {
+            animate(from: zoom?.frame ?? panel.frame, to: Self.fit(panel.frame.size, over: back)) { [weak self] in
+                guard let self, generation == closed else { return }
+                endZoom()
+            }
+        } else {
             endZoom()
         }
+        detach(panel)
         panel.orderOut(nil)
-        window?.makeKey()
+        release()
+        if animated { window?.makeKey() }
+    }
+
+    /// The panel lasts as long as the app, and a picture at full size is large.
+    private func release() {
+        loading?.cancel()
+        image.image = nil
+        items = []
+        sourceFrame = { _ in nil }
+        isImage = { _ in false }
+    }
+
+    /// Above the window whatever comes forward in it, and with it across
+    /// Spaces and into full screen.
+    private func attach(_ child: NSWindow, to window: NSWindow) {
+        guard child.parent !== window else { return }
+        detach(child)
+        window.addChildWindow(child, ordered: .above)
+    }
+
+    private func detach(_ child: NSWindow) {
+        child.parent?.removeChildWindow(child)
     }
 
     func step(_ by: Int) {
@@ -162,7 +184,7 @@ final class PastedImageQuickLook: NSObject {
 
     private func fill() {
         let item = items[index]
-        panel.title = items.count == 1 ? item.title : "\(item.title) (\(index + 1) of \(items.count))"
+        retitle()
         unloadPreview()
         image.image = item.thumbnail
         if item.isImage { loadFullImage(item) }
@@ -179,32 +201,35 @@ final class PastedImageQuickLook: NSObject {
         openButton.setFrameOrigin(NSPoint(x: 0, y: ((height - openButton.frame.height) / 2).rounded()))
     }
 
+    private func retitle() {
+        let title = items[index].title
+        panel.title = items.count == 1 ? title : "\(title) (\(index + 1) of \(items.count))"
+    }
+
     /// The thumbnail is capped, and reads soft in a large panel.
     private func loadFullImage(_ item: Item) {
         let url = item.url
-        Task { [weak self] in
+        let points = max(item.thumbnail.size.width, item.thumbnail.size.height)
+        let pixels = Int((points * (window?.backingScaleFactor ?? 2)).rounded(.up))
+        loading?.cancel()
+        loading = Task { [weak self] in
             let full = await Task.detached(priority: .userInitiated) { () -> Decoded? in
-                Self.fullImage(at: url).map { Decoded(image: $0) }
+                Self.decode(url, pixels: pixels).map { Decoded(image: $0) }
             }.value
-            guard let self, let full, items.indices.contains(index), items[index].url == url else { return }
+            guard let self, let full, !Task.isCancelled, items.indices.contains(index), items[index].url == url else { return }
             // The thumbnail's size in points, so nothing moves.
             image.image = NSImage(cgImage: full.image, size: item.thumbnail.size)
         }
     }
 
-    /// The right way up, as the thumbnail is: a plain decode leaves out the
-    /// turn a camera records beside the pixels.
-    nonisolated static func fullImage(at url: URL) -> CGImage? {
+    /// No larger than it is drawn, so that drawing it does no decoding of its
+    /// own, and the right way up.
+    nonisolated static func decode(_ url: URL, pixels: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
-        guard let turn = properties[kCGImagePropertyOrientation] as? Int, turn != 1,
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
-        else { return CGImageSourceCreateImageAtIndex(source, 0, nil) }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+            kCGImageSourceThumbnailMaxPixelSize: pixels,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
@@ -222,6 +247,7 @@ final class PastedImageQuickLook: NSObject {
         preview.autoresizingMask = [.width, .height]
         preview.previewItem = items[index].url as NSURL
         content.addSubview(preview)
+        image.isHidden = true
         self.preview = preview
     }
 
@@ -229,6 +255,7 @@ final class PastedImageQuickLook: NSObject {
         preview?.close()
         preview?.removeFromSuperview()
         preview = nil
+        image.isHidden = false
     }
 
     /// The panel's shape, shrunk to sit on `source`.
@@ -263,7 +290,11 @@ final class PastedImageQuickLook: NSObject {
         panel.animationBehavior = .none
         panel.delegate = self
         panel.onClose = { [weak self] in self?.close() }
-        panel.onStep = { [weak self] in self?.step($0) }
+        panel.onStep = { [weak self] by in
+            guard let self, items.count > 1 else { return false }
+            step(by)
+            return true
+        }
 
         image.imageScaling = .scaleProportionallyDown
         let content = NSView(frame: panel.contentLayoutRect)
@@ -307,6 +338,7 @@ final class PastedImageQuickLook: NSObject {
         view.layer?.masksToBounds = true
         zoom.contentView = view
         zoom.setFrame(from, display: true)
+        if let window { attach(zoom, to: window) }
         zoom.orderFront(nil)
         self.zoom = zoom
         NSAnimationContext.runAnimationGroup { context in
@@ -322,6 +354,7 @@ final class PastedImageQuickLook: NSObject {
     }
 
     private func endZoom() {
+        if let zoom { detach(zoom) }
         zoom?.orderOut(nil)
         zoom = nil
     }
@@ -334,15 +367,20 @@ final class PastedImageQuickLook: NSObject {
         unwatch()
         clickOut = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self, event.window === self.window, !self.isImage(event.locationInWindow) else { return }
-                self.close()
+                guard let self, event.window === self.window else { return }
+                guard self.isImage(event.locationInWindow) else { return self.close() }
+                // The click makes its own window key, and the keyboard is
+                // the panel's while it is open.
+                DispatchQueue.main.async {
+                    if self.isOpen, self.window === event.window { self.panel.makeKey() }
+                }
             }
             return event
         }
         windowClosing = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.close() }
+            MainActor.assumeIsolated { self?.close(animated: false) }
         }
     }
 
@@ -355,7 +393,8 @@ final class PastedImageQuickLook: NSObject {
 
     final class Panel: NSPanel {
         var onClose: () -> Void = {}
-        var onStep: (Int) -> Void = { _ in }
+        /// Whether there was anything to step through.
+        var onStep: (Int) -> Bool = { _ in false }
 
         override var canBecomeKey: Bool { true }
 
@@ -366,9 +405,10 @@ final class PastedImageQuickLook: NSObject {
                 return super.sendEvent(event)
             }
             switch event.keyCode {
+            case 49 where firstResponder is NSButton: super.sendEvent(event)
             case 53, 49: onClose()
-            case 123, 126: onStep(-1)
-            case 124, 125: onStep(1)
+            case 123, 126: if !onStep(-1) { super.sendEvent(event) }
+            case 124, 125: if !onStep(1) { super.sendEvent(event) }
             default: super.sendEvent(event)
             }
         }
