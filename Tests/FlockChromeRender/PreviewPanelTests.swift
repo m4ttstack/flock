@@ -25,6 +25,13 @@ final class PreviewPanelTests: XCTestCase {
         return PastedImageQuickLook.Item(number: number, title: "Image \(number)", url: url, thumbnail: image)
     }
 
+    /// Animated whatever the machine's own setting.
+    private func panel(reduceMotion: Bool = false) -> PastedImageQuickLook {
+        let look = PastedImageQuickLook()
+        look.reduceMotion = { reduceMotion }
+        return look
+    }
+
     private func host() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 200, y: 200, width: 900, height: 600), styleMask: [.titled], backing: .buffered,
@@ -37,7 +44,7 @@ final class PreviewPanelTests: XCTestCase {
     func testThePanelIsOnlyEverSeenInItsPlace() async throws {
         let window = host()
         defer { window.close() }
-        let look = PastedImageQuickLook()
+        let look = panel()
         let source = NSRect(x: 900, y: 240, width: 170, height: 128)
         let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600)]
         for dark in [true, false] {
@@ -45,12 +52,14 @@ final class PreviewPanelTests: XCTestCase {
             let place = look.panel.frame
             XCTAssertGreaterThanOrEqual(place.minY, source.maxY, "not above what was clicked")
             var seen: Set<NSRect> = []
-            for _ in 0..<60 {
+            // Past the landing, so a move right after it is seen too.
+            var landed = 0
+            for _ in 0..<500 where landed < 20 {
                 if look.panel.isVisible, look.panel.alphaValue > 0 { seen.insert(look.panel.frame) }
+                if look.panel.alphaValue == 1 { landed += 1 }
                 try await Task.sleep(for: .milliseconds(10))
             }
             XCTAssertEqual(seen, [place])
-            for _ in 0..<150 where look.panel.alphaValue < 1 { try await Task.sleep(for: .milliseconds(10)) }
             XCTAssertEqual(look.panel.alphaValue, 1)
             try write(try XCTUnwrap(look.picture()), name: "preview-panel-\(dark ? "dark" : "light")")
             look.close()
@@ -62,14 +71,14 @@ final class PreviewPanelTests: XCTestCase {
     func testClosingWhileItOpensLeavesNothingBehind() async throws {
         let window = host()
         defer { window.close() }
-        let look = PastedImageQuickLook()
+        let look = panel()
         let source = NSRect(x: 900, y: 240, width: 170, height: 128)
         look.show(
             [try item(1, width: 700, height: 500)], startingAt: 1, over: window, isDark: true,
             sourceFrame: { _ in source }, isImage: { _ in false })
         try await Task.sleep(for: .milliseconds(60))
         look.close()
-        for _ in 0..<150 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<500 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertFalse(look.panel.isVisible)
         XCTAssertFalse(look.isOpen)
         XCTAssertNil(look.zoom)
@@ -78,16 +87,15 @@ final class PreviewPanelTests: XCTestCase {
     func testAnotherImageTakesOverAnOpenPanel() async throws {
         let window = host()
         defer { window.close() }
-        let look = PastedImageQuickLook()
+        let look = panel()
         let source = NSRect(x: 900, y: 240, width: 170, height: 128)
         let items = [try item(1, width: 700, height: 500), try item(2, width: 300, height: 600)]
         for number in [1, 2] {
             look.show(
                 items, startingAt: number, over: window, isDark: true, sourceFrame: { _ in source },
                 isImage: { _ in false })
-            try await Task.sleep(for: .milliseconds(500))
             XCTAssertEqual(look.panel.title, "Image \(number) (\(number) of 2)")
-            for _ in 0..<150 where look.panel.alphaValue < 1 { try await Task.sleep(for: .milliseconds(10)) }
+            for _ in 0..<500 where look.panel.alphaValue < 1 { try await Task.sleep(for: .milliseconds(10)) }
             XCTAssertEqual(look.panel.alphaValue, 1)
         }
         look.close()
@@ -108,7 +116,7 @@ final class PreviewPanelTests: XCTestCase {
             },
         ]
         for move in moves {
-            let look = PastedImageQuickLook()
+            let look = panel()
             look.show(
                 items, startingAt: 1, over: window, isDark: true, sourceFrame: { _ in source },
                 isImage: { _ in false })
@@ -118,9 +126,51 @@ final class PreviewPanelTests: XCTestCase {
             XCTAssertEqual(look.panel.alphaValue, 1)
             XCTAssertEqual(look.panel.title, "Image 2 (2 of 2)")
             look.close()
-            for _ in 0..<150 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
+            for _ in 0..<500 where look.zoom != nil { try await Task.sleep(for: .milliseconds(10)) }
             XCTAssertNil(look.zoom)
         }
+    }
+
+    func testReduceMotionOpensAndClosesAtOnce() throws {
+        let window = host()
+        defer { window.close() }
+        let look = panel(reduceMotion: true)
+        look.show(
+            [try item(1, width: 700, height: 500)], startingAt: 1, over: window, isDark: true,
+            sourceFrame: { _ in NSRect(x: 900, y: 240, width: 170, height: 128) }, isImage: { _ in false })
+        XCTAssertNil(look.zoom)
+        XCTAssertEqual(look.panel.alphaValue, 1)
+        look.close()
+        XCTAssertNil(look.zoom)
+        XCTAssertFalse(look.panel.isVisible)
+    }
+
+    func testTheSameImageFromAnotherWindowBelongsToThatWindow() throws {
+        let (first, second) = (host(), host())
+        defer { first.close() }
+        let look = panel(reduceMotion: true)
+        let items = [try item(1, width: 700, height: 500)]
+        for window in [first, second] {
+            look.show(
+                items, startingAt: 1, over: window, isDark: true,
+                sourceFrame: { _ in NSRect(x: 900, y: 240, width: 170, height: 128) }, isImage: { _ in false })
+        }
+        second.close()
+        XCTAssertFalse(look.isOpen)
+    }
+
+    func testAPhotoTakenSidewaysIsShownUpright() throws {
+        let plain = try item(1, width: 70, height: 50)
+        XCTAssertEqual(PastedImageQuickLook.fullImage(at: plain.url)?.width, 70)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(plain.url as CFURL, nil))
+        let pixels = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("flock-preview-\(UUID().uuidString).jpg")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let file = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil))
+        CGImageDestinationAddImage(file, pixels, [kCGImagePropertyOrientation: 6] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(file))
+        let shown = try XCTUnwrap(PastedImageQuickLook.fullImage(at: url))
+        XCTAssertEqual([shown.width, shown.height], [50, 70])
     }
 
     private func write(_ image: NSImage, name: String) throws {

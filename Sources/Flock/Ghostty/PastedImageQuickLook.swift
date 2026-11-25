@@ -54,6 +54,8 @@ final class PastedImageQuickLook: NSObject {
 
     private(set) var isOpen = false
 
+    var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
     /// `sourceFrame` is where an image is drawn on screen, which the panel
     /// grows from and shrinks back to; nil fades it instead. `isImage` is
     /// whether a point in `window` is on something that shows an image.
@@ -66,7 +68,7 @@ final class PastedImageQuickLook: NSObject {
             NSSound.beep()
             return
         }
-        if isOpen, items.indices.contains(index), items[index].url == present[start].url,
+        if isOpen, self.window === window, items.indices.contains(index), items[index].url == present[start].url,
            items[index].number == number {
             panel.makeKeyAndOrderFront(nil)
             return
@@ -85,7 +87,7 @@ final class PastedImageQuickLook: NSObject {
         fill()
         panel.setFrame(target, display: true)
         guard !(wasOpen && panel.isVisible), let source = sourceFrame(number),
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+              !reduceMotion()
         else {
             panel.makeKeyAndOrderFront(nil)
             land()
@@ -117,7 +119,7 @@ final class PastedImageQuickLook: NSObject {
         unwatch()
         // Drawn out of process, so a picture of it can come out blank.
         unloadPreview()
-        guard let back, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard let back, !reduceMotion() else {
             panel.orderOut(nil)
             endZoom()
             window?.makeKey()
@@ -182,15 +184,29 @@ final class PastedImageQuickLook: NSObject {
         let url = item.url
         Task { [weak self] in
             let full = await Task.detached(priority: .userInitiated) { () -> Decoded? in
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-                else { return nil }
-                return Decoded(image: image)
+                Self.fullImage(at: url).map { Decoded(image: $0) }
             }.value
             guard let self, let full, items.indices.contains(index), items[index].url == url else { return }
             // The thumbnail's size in points, so nothing moves.
             image.image = NSImage(cgImage: full.image, size: item.thumbnail.size)
         }
+    }
+
+    /// The right way up, as the thumbnail is: a plain decode leaves out the
+    /// turn a camera records beside the pixels.
+    nonisolated static func fullImage(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        guard let turn = properties[kCGImagePropertyOrientation] as? Int, turn != 1,
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return CGImageSourceCreateImageAtIndex(source, 0, nil) }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     /// Sendable because a decoded CGImage is immutable.
