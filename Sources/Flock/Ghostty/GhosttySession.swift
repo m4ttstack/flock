@@ -745,6 +745,7 @@ final class GhosttySession {
                 return (view.layer?.contents as AnyObject?).map(ObjectIdentifier.init)
             },
             window: { [weak self] in self?.view?.window },
+            isDark: { [weak self] in self?.colorScheme == GHOSTTY_COLOR_SCHEME_DARK },
             toScreen: { [weak self] rect in
                 guard let view = self?.view, let window = view.window else { return nil }
                 let flipped = NSRect(

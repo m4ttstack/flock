@@ -305,6 +305,10 @@ enum ChromeMetrics {
         /// What the preview takes beside and above its image.
         static let previewReserve = CGSize(width: 32, height: 72)
 
+        static let zoomDuration: Double = 0.26
+        static let zoomCornerRadius: CGFloat = ChromeRadius.container
+        static let previewTitlebarInset: CGFloat = 8
+
         static let dropDim: Double = 0.62
         static let dropGap: CGFloat = 10
         static let dropPadding = CGSize(width: 20, height: 14)
